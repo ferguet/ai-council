@@ -1,9 +1,12 @@
 """
 Proveedor para GLM / Zhipu AI (Z.ai). API compatible con el formato OpenAI.
-Tiene nivel gratuito (modelos "Flash", con limite diario de peticiones),
-pide verificacion por telefono al crear la cuenta.
+Tiene nivel gratuito (modelos "Flash", con limite diario de peticiones).
 
-Doc: https://docs.z.ai/  (dominio China: open.bigmodel.cn)
+Usa la plataforma internacional z.ai (registro con email en z.ai/chat, sin
+telefono chino), no open.bigmodel.cn (esa es la plataforma China, pide
+numero de telefono chino para registrarse).
+
+Doc: https://docs.z.ai/
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ import httpx
 
 from app.providers.base import AIProvider, ChatMessage, ProviderError
 
-_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+_URL = "https://api.z.ai/api/paas/v4/chat/completions"
 
 
 class GLMProvider(AIProvider):
