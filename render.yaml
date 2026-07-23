@@ -11,6 +11,12 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      # Fija la version de Python: sin esto Render usa una demasiado nueva
+      # (3.14) para la que pydantic-core todavia no tiene wheel precompilada,
+      # y falla al intentar compilarla desde codigo fuente en el build.
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
       # Claves de proveedores de IA - opcional, sin ellas esos ciudadanos
       # usan texto simulado en vez de llamadas reales.
       - key: GEMINI_API_KEY
