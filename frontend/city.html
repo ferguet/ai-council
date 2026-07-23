@@ -3,332 +3,673 @@
 <head>
 <meta charset="UTF-8" />
 <title>Ciudad Virtual · AI Council</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0d17" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Ciudad IA" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icon-192.png" />
 <style>
   :root {
-    --bg: #0f1117; --panel: #171a23; --border: #262a36; --text: #e7e9ee;
-    --muted: #9aa0ad; --accent: #6c5ce7;
+    --bg0:#0a0b16; --bg1:#12132a; --bg2:#1a1140;
+    --glass: rgba(28,30,54,0.55);
+    --glass-strong: rgba(30,32,60,0.8);
+    --border: rgba(255,255,255,0.10);
+    --border-lit: rgba(255,255,255,0.22);
+    --text:#eef1fb; --muted:#a2a7c4;
+    --a1:#7c5cff; --a2:#20c5ff; --a3:#ff5ca8; --a4:#39e0a6; --a5:#ffcb47;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; }
   body {
-    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-    background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(124,92,255,0.35), transparent 60%),
+      radial-gradient(900px 600px at -10% 20%, rgba(32,197,255,0.22), transparent 55%),
+      radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
+      linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
+    background-attachment: fixed;
+    height: 100dvh; display:flex; flex-direction:column; overflow:hidden;
   }
-  a { color: var(--accent); text-decoration: none; }
+  a { color: var(--a2); text-decoration:none; }
+
+  /* ---------- Top bar ---------- */
   #topbar {
-    padding: 12px 22px; border-bottom: 1px solid var(--border); display: flex;
-    justify-content: space-between; align-items: center; background: var(--panel); flex-shrink: 0;
+    display:flex; align-items:center; gap:12px; padding:12px 16px calc(12px);
+    padding-top: max(12px, env(safe-area-inset-top));
+    backdrop-filter: blur(18px) saturate(140%);
+    background: linear-gradient(180deg, rgba(12,13,28,0.75), rgba(12,13,28,0.25));
+    border-bottom:1px solid var(--border); flex-shrink:0; z-index:20;
   }
-  #topbar h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; }
-  #topbar .clock { font-size: 13px; color: var(--muted); }
-  #topbar .conn { font-size: 12px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); }
-  #topbar .conn.live { color: #00b894; border-color: #00b894; }
-  #topbar .conn.down { color: #ff7675; border-color: #ff7675; }
+  #topbar .logo {
+    width:34px;height:34px;border-radius:11px;flex-shrink:0;
+    background: conic-gradient(from 200deg, var(--a1), var(--a2), var(--a3), var(--a5), var(--a1));
+    display:grid;place-items:center;font-size:18px;
+    box-shadow: 0 6px 20px rgba(124,92,255,0.5);
+  }
+  #topbar .titles { line-height:1.15; }
+  #topbar .titles b { font-size:15px; letter-spacing:.2px; }
+  #topbar .titles span { display:block; font-size:11px; color:var(--muted); }
+  #clock {
+    margin-left:auto; font-size:12px; color:var(--muted); text-align:right; line-height:1.2;
+    display:flex; flex-direction:column; align-items:flex-end;
+  }
+  #clock b { color:var(--text); font-size:13px; font-variant-numeric: tabular-nums; }
+  .conn { font-size:10px; padding:2px 8px; border-radius:20px; border:1px solid var(--border);
+          color:var(--muted); display:inline-flex; align-items:center; gap:5px; }
+  .conn .led { width:7px;height:7px;border-radius:50%; background:var(--muted); }
+  .conn.live { color:var(--a4); border-color:rgba(57,224,166,.5); }
+  .conn.live .led { background:var(--a4); box-shadow:0 0 8px var(--a4); animation:pulse 1.6s infinite; }
+  .conn.down { color:var(--a3); border-color:rgba(255,92,168,.4); }
+  .conn.down .led { background:var(--a3); }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
-  #layout { flex: 1; display: flex; min-height: 0; }
-  #map {
-    flex: 1; padding: 22px; overflow-y: auto;
-    display: grid; grid-template-columns: repeat(3, minmax(200px, 1fr)); gap: 16px;
-    align-content: start;
-  }
-  .building {
-    border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: var(--panel);
-    min-height: 130px; display: flex; flex-direction: column; gap: 8px;
-  }
-  .building .head { display: flex; align-items: center; gap: 8px; }
-  .building .head .icon { font-size: 22px; }
-  .building .head .name { font-weight: 600; font-size: 14px; }
-  .building .desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
-  .building .occupants { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
-  .citizen-chip {
-    display: flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 20px;
-    background: #0f1117; border: 1px solid var(--border); cursor: pointer; font-size: 12px;
-    transition: transform .1s;
-  }
-  .citizen-chip:hover { transform: scale(1.05); }
-  .citizen-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  /* ---------- Views ---------- */
+  #views { flex:1; position:relative; min-height:0; }
+  .view { position:absolute; inset:0; display:none; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .view.active { display:block; }
 
-  #side { width: 360px; min-width: 360px; border-left: 1px solid var(--border); background: var(--panel);
-    display: flex; flex-direction: column; }
-  #eventsPanel { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-  #eventsPanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 4px; }
-  .event-item { font-size: 12.5px; line-height: 1.45; padding: 8px 10px; border-radius: 8px; background: #0f1117; border-left: 3px solid var(--border); }
-  .event-item.pensamiento { border-left-color: var(--accent); font-style: italic; }
-  .event-item.proyecto_iniciado, .event-item.proyecto_avance, .event-item.proyecto_completado { border-left-color: #00b894; }
-  .event-item.relacion { border-left-color: #fdcb6e; }
-  .event-item.conversacion { border-left-color: #0984e3; }
-  .event-item .when { color: var(--muted); font-size: 10.5px; display: block; margin-bottom: 2px; }
+  /* ---------- Isometric city ---------- */
+  #cityView { display:none; }
+  #cityView.active { display:flex; flex-direction:column; }
+  #skyBadge {
+    align-self:center; margin:12px auto 2px; padding:6px 14px; border-radius:30px;
+    background:var(--glass); border:1px solid var(--border); backdrop-filter:blur(12px);
+    font-size:12px; color:var(--muted); display:flex; gap:8px; align-items:center;
+  }
+  #stageWrap { flex:1; display:grid; place-items:center; overflow:hidden; padding:6px 0 14px; }
+  #stageScale { transform-origin: top center; }
+  #stage { position:relative; }
+  .tile {
+    position:absolute; border-radius:8px;
+    background: linear-gradient(135deg, rgba(124,92,255,.16), rgba(32,197,255,.10));
+    border:1px solid rgba(255,255,255,.06);
+    transform: translate(-50%,-50%) rotate(45deg) scaleY(.5);
+    box-shadow: inset 0 0 22px rgba(124,92,255,.10);
+  }
+  .sprite { position:absolute; transform: translate(-50%,-100%); transition: left .9s ease, top .9s ease; }
+  .bld {
+    display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer;
+    filter: drop-shadow(0 10px 12px rgba(0,0,0,.45));
+  }
+  .bld .body {
+    width:64px; min-height:52px; border-radius:14px 14px 10px 10px; padding:8px 6px 6px;
+    background: var(--glass-strong); border:1px solid var(--border-lit);
+    backdrop-filter: blur(10px); display:flex; flex-direction:column; align-items:center; gap:2px;
+    position:relative; transition: transform .15s, box-shadow .15s;
+  }
+  .bld:active .body { transform: translateY(2px) scale(.97); }
+  .bld .emoji { font-size:26px; line-height:1; }
+  .bld .roof {
+    position:absolute; top:-9px; left:50%; transform:translateX(-50%);
+    width:0;height:0;border-left:34px solid transparent;border-right:34px solid transparent;
+    border-bottom:12px solid rgba(124,92,255,.45);
+  }
+  .bld .label { font-size:9.5px; color:var(--muted); text-align:center; max-width:74px; line-height:1.15; }
+  .bld .count {
+    position:absolute; top:-8px; right:-8px; min-width:18px; height:18px; padding:0 4px;
+    border-radius:10px; background:linear-gradient(135deg,var(--a1),var(--a3));
+    font-size:10px; font-weight:700; display:grid; place-items:center; color:#fff;
+    box-shadow:0 3px 8px rgba(0,0,0,.4);
+  }
+  .cit {
+    width:30px;height:30px;border-radius:50%; cursor:pointer;
+    display:grid;place-items:center;font-size:15px; position:relative;
+    border:2px solid #fff2; background:#0b0d17;
+    box-shadow: 0 4px 10px rgba(0,0,0,.5);
+    animation: bob 2.8s ease-in-out infinite;
+  }
+  .cit::after {
+    content:""; position:absolute; bottom:-9px; left:50%; transform:translateX(-50%);
+    width:16px;height:5px;border-radius:50%; background:rgba(0,0,0,.35); filter:blur(1px);
+  }
+  @keyframes bob { 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-4px);} }
+  .cit .z { position:absolute; top:-10px; right:-6px; font-size:11px; opacity:.85; }
 
-  #citizenPanel { display: none; flex-direction: column; border-top: 1px solid var(--border); max-height: 62vh; }
-  #citizenPanel.open { display: flex; }
-  #citizenPanel .head { padding: 16px 16px 8px; display: flex; gap: 10px; align-items: center; }
-  #citizenPanel .head .avatar { font-size: 30px; }
-  #citizenPanel .head .info strong { display: block; font-size: 15px; }
-  #citizenPanel .head .info span { font-size: 12px; color: var(--muted); }
-  #citizenPanel .close { margin-left: auto; background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; }
-  #citizenPanel .body { padding: 0 16px 8px; overflow-y: auto; font-size: 12.5px; }
-  #citizenPanel .status-line { margin: 4px 0 10px; color: var(--muted); }
-  #citizenPanel .project { background: #0f1117; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
-  #citizenPanel .project .bar { height: 5px; border-radius: 4px; background: var(--border); margin-top: 6px; overflow: hidden; }
-  #citizenPanel .project .bar > div { height: 100%; background: var(--accent); }
-  #citizenPanel .memory-item { color: var(--muted); margin-bottom: 6px; }
-  #chatLog { padding: 8px 16px; overflow-y: auto; max-height: 160px; display: flex; flex-direction: column; gap: 6px; }
-  .chat-msg { font-size: 12.5px; padding: 6px 10px; border-radius: 10px; max-width: 90%; }
-  .chat-msg.user { background: var(--accent); color: white; align-self: flex-end; }
-  .chat-msg.citizen { background: #0f1117; border: 1px solid var(--border); align-self: flex-start; }
-  #chatComposer { display: flex; gap: 8px; padding: 10px 16px 16px; }
-  #chatComposer input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: #0f1117; color: var(--text); font-size: 12.5px; }
-  #chatComposer button { padding: 0 14px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; }
-  .empty-hint { color: var(--muted); font-size: 12.5px; padding: 16px; }
+  /* Day/night tint overlay */
+  #dayNight { position:absolute; inset:0; pointer-events:none; transition: background 2s linear; z-index:5; }
+
+  /* ---------- Activity + Thoughts feeds ---------- */
+  .feed { padding:14px 14px calc(14px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; }
+  .feed h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:2px 2px 4px; }
+  .card {
+    background:var(--glass); border:1px solid var(--border); border-radius:14px;
+    padding:11px 13px; backdrop-filter: blur(12px); font-size:13px; line-height:1.5;
+    border-left:3px solid var(--border-lit);
+  }
+  .card .when { display:block; color:var(--muted); font-size:10.5px; margin-bottom:3px; }
+  .card.pensamiento { border-left-color:var(--a1); }
+  .card.llegada { border-left-color:var(--a2); }
+  .card.proyecto_iniciado,.card.proyecto_avance,.card.proyecto_completado { border-left-color:var(--a4); }
+  .card.relacion { border-left-color:var(--a5); }
+  .card.conversacion { border-left-color:var(--a3); }
+  .card.sugerencia { border-left-color:var(--a5); }
+  .idea {
+    display:flex; gap:11px; align-items:flex-start;
+    background: linear-gradient(135deg, rgba(255,203,71,.12), var(--glass));
+    border:1px solid var(--border); border-radius:16px; padding:12px 14px; backdrop-filter:blur(12px);
+  }
+  .idea .av { width:38px;height:38px;border-radius:50%; display:grid;place-items:center; font-size:19px; flex-shrink:0; border:2px solid #fff2; }
+  .idea .tx b { font-size:12.5px; }
+  .idea .tx .q { font-size:13.5px; line-height:1.5; margin-top:2px; }
+  .idea .tx .w { font-size:10.5px; color:var(--muted); margin-top:4px; }
+
+  /* mood marker badge on citizen token */
+  .cit .mood { position:absolute; top:-9px; left:-7px; font-size:12px; filter:drop-shadow(0 1px 2px #000a); }
+
+  /* mood bars + resumen inside sheet */
+  .resumen { background: linear-gradient(135deg, rgba(124,92,255,.14), var(--glass));
+    border:1px solid var(--border-lit); border-radius:14px; padding:12px 14px; margin-bottom:14px; }
+  .resumen .r-mood { font-size:14px; font-weight:600; margin-bottom:8px; }
+  .resumen .r-line { font-size:12.5px; color:#cfd3ea; line-height:1.5; margin:3px 0; }
+  .resumen .r-line b { color:var(--text); }
+  .moodbars { display:flex; flex-direction:column; gap:7px; margin-top:10px; }
+  .moodbar { display:flex; align-items:center; gap:8px; font-size:11.5px; }
+  .moodbar .lab { width:64px; color:var(--muted); flex-shrink:0; }
+  .moodbar .track { flex:1; height:8px; border-radius:5px; background:#ffffff14; overflow:hidden; }
+  .moodbar .track>div { height:100%; border-radius:5px; transition:width .6s; }
+  .moodbar.joy .track>div { background:linear-gradient(90deg,#39e0a6,#ffcb47); }
+  .moodbar.anger .track>div { background:linear-gradient(90deg,#ff9f45,#ff5ca8); }
+  .moodbar .val { width:30px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .thought {
+    display:flex; gap:11px; align-items:flex-start;
+    background:var(--glass); border:1px solid var(--border); border-radius:16px;
+    padding:12px 14px; backdrop-filter:blur(12px);
+  }
+  .thought .av { width:38px;height:38px;border-radius:50%; display:grid;place-items:center;
+    font-size:19px; flex-shrink:0; border:2px solid #fff2; }
+  .thought .tx b { font-size:12.5px; }
+  .thought .tx .q { font-size:13.5px; line-height:1.5; margin-top:2px; }
+  .thought .tx .w { font-size:10.5px; color:var(--muted); margin-top:4px; }
+  .empty { color:var(--muted); font-size:13px; text-align:center; padding:40px 20px; line-height:1.6; }
+
+  /* ---------- Bottom nav ---------- */
+  #nav {
+    display:flex; flex-shrink:0; gap:4px; padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+    background: linear-gradient(0deg, rgba(10,11,22,0.9), rgba(10,11,22,0.4));
+    backdrop-filter: blur(18px); border-top:1px solid var(--border); z-index:20;
+  }
+  #nav button {
+    flex:1; border:none; background:transparent; color:var(--muted); cursor:pointer;
+    padding:6px 2px; border-radius:12px; display:flex; flex-direction:column; align-items:center; gap:3px;
+    font-size:10.5px; transition:.15s;
+  }
+  #nav button .ic { font-size:19px; }
+  #nav button.active { color:var(--text); background:rgba(124,92,255,.18); box-shadow: inset 0 0 0 1px var(--border-lit); }
+  #nav .badge { position:relative; }
+  #nav .badge b { position:absolute; top:-2px; right:-10px; background:var(--a3); color:#fff;
+    font-size:9px; min-width:15px; height:15px; border-radius:8px; display:grid; place-items:center; }
+
+  /* ---------- Citizen sheet ---------- */
+  #sheet {
+    position:fixed; left:0; right:0; bottom:0; z-index:40;
+    background: linear-gradient(180deg, rgba(24,26,50,0.96), rgba(14,15,32,0.98));
+    border-top-left-radius:24px; border-top-right-radius:24px;
+    border:1px solid var(--border); border-bottom:none;
+    box-shadow: 0 -20px 60px rgba(0,0,0,.6);
+    transform: translateY(110%); transition: transform .32s cubic-bezier(.2,.8,.2,1);
+    max-height: 88dvh; display:flex; flex-direction:column;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #sheet.open { transform: translateY(0); }
+  #sheet .grip { width:42px;height:5px;border-radius:3px;background:#fff3; margin:10px auto 4px; }
+  #sheet .sh-head { display:flex; align-items:center; gap:12px; padding:6px 18px 12px; }
+  #sheet .sh-head .av { width:52px;height:52px;border-radius:16px; display:grid;place-items:center; font-size:26px; border:2px solid #fff2; }
+  #sheet .sh-head .info b { font-size:17px; display:block; }
+  #sheet .sh-head .info span { font-size:12px; color:var(--muted); }
+  #sheet .sh-head .x { margin-left:auto; background:#fff1; border:none; color:var(--text);
+    width:34px;height:34px;border-radius:50%; font-size:16px; cursor:pointer; }
+  #sheet .status { margin:0 18px 10px; font-size:12.5px; color:var(--muted);
+    display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #sheet .chip { background:#fff1; border:1px solid var(--border); border-radius:20px; padding:3px 10px; font-size:11.5px; }
+  #sheet .sh-body { overflow-y:auto; padding:0 18px; }
+  .proj { background:var(--glass); border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:12px; }
+  .proj b { font-size:13px; }
+  .proj .bar { height:7px; border-radius:5px; background:#ffffff14; margin-top:8px; overflow:hidden; }
+  .proj .bar>div { height:100%; border-radius:5px; background:linear-gradient(90deg,var(--a1),var(--a2)); transition:width .6s; }
+  .proj .pct { font-size:11px; color:var(--muted); margin-top:4px; }
+  .sh-sub { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:4px 0 8px; }
+  .mem { font-size:12.5px; color:#cfd3ea; line-height:1.5; padding:8px 11px; background:#ffffff08;
+    border-radius:10px; margin-bottom:7px; border-left:2px solid var(--a1); font-style:italic; }
+  #chatLog { display:flex; flex-direction:column; gap:7px; padding:8px 0 4px; }
+  .msg { font-size:13px; padding:9px 12px; border-radius:14px; max-width:85%; line-height:1.45; }
+  .msg.user { align-self:flex-end; background:linear-gradient(135deg,var(--a1),#5b45d6); color:#fff; border-bottom-right-radius:4px; }
+  .msg.cit { align-self:flex-start; background:#ffffff10; border:1px solid var(--border); border-bottom-left-radius:4px; }
+  .msg.typing { align-self:flex-start; color:var(--muted); font-style:italic; }
+  #composer { display:flex; gap:8px; padding:10px 18px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid var(--border); }
+  #composer input { flex:1; padding:11px 14px; border-radius:22px; border:1px solid var(--border);
+    background:#ffffff0d; color:var(--text); font-size:13.5px; outline:none; }
+  #composer input:focus { border-color:var(--border-lit); }
+  #composer button { width:44px;height:44px;border-radius:50%; border:none; cursor:pointer; font-size:17px; color:#fff;
+    background:linear-gradient(135deg,var(--a1),var(--a3)); box-shadow:0 6px 16px rgba(124,92,255,.5); }
+  #backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); backdrop-filter:blur(2px);
+    opacity:0; pointer-events:none; transition:.3s; z-index:35; }
+  #backdrop.show { opacity:1; pointer-events:auto; }
+
+  #installBtn {
+    display:none; position:fixed; right:14px; bottom:calc(78px + env(safe-area-inset-bottom)); z-index:30;
+    background:linear-gradient(135deg,var(--a1),var(--a2)); color:#fff; border:none; cursor:pointer;
+    padding:11px 16px; border-radius:26px; font-size:13px; font-weight:600;
+    box-shadow:0 10px 26px rgba(32,197,255,.5); }
 </style>
 </head>
 <body>
 
 <div id="topbar">
-  <h1>🏙️ Ciudad Virtual <span style="color:var(--muted); font-weight:400;">· AI Council</span></h1>
-  <span class="clock" id="clockLabel">Conectando...</span>
-  <a href="index.html">← Volver al debate</a>
-  <span class="conn down" id="connLabel">desconectado</span>
+  <div class="logo">🏙️</div>
+  <div class="titles"><b>Ciudad Virtual</b><span>AI Council · vida artificial 24/7</span></div>
+  <div id="clock">
+    <b id="clockLabel">--:--</b>
+    <span class="conn down" id="connLabel"><span class="led"></span>conectando</span>
+  </div>
 </div>
 
-<div id="layout">
-  <div id="map"></div>
-  <div id="side">
-    <div id="eventsPanel">
-      <h2>Actividad en vivo</h2>
-      <div id="eventsList"></div>
-    </div>
-    <div id="citizenPanel">
-      <div class="head">
-        <div class="avatar" id="cpAvatar"></div>
-        <div class="info">
-          <strong id="cpName"></strong>
-          <span id="cpProfession"></span>
+<div id="views">
+  <!-- CIUDAD -->
+  <div class="view view-city active" id="cityView">
+    <div id="skyBadge"><span id="skyIcon">🌙</span><span id="skyText">—</span></div>
+    <div id="stageWrap">
+      <div id="stageScale">
+        <div id="stage">
+          <div id="dayNight"></div>
         </div>
-        <button class="close" onclick="closeCitizenPanel()">✕</button>
       </div>
-      <div class="body">
-        <div class="status-line" id="cpStatus"></div>
-        <div id="cpProject"></div>
-        <div id="cpMemory"></div>
-      </div>
-      <div id="chatLog"></div>
-      <div id="chatComposer">
-        <input type="text" id="chatInput" placeholder="Habla con este ciudadano..." />
-        <button onclick="sendChat()">Enviar</button>
-      </div>
+    </div>
+  </div>
+
+  <!-- ACTIVIDAD -->
+  <div class="view" id="activityView">
+    <div class="feed">
+      <h2>⚡ Actividad en vivo</h2>
+      <div id="activityList"></div>
+    </div>
+  </div>
+
+  <!-- PENSAMIENTOS -->
+  <div class="view" id="thoughtsView">
+    <div class="feed">
+      <h2>💭 Lo que piensan ahora mismo</h2>
+      <div id="thoughtsList"></div>
+    </div>
+  </div>
+
+  <!-- IDEAS / SUGERENCIAS -->
+  <div class="view" id="ideasView">
+    <div class="feed">
+      <h2>💡 Lo que las IA proponen para la app</h2>
+      <div id="ideasList"></div>
     </div>
   </div>
 </div>
 
+<button id="installBtn">⬇️ Instalar app</button>
+
+<div id="nav">
+  <button class="active" data-view="cityView"><span class="ic">🏙️</span>Ciudad</button>
+  <button data-view="activityView"><span class="ic">⚡</span>Actividad</button>
+  <button data-view="thoughtsView"><span class="badge"><span class="ic">💭</span><b id="thoughtsBadge" style="display:none">0</b></span>Pensar</button>
+  <button data-view="ideasView"><span class="badge"><span class="ic">💡</span><b id="ideasBadge" style="display:none">0</b></span>Ideas</button>
+  <button onclick="location.href='index.html'"><span class="ic">🗳️</span>Debate</button>
+</div>
+
+<div id="backdrop" onclick="closeSheet()"></div>
+<div id="sheet">
+  <div class="grip"></div>
+  <div class="sh-head">
+    <div class="av" id="shAv"></div>
+    <div class="info"><b id="shName"></b><span id="shProf"></span></div>
+    <button class="x" onclick="closeSheet()">✕</button>
+  </div>
+  <div class="status">
+    <span class="chip" id="shAct"></span><span class="chip" id="shPlace"></span>
+  </div>
+  <div class="sh-body">
+    <div id="shResumen"></div>
+    <div id="shProject"></div>
+    <div class="sh-sub">💭 Pensamientos recientes</div>
+    <div id="shMemory"></div>
+    <div class="sh-sub">💬 Habla con este ciudadano</div>
+    <div id="chatLog"></div>
+  </div>
+  <div id="composer">
+    <input id="chatInput" placeholder="Escríbele algo..." />
+    <button onclick="sendChat()">➤</button>
+  </div>
+</div>
+
 <script>
-let ws = null;
-let world = null;               // ultimo snapshot completo
-let selectedCitizenId = null;
-let chatHistory = {};           // citizen_id -> [{role, content}]
+let ws=null, world=null, selectedId=null;
+let chatHistory={};
+let seenThoughts=0, thoughtsViewed=0;
 
-function wsUrl() {
-  return (location.protocol === "https:" ? "wss://" : "ws://") + (window.AI_COUNCIL_HOST || location.host || "localhost:8000") + "/ws/city";
+/* ---------------- WebSocket ---------------- */
+function wsUrl(){
+  return (location.protocol==="https:"?"wss://":"ws://")+(window.AI_COUNCIL_HOST||location.host||"localhost:8000")+"/ws/city";
 }
-
-function connect() {
-  ws = new WebSocket(wsUrl());
-  ws.onopen = () => setConn(true);
-  ws.onclose = () => { setConn(false); setTimeout(connect, 3000); };
-  ws.onerror = () => setConn(false);
-  ws.onmessage = (evt) => handleMessage(JSON.parse(evt.data));
+function connect(){
+  ws=new WebSocket(wsUrl());
+  ws.onopen=()=>setConn(true);
+  ws.onclose=()=>{ setConn(false); setTimeout(connect,3000); };
+  ws.onerror=()=>setConn(false);
+  ws.onmessage=e=>handleMessage(JSON.parse(e.data));
 }
-
-function setConn(live) {
-  const el = document.getElementById("connLabel");
-  el.textContent = live ? "en vivo" : "reconectando...";
-  el.className = "conn " + (live ? "live" : "down");
+function setConn(live){
+  const el=document.getElementById("connLabel");
+  el.className="conn "+(live?"live":"down");
+  el.innerHTML='<span class="led"></span>'+(live?"en vivo":"reconectando");
 }
-
-function handleMessage(msg) {
-  const { type, payload } = msg;
-  if (type === "world_state") {
-    world = payload;
-    renderClock();
-    renderMap();
-    renderEvents(world.events || []);
-    if (selectedCitizenId) renderCitizenPanel(selectedCitizenId);
-  } else if (type === "world_tick") {
-    if (world) { world.sim_day = payload.sim_day; world.sim_hour = payload.sim_hour; world.tick_count = payload.tick_count; }
-    renderClock();
-  } else if (type === "city_event") {
-    if (world) {
-      world.events = world.events || [];
-      world.events.push(payload);
-      applyEventToState(payload);
-    }
-    prependEvent(payload);
-    renderMap();
-    if (selectedCitizenId && payload.citizen_ids && payload.citizen_ids.includes(selectedCitizenId)) {
-      renderCitizenPanel(selectedCitizenId);
-    }
-  } else if (type === "talk_typing") {
-    setChatTyping(payload.citizen_id, true);
-  } else if (type === "talk_reply") {
-    setChatTyping(payload.citizen_id, false);
-    addChatMessage(payload.citizen_id, "citizen", payload.content);
-  } else if (type === "error") {
-    console.error("Error del servidor:", payload.message);
+function handleMessage(msg){
+  const {type,payload}=msg;
+  if(type==="world_state"){
+    world=payload; renderClock(); renderCity(); renderActivity(); renderThoughts(); renderIdeas();
+    if(selectedId) renderSheet(selectedId);
+  } else if(type==="world_tick"){
+    if(world){ world.sim_day=payload.sim_day; world.sim_hour=payload.sim_hour; world.tick_count=payload.tick_count; }
+    renderClock(); applyDayNight();
+  } else if(type==="city_event"){
+    if(world){ world.events=world.events||[]; world.events.push(payload); applyEvent(payload); }
+    prependActivity(payload);
+    if(payload.type==="pensamiento"){ prependThought(payload); bumpBadge("thoughtsBadge","thoughtsView"); }
+    if(payload.type==="sugerencia"){ prependIdea(payload); bumpBadge("ideasBadge","ideasView"); }
+    renderCity();
+    if(selectedId && payload.citizen_ids && payload.citizen_ids.includes(selectedId)) renderSheet(selectedId);
+  } else if(type==="talk_typing"){ setTyping(payload.citizen_id,true); }
+  else if(type==="talk_reply"){ setTyping(payload.citizen_id,false); addMsg(payload.citizen_id,"cit",payload.content); }
+  else if(type==="error"){ console.warn(payload.message); }
+}
+function applyEvent(ev){
+  if(!world) return;
+  if(ev.type==="llegada" && ev.citizen_ids.length===1){
+    const c=world.citizens[ev.citizen_ids[0]];
+    if(c && ev.building_id) c.current_building_id=ev.building_id;
   }
 }
 
-// Ajustes optimistas al estado local para que la ciudad no espere a un
-// nuevo snapshot completo para reflejar llegadas/proyectos.
-function applyEventToState(ev) {
-  if (!world) return;
-  if (ev.type === "llegada" && ev.citizen_ids.length === 1) {
-    const c = world.citizens[ev.citizen_ids[0]];
-    if (c && ev.building_id) c.current_building_id = ev.building_id;
+/* ---------------- Clock + sky ---------------- */
+function renderClock(){
+  if(!world) return;
+  document.getElementById("clockLabel").textContent=`Día ${world.sim_day} · ${String(world.sim_hour).padStart(2,"0")}:00`;
+  applyDayNight();
+}
+function skyFor(h){
+  if(h<6)  return {icon:"🌙", text:"Madrugada · la ciudad duerme", tint:"rgba(6,8,30,0.55)"};
+  if(h<8)  return {icon:"🌅", text:"Amanece sobre la ciudad", tint:"rgba(255,140,80,0.12)"};
+  if(h<13) return {icon:"☀️", text:"Mañana activa", tint:"rgba(0,0,0,0)"};
+  if(h<18) return {icon:"🌤️", text:"Tarde de trabajo", tint:"rgba(255,200,80,0.05)"};
+  if(h<21) return {icon:"🌇", text:"Atardecer, se relajan", tint:"rgba(255,90,140,0.12)"};
+  return {icon:"🌙", text:"Noche · vuelven a casa", tint:"rgba(6,8,30,0.5)"};
+}
+function applyDayNight(){
+  if(!world) return;
+  const s=skyFor(world.sim_hour);
+  document.getElementById("skyIcon").textContent=s.icon;
+  document.getElementById("skyText").textContent=s.text;
+  const dn=document.getElementById("dayNight");
+  if(dn) dn.style.background=s.tint;
+}
+
+/* ---------------- Isometric city ---------------- */
+const TILE_W=118, TILE_H=59;
+function iso(gx,gy,ox,oy){ return { x: ox+(gx-gy)*TILE_W/2, y: oy+(gx+gy)*TILE_H/2 }; }
+
+function renderCity(){
+  if(!world) return;
+  const stage=document.getElementById("stage");
+  // keep dayNight overlay, wipe the rest
+  [...stage.querySelectorAll(".tile,.sprite")].forEach(n=>n.remove());
+
+  const blds=Object.values(world.buildings);
+  const gxs=blds.map(b=>b.x), gys=blds.map(b=>b.y);
+  const maxX=Math.max(...gxs), maxY=Math.max(...gys);
+  const ox=maxY*TILE_W/2 + 60;        // shift so leftmost is visible
+  const oy=40;
+  const boardW=(maxX+maxY)*TILE_W/2 + 120;
+  const boardH=(maxX+maxY)*TILE_H/2 + 170;
+  stage.style.width=boardW+"px"; stage.style.height=boardH+"px";
+
+  // ground tiles across full grid
+  for(let gx=0; gx<=maxX; gx++) for(let gy=0; gy<=maxY; gy++){
+    const p=iso(gx,gy,ox,oy);
+    const t=document.createElement("div"); t.className="tile";
+    t.style.width=(TILE_W*0.72)+"px"; t.style.height=(TILE_W*0.72)+"px";
+    t.style.left=p.x+"px"; t.style.top=p.y+"px";
+    stage.appendChild(t);
   }
-}
 
-function renderClock() {
-  if (!world) return;
-  document.getElementById("clockLabel").textContent = `Dia ${world.sim_day}, ${String(world.sim_hour).padStart(2,"0")}:00`;
-}
-
-function renderMap() {
-  if (!world) return;
-  const map = document.getElementById("map");
-  map.innerHTML = "";
-  const buildings = Object.values(world.buildings).sort((a, b) => (a.y - b.y) || (a.x - b.x));
-  buildings.forEach(b => {
-    const citizensHere = Object.values(world.citizens).filter(c => c.current_building_id === b.id);
-    const div = document.createElement("div");
-    div.className = "building";
-    div.innerHTML = `
-      <div class="head"><span class="icon">${b.icon}</span><span class="name">${b.name}</span></div>
-      <div class="desc">${b.description}</div>
-      <div class="occupants">
-        ${citizensHere.map(c => `
-          <div class="citizen-chip" onclick="openCitizenPanel('${c.id}')">
-            <span class="dot" style="background:${c.color}"></span>
-            <span>${c.avatar} ${c.name}</span>
-          </div>`).join("") || '<span style="color:var(--muted);font-size:11px;">(vacio)</span>'}
-      </div>
-    `;
-    map.appendChild(div);
+  // buildings (draw back-to-front)
+  const sorted=blds.slice().sort((a,b)=>(a.x+a.y)-(b.x+b.y));
+  const roofColors=["var(--a1)","var(--a2)","var(--a3)","var(--a4)","var(--a5)"];
+  sorted.forEach((b,i)=>{
+    const p=iso(b.x,b.y,ox,oy);
+    const here=Object.values(world.citizens).filter(c=>c.current_building_id===b.id);
+    const el=document.createElement("div");
+    el.className="sprite bld"; el.style.left=p.x+"px"; el.style.top=(p.y+8)+"px";
+    el.style.zIndex=100+i;
+    el.onclick=()=>{ if(here.length===1) openSheet(here[0].id); };
+    el.innerHTML=`
+      <div class="body">
+        <div class="roof" style="border-bottom-color:${roofColors[i%5]}"></div>
+        <div class="emoji">${b.icon}</div>
+        <div class="label">${b.name}</div>
+        ${here.length?`<div class="count">${here.length}</div>`:""}
+      </div>`;
+    stage.appendChild(el);
   });
+
+  // citizens standing near their building
+  const grouped={};
+  Object.values(world.citizens).forEach(c=>{ (grouped[c.current_building_id]=grouped[c.current_building_id]||[]).push(c); });
+  let z=400;
+  Object.entries(grouped).forEach(([bid,list])=>{
+    const b=world.buildings[bid]; if(!b) return;
+    const p=iso(b.x,b.y,ox,oy);
+    list.forEach((c,idx)=>{
+      const ang=(idx/Math.max(1,list.length))*Math.PI*2;
+      const r=list.length>1?24:0;
+      const el=document.createElement("div");
+      el.className="sprite"; el.style.zIndex=z++;
+      el.style.left=(p.x+Math.cos(ang)*r+22)+"px";
+      el.style.top=(p.y+34+Math.sin(ang)*r*0.5)+"px";
+      const sleeping=(c.current_activity_label||"").toLowerCase().includes("durm");
+      const moodEmoji=(c.mood_label||"").split(" ")[0]||"";
+      el.innerHTML=`<div class="cit" style="border-color:${c.color};box-shadow:0 0 12px ${c.color}80,0 4px 10px #0008">
+          ${c.avatar}${moodEmoji?`<span class="mood">${moodEmoji}</span>`:''}${sleeping?'<span class="z">💤</span>':''}</div>`;
+      el.querySelector(".cit").onclick=(e)=>{ e.stopPropagation(); openSheet(c.id); };
+      stage.appendChild(el);
+    });
+  });
+
+  fitStage(boardW);
+}
+function fitStage(boardW){
+  const wrap=document.getElementById("stageWrap");
+  const scale=Math.min(1, (wrap.clientWidth-16)/boardW);
+  document.getElementById("stageScale").style.transform=`scale(${scale})`;
+}
+window.addEventListener("resize",()=>{ if(world) renderCity(); });
+
+/* ---------------- Feeds ---------------- */
+const ICON={ llegada:"📍", pensamiento:"💭", proyecto_iniciado:"🚀", proyecto_avance:"🔧",
+  proyecto_completado:"✅", reunion:"🗓️", conversacion:"💬", relacion:"🤝", sugerencia:"💡", sistema:"⚙️" };
+function evCard(ev){
+  return `<div class="card ${ev.type}">
+    <span class="when">${ICON[ev.type]||"•"} Día ${ev.sim_day} · ${String(ev.sim_hour).padStart(2,"0")}:00</span>
+    ${ev.description}</div>`;
+}
+function renderActivity(){
+  const l=document.getElementById("activityList");
+  const evs=(world.events||[]).slice().reverse();
+  l.innerHTML=evs.length?evs.map(evCard).join(""):'<div class="empty">Aún no ha pasado nada.<br>La ciudad está arrancando…</div>';
+}
+function prependActivity(ev){
+  const l=document.getElementById("activityList");
+  const d=document.createElement("div"); d.innerHTML=evCard(ev);
+  if(l.firstChild && l.firstChild.className!=="empty") l.insertBefore(d.firstElementChild,l.firstChild);
+  else l.innerHTML="", l.appendChild(d.firstElementChild);
+  while(l.children.length>150) l.removeChild(l.lastChild);
+}
+function thoughtCard(ev){
+  const c=world && world.citizens[ (ev.citizen_ids||[])[0] ];
+  const av=c?c.avatar:"💭", col=c?c.color:"var(--a1)", name=c?c.name:"Alguien";
+  const q=(ev.description||"").replace(/^[^:]+:\s*/,"").replace(/^[“"]|[”"]$/g,"");
+  return `<div class="thought">
+    <div class="av" style="border-color:${col};background:${col}22">${av}</div>
+    <div class="tx"><b style="color:${col}">${name}</b>
+      <div class="q">${q}</div>
+      <div class="w">Día ${ev.sim_day} · ${String(ev.sim_hour).padStart(2,"0")}:00</div></div></div>`;
+}
+function renderThoughts(){
+  const l=document.getElementById("thoughtsList");
+  const ts=(world.events||[]).filter(e=>e.type==="pensamiento").slice().reverse();
+  seenThoughts=ts.length;
+  l.innerHTML=ts.length?ts.map(thoughtCard).join(""):
+    '<div class="empty">💭 Todavía no hay pensamientos.<br>Cada cierto rato los ciudadanos despiertos piensan en voz alta con IA real. Dales unos minutos.</div>';
+}
+function prependThought(ev){
+  const l=document.getElementById("thoughtsList");
+  const d=document.createElement("div"); d.innerHTML=thoughtCard(ev);
+  if(l.firstChild && l.firstChild.className!=="empty") l.insertBefore(d.firstElementChild,l.firstChild);
+  else l.innerHTML="", l.appendChild(d.firstElementChild);
+}
+function ideaCard(ev){
+  const c=world && world.citizens[ (ev.citizen_ids||[])[0] ];
+  const av=c?c.avatar:"💡", col=c?c.color:"var(--a5)", name=c?c.name:"Alguien";
+  const q=(ev.description||"").replace(/^[^:]+sugiere:\s*/,"").replace(/^[“"]|[”"]$/g,"");
+  return `<div class="idea">
+    <div class="av" style="border-color:${col};background:${col}22">${av}</div>
+    <div class="tx"><b style="color:${col}">💡 ${name} propone</b>
+      <div class="q">${q}</div>
+      <div class="w">Día ${ev.sim_day} · ${String(ev.sim_hour).padStart(2,"0")}:00</div></div></div>`;
+}
+function renderIdeas(){
+  const l=document.getElementById("ideasList");
+  const its=(world.events||[]).filter(e=>e.type==="sugerencia").slice().reverse();
+  l.innerHTML=its.length?its.map(ideaCard).join(""):
+    '<div class="empty">💡 Aún no hay sugerencias.<br>De vez en cuando, en lugar de pensar, un ciudadano propone una mejora concreta para esta app. Aparecerán aquí.</div>';
+}
+function prependIdea(ev){
+  const l=document.getElementById("ideasList");
+  const d=document.createElement("div"); d.innerHTML=ideaCard(ev);
+  if(l.firstChild && l.firstChild.className!=="empty") l.insertBefore(d.firstElementChild,l.firstChild);
+  else l.innerHTML="", l.appendChild(d.firstElementChild);
+}
+function bumpBadge(badgeId,view){
+  if(currentView===view) return;
+  const b=document.getElementById(badgeId);
+  b.style.display="grid"; b.textContent=(parseInt(b.textContent||"0")+1);
 }
 
-const EVENT_LABELS = {
-  llegada: "📍", pensamiento: "💭", proyecto_iniciado: "🚀", proyecto_avance: "🔧",
-  proyecto_completado: "✅", reunion: "🗓️", conversacion: "💬", relacion: "🤝", sistema: "⚙️",
-};
-
-function eventHtml(ev) {
-  const icon = EVENT_LABELS[ev.type] || "•";
-  return `<div class="event-item ${ev.type}">
-    <span class="when">${icon} Dia ${ev.sim_day}, ${String(ev.sim_hour).padStart(2,"0")}:00</span>
-    ${ev.description}
-  </div>`;
-}
-
-function renderEvents(events) {
-  const list = document.getElementById("eventsList");
-  list.innerHTML = events.slice().reverse().map(eventHtml).join("");
-}
-
-function prependEvent(ev) {
-  const list = document.getElementById("eventsList");
-  const div = document.createElement("div");
-  div.innerHTML = eventHtml(ev);
-  list.insertBefore(div.firstElementChild, list.firstChild);
-  while (list.children.length > 200) list.removeChild(list.lastChild);
-}
-
-function openCitizenPanel(citizenId) {
-  selectedCitizenId = citizenId;
-  document.getElementById("citizenPanel").classList.add("open");
-  renderCitizenPanel(citizenId);
-}
-
-function closeCitizenPanel() {
-  selectedCitizenId = null;
-  document.getElementById("citizenPanel").classList.remove("open");
-}
-
-function renderCitizenPanel(citizenId) {
-  if (!world) return;
-  const c = world.citizens[citizenId];
-  if (!c) return;
-  const building = world.buildings[c.current_building_id];
-  document.getElementById("cpAvatar").textContent = c.avatar;
-  document.getElementById("cpName").textContent = c.name;
-  document.getElementById("cpProfession").textContent = c.profession;
-  document.getElementById("cpStatus").textContent =
-    `${c.current_activity_label} · ${building ? building.name : "?"}`;
-
-  const projectEl = document.getElementById("cpProject");
-  const project = c.current_project_id ? world.projects[c.current_project_id] : null;
-  projectEl.innerHTML = project ? `
-    <div class="project">
-      <strong>${project.title}</strong>
-      <div class="bar"><div style="width:${project.progress}%"></div></div>
-    </div>` : `<p class="empty-hint" style="padding:0 0 10px;">Sin proyecto activo ahora mismo.</p>`;
-
-  const memoryEl = document.getElementById("cpMemory");
-  const recentMemory = (c.memory || []).slice(-5).reverse();
-  memoryEl.innerHTML = recentMemory.length
-    ? recentMemory.map(m => `<div class="memory-item">"${m}"</div>`).join("")
-    : `<p class="empty-hint" style="padding:0;">Sin recuerdos recientes.</p>`;
-
-  renderChatLog(citizenId);
-}
-
-function renderChatLog(citizenId) {
-  const log = document.getElementById("chatLog");
-  const history = chatHistory[citizenId] || [];
-  log.innerHTML = history.map(m => `<div class="chat-msg ${m.role === "user" ? "user" : "citizen"}">${m.content}</div>`).join("");
-  log.scrollTop = log.scrollHeight;
-}
-
-function addChatMessage(citizenId, role, content) {
-  if (!chatHistory[citizenId]) chatHistory[citizenId] = [];
-  chatHistory[citizenId].push({ role: role === "user" ? "user" : "assistant", content });
-  if (citizenId === selectedCitizenId) renderChatLog(citizenId);
-}
-
-function setChatTyping(citizenId, typing) {
-  if (citizenId !== selectedCitizenId) return;
-  const log = document.getElementById("chatLog");
-  let el = document.getElementById("typingIndicator");
-  if (typing) {
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "typingIndicator";
-      el.className = "chat-msg citizen";
-      el.textContent = "escribiendo...";
-      log.appendChild(el);
-      log.scrollTop = log.scrollHeight;
-    }
-  } else if (el) {
-    el.remove();
-  }
-}
-
-function sendChat() {
-  const input = document.getElementById("chatInput");
-  const content = input.value.trim();
-  if (!content || !selectedCitizenId || !ws || ws.readyState !== WebSocket.OPEN) return;
-  addChatMessage(selectedCitizenId, "user", content);
-  ws.send(JSON.stringify({
-    type: "talk",
-    citizen_id: selectedCitizenId,
-    content,
-    history: (chatHistory[selectedCitizenId] || []).slice(0, -1),
-  }));
-  input.value = "";
-}
-
-document.getElementById("chatInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendChat();
+/* ---------------- Nav ---------------- */
+let currentView="cityView";
+document.querySelectorAll("#nav button[data-view]").forEach(btn=>{
+  btn.onclick=()=>{
+    currentView=btn.dataset.view;
+    document.querySelectorAll("#nav button").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+    document.getElementById(currentView).classList.add("active");
+    if(currentView==="cityView" && world) renderCity();
+    if(currentView==="thoughtsView"){ const b=document.getElementById("thoughtsBadge"); b.style.display="none"; b.textContent="0"; }
+    if(currentView==="ideasView"){ const b=document.getElementById("ideasBadge"); b.style.display="none"; b.textContent="0"; }
+  };
 });
+
+/* ---------------- Citizen sheet ---------------- */
+function openSheet(id){ selectedId=id; document.getElementById("sheet").classList.add("open");
+  document.getElementById("backdrop").classList.add("show"); renderSheet(id); }
+function closeSheet(){ selectedId=null; document.getElementById("sheet").classList.remove("open");
+  document.getElementById("backdrop").classList.remove("show"); }
+function lastThoughtOf(id){
+  const evs=(world.events||[]);
+  for(let i=evs.length-1;i>=0;i--){
+    const e=evs[i];
+    if((e.type==="pensamiento"||e.type==="sugerencia") && (e.citizen_ids||[]).includes(id)){
+      const m=(e.description||"").match(/[“"]([^”"]+)[”"]/);
+      if(m) return m[1];
+    }
+  }
+  const mem=(c=>c&&c.memory&&c.memory.length?c.memory[c.memory.length-1]:null)(world.citizens[id]);
+  return mem;
+}
+function renderSheet(id){
+  if(!world) return; const c=world.citizens[id]; if(!c) return;
+  const b=world.buildings[c.current_building_id];
+  document.getElementById("shAv").textContent=c.avatar;
+  document.getElementById("shAv").style.background=c.color+"22";
+  document.getElementById("shAv").style.borderColor=c.color;
+  document.getElementById("shName").textContent=c.name;
+  document.getElementById("shProf").textContent=c.profession;
+  document.getElementById("shAct").textContent="🎬 "+(c.current_activity_label||"—");
+  document.getElementById("shPlace").textContent="📍 "+(b?b.name:"?");
+
+  // Cuadro resumen: el vistazo rápido, para no tener que leerlo todo.
+  const happ=c.happiness??55, ang=c.anger??8;
+  const p0=c.current_project_id?world.projects[c.current_project_id]:null;
+  const lastThought=lastThoughtOf(id);
+  document.getElementById("shResumen").innerHTML=`
+    <div class="resumen">
+      <div class="r-mood">${c.mood_label||"😐 Neutral"}</div>
+      <div class="moodbars">
+        <div class="moodbar joy"><span class="lab">Alegría</span><span class="track"><div style="width:${happ}%"></div></span><span class="val">${happ}</span></div>
+        <div class="moodbar anger"><span class="lab">Enfado</span><span class="track"><div style="width:${ang}%"></div></span><span class="val">${ang}</span></div>
+      </div>
+      <div class="r-line" style="margin-top:10px"><b>Ahora:</b> ${c.current_activity_label||"—"}${b?` · ${b.name}`:""}</div>
+      <div class="r-line"><b>Proyecto:</b> ${p0?`${p0.title} (${p0.progress}%)`:"ninguno activo"}</div>
+      <div class="r-line"><b>Lo último que dijo:</b> ${lastThought?`“${lastThought}”`:"nada aún"}</div>
+    </div>`;
+
+  const pe=document.getElementById("shProject");
+  const p=c.current_project_id?world.projects[c.current_project_id]:null;
+  pe.innerHTML=p?`<div class="proj"><b>🚀 ${p.title}</b>
+      <div class="bar"><div style="width:${p.progress}%"></div></div>
+      <div class="pct">${p.progress}% completado</div></div>`:"";
+
+  const me=document.getElementById("shMemory");
+  const mem=(c.memory||[]).slice(-5).reverse();
+  me.innerHTML=mem.length?mem.map(m=>`<div class="mem">“${m}”</div>`).join(""):
+    '<div class="mem" style="font-style:normal;color:var(--muted)">Sin pensamientos recientes todavía.</div>';
+  renderChat(id);
+}
+function renderChat(id){
+  const log=document.getElementById("chatLog");
+  const h=chatHistory[id]||[];
+  log.innerHTML=h.map(m=>`<div class="msg ${m.role==="user"?"user":"cit"}">${m.content}</div>`).join("");
+  log.scrollTop=log.scrollHeight;
+}
+function addMsg(id,role,content){
+  if(!chatHistory[id]) chatHistory[id]=[];
+  chatHistory[id].push({role:role==="user"?"user":"assistant",content});
+  if(id===selectedId) renderChat(id);
+}
+function setTyping(id,on){
+  if(id!==selectedId) return;
+  const log=document.getElementById("chatLog");
+  let el=document.getElementById("typing");
+  if(on){ if(!el){ el=document.createElement("div"); el.id="typing"; el.className="msg typing"; el.textContent="escribiendo…"; log.appendChild(el); log.scrollTop=log.scrollHeight; } }
+  else if(el) el.remove();
+}
+function sendChat(){
+  const inp=document.getElementById("chatInput");
+  const v=inp.value.trim();
+  if(!v||!selectedId||!ws||ws.readyState!==WebSocket.OPEN) return;
+  addMsg(selectedId,"user",v);
+  ws.send(JSON.stringify({type:"talk",citizen_id:selectedId,content:v,history:(chatHistory[selectedId]||[]).slice(0,-1)}));
+  inp.value="";
+}
+document.getElementById("chatInput").addEventListener("keydown",e=>{ if(e.key==="Enter") sendChat(); });
+
+/* ---------------- PWA install ---------------- */
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e;
+  document.getElementById("installBtn").style.display="block"; });
+document.getElementById("installBtn").onclick=async()=>{
+  if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice;
+  deferredPrompt=null; document.getElementById("installBtn").style.display="none";
+};
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
 
 connect();
 </script>

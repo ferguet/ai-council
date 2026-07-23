@@ -22,6 +22,26 @@ def _new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def mood_label_for(happiness: int, anger: int) -> str:
+    """Etiqueta (emoji + palabra) del estado de animo a partir de sus dos
+    componentes. El enfado manda sobre la alegria si es alto."""
+    if anger >= 60:
+        return "😠 Cabreado/a"
+    if anger >= 38:
+        return "😤 Irritado/a"
+    if happiness >= 78:
+        return "🤩 Eufórico/a"
+    if happiness >= 62:
+        return "😄 Contento/a"
+    if happiness >= 50:
+        return "🙂 Animado/a"
+    if happiness <= 28:
+        return "😔 Bajón"
+    if happiness <= 40:
+        return "😕 Apagado/a"
+    return "😐 Neutral"
+
+
 @dataclass
 class ScheduleBlock:
     """Un tramo de la rutina diaria de un ciudadano: de que hora a que hora,
@@ -85,6 +105,18 @@ class Citizen:
 
     last_real_ai_call: datetime | None = None
     energy: float = 1.0
+
+    # Estado de animo, que se puede "intuir" de lo que dice/piensa el ciudadano.
+    # happiness = alegria (0-100), anger = enfado (0-100). mood_label es el
+    # emoji+palabra que se muestra. Se actualiza cuando piensa o conversa.
+    happiness: int = 55
+    anger: int = 8
+    mood_label: str = "😐 Neutral"
+
+    def set_mood(self, happiness: int, anger: int) -> None:
+        self.happiness = max(0, min(100, happiness))
+        self.anger = max(0, min(100, anger))
+        self.mood_label = mood_label_for(self.happiness, self.anger)
 
     def remember(self, entry: str, cap: int = 25) -> None:
         self.memory.append(entry)

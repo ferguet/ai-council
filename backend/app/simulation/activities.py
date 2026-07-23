@@ -90,6 +90,70 @@ PROJECT_LOG_TEMPLATES = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Analisis de animo (gratis, sin llamada a IA): se "intuye" el estado de
+# animo de un ciudadano a partir de las palabras que usa en sus pensamientos
+# y conversaciones. No es un analisis perfecto, pero da un marcador vivo y
+# coherente sin gastar tokens.
+# ---------------------------------------------------------------------------
+_POS_WORDS = {
+    "genial", "bien", "contenta", "contento", "feliz", "ilusion", "ilusionada",
+    "orgullosa", "orgulloso", "avance", "avanzo", "logro", "logrado", "gracias",
+    "encanta", "encantada", "me gusta", "disfruto", "disfrutando", "motivada",
+    "motivado", "esperanza", "optimista", "estupendo", "buenisimo", "maravilla",
+    "brillante", "exito", "conseguido", "funciona", "perfecto", "adoro", "risa",
+    "divertido", "tranquila", "tranquilo", "satisfecha", "satisfecho",
+}
+_NEG_WORDS = {
+    "mal", "triste", "cansada", "cansado", "agotada", "agotado", "aburrida",
+    "aburrido", "sola", "solo", "vacio", "vacia", "desanimada", "desanimado",
+    "duda", "dudas", "miedo", "preocupada", "preocupado", "fracaso", "fallo",
+    "perdida", "perdido", "no puedo", "imposible", "harta", "harto", "pena",
+    "nostalgia", "gris", "decepcion", "decepcionada", "vacilo",
+}
+_ANGER_WORDS = {
+    "harta", "harto", "cabreada", "cabreado", "enfadada", "enfadado", "rabia",
+    "molesta", "molesto", "injusto", "injusta", "basta", "no aguanto", "odio",
+    "absurdo", "ridiculo", "ridicula", "indignada", "indignado", "furiosa",
+    "furioso", "cansada de", "quejo", "protesto", "hartazgo", "irrita", "irritante",
+    "insoportable", "estupidez", "tonteria", "que asco",
+}
+
+
+def _count(text_low: str, words: set[str]) -> int:
+    return sum(text_low.count(w) for w in words)
+
+
+def infer_mood(text: str, base_happiness: int = 55, base_anger: int = 8) -> tuple[int, int]:
+    """Devuelve (happiness, anger) 0-100 estimados desde un texto libre.
+    Parte de una base neutra y la desplaza segun las palabras encontradas."""
+    low = f" {text.lower()} "
+    pos = _count(low, _POS_WORDS)
+    neg = _count(low, _NEG_WORDS)
+    ang = _count(low, _ANGER_WORDS)
+    happiness = base_happiness + pos * 14 - neg * 13 - ang * 6
+    anger = base_anger + ang * 26 + neg * 4 - pos * 3
+    return max(0, min(100, happiness)), max(0, min(100, anger))
+
+
+def blend_mood(citizen: Citizen, text: str) -> None:
+    """Mezcla el animo actual del ciudadano con el que se intuye del texto
+    nuevo (media ponderada), para que el estado de animo evolucione suave y
+    no de bandazos con cada frase."""
+    th, ta = infer_mood(text)
+    new_h = round(citizen.happiness * 0.55 + th * 0.45)
+    new_a = round(citizen.anger * 0.55 + ta * 0.45)
+    citizen.set_mood(new_h, new_a)
+
+
+def relax_mood(citizen: Citizen) -> None:
+    """Deriva lenta hacia la neutralidad (cada tick sin estimulo). Evita que
+    alguien se quede enfadado para siempre por un mal dia."""
+    new_h = round(citizen.happiness * 0.9 + 55 * 0.1)
+    new_a = round(citizen.anger * 0.85 + 8 * 0.15)
+    citizen.set_mood(new_h, new_a)
+
+
 def arrival_text(citizen: Citizen, building: Building) -> str:
     pool = ARRIVAL_TEMPLATES.get(citizen.current_activity.value, ARRIVAL_TEMPLATES["descansar"])
     return random.choice(pool).format(building=building.name)
@@ -133,6 +197,24 @@ def build_thought_prompt(citizen: Citizen, world: WorldState) -> list[ChatMessag
         "Escribe una unica entrada de diario en primera persona, 1-2 frases, breve y natural, "
         "sobre lo que estas pensando o haciendo justo ahora. No saludes, no expliques quien eres, "
         "ve directa al pensamiento."
+    )
+    return [ChatMessage(role="system", content=system)]
+
+
+def build_suggestion_prompt(citizen: Citizen, world: WorldState) -> list[ChatMessage]:
+    """Prompt para que el ciudadano proponga UNA mejora concreta para la app
+    o para la ciudad, desde su punto de vista y profesion. Es lo que permite
+    que las IA sugieran cambios que luego el humano puede leer y decidir."""
+    building = world.buildings.get(citizen.current_building_id)
+    system = (
+        f"{citizen.system_prompt}\n\n"
+        f"Es {world.sim_time_label()} y estas en {building.name if building else 'la ciudad'}. "
+        "Vives dentro de una app donde un humano observa tu ciudad (un mapa con edificios, "
+        "un panel de actividad, tus pensamientos y un chat para hablar contigo).\n"
+        "Propon UNA sola mejora concreta para esta app o para la vida en la ciudad, desde tu "
+        "punto de vista y tu profesion. Que sea una idea util y especifica, en 1-2 frases, "
+        "directa y con tu caracter. Empieza por el verbo (p.ej. 'Anadir...', 'Dejar que...'). "
+        "No numeres, no des varias opciones: solo tu mejor idea."
     )
     return [ChatMessage(role="system", content=system)]
 

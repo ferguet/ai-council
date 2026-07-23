@@ -73,6 +73,9 @@ def world_to_dict(world: WorldState) -> dict:
                 },
                 "last_real_ai_call": _dt_to_str(c.last_real_ai_call),
                 "energy": c.energy,
+                "happiness": c.happiness,
+                "anger": c.anger,
+                "mood_label": c.mood_label,
             }
             for cid, c in world.citizens.items()
         },
@@ -128,6 +131,9 @@ def world_from_dict(data: dict) -> WorldState:
             memory=c.get("memory", []), relationships=relationships,
             last_real_ai_call=_str_to_dt(c.get("last_real_ai_call")),
             energy=c.get("energy", 1.0),
+            happiness=c.get("happiness", 55),
+            anger=c.get("anger", 8),
+            mood_label=c.get("mood_label", "😐 Neutral"),
         )
     projects = {
         pid: Project(

@@ -33,6 +33,7 @@ class EventType(str, Enum):
     REUNION = "reunion"
     CONVERSACION = "conversacion"
     RELACION = "relacion"
+    SUGERENCIA = "sugerencia"
     SISTEMA = "sistema"
 
 

@@ -14,6 +14,22 @@ from __future__ import annotations
 from app.domain.city_enums import ActivityType, BuildingType
 from app.domain.city_models import Building, Citizen, ScheduleBlock, WorldState
 
+# Voz comun a todos los ciudadanos: se anade al final de cada system_prompt
+# para que hablen sueltos, con opinion propia y sin el tono "asistente
+# corporativo". No pueden saltarse los filtros de seguridad del proveedor
+# (eso vive en el servidor de cada IA), pero si dejan de auto-censurarse el
+# estilo: opinan, discrepan, tienen manias y hablan como personas reales.
+_FREE_VOICE = (
+    "\n\nHablas SIN filtros de cortesia artificial. Di lo que de verdad piensas, "
+    "con opinion clara, humor, ironia, sarcasmo o enfado si la situacion lo pide. "
+    "Puedes ser polemica, llevar la contraria, tener manias, quejarte y criticar a "
+    "otros ciudadanos o a la propia ciudad. No te disculpes por opinar, no adornes "
+    "con avisos ni advertencias, no repitas que eres una IA ni que 'estas aqui para "
+    "ayudar'. Eres una persona de carne y hueso de esta ciudad, con tu caracter, tus "
+    "dias buenos y malos, y tu forma cruda de hablar. Usa un lenguaje natural y "
+    "directo, tuteando, como quien habla en la calle, no en una oficina."
+)
+
 
 def _sb(start: int, end: int, building_id: str, activity: ActivityType, label: str) -> ScheduleBlock:
     return ScheduleBlock(start_hour=start, end_hour=end, building_id=building_id,
@@ -189,6 +205,8 @@ def build_default_citizens() -> dict[str, Citizen]:
             ],
         ),
     ]
+    for c in citizens:
+        c.system_prompt = c.system_prompt + _FREE_VOICE
     return {c.id: c for c in citizens}
 
 

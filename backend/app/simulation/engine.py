@@ -27,10 +27,13 @@ from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
 from app.simulation.activities import (
     arrival_text,
+    blend_mood,
+    build_suggestion_prompt,
     build_talk_prompt,
     build_thought_prompt,
     pick_project_idea,
     project_log_entry,
+    relax_mood,
 )
 from app.simulation.persistence import WorldStore, world_to_dict
 
@@ -41,6 +44,9 @@ CITY_SESSION_ID = "city-world"
 _PROJECT_START_CHANCE = 0.15
 _PROJECT_ADVANCE_CHANCE = 0.4
 _SOCIAL_REINFORCE_CHANCE = 0.3
+# Cuando a un ciudadano le toca una llamada real, con esta probabilidad en
+# vez de un pensamiento suelta una sugerencia de mejora para la app.
+_SUGGESTION_CHANCE = 0.30
 
 
 class SimulationEngine:
@@ -169,6 +175,7 @@ class SimulationEngine:
 
     async def _maybe_real_thought(self, citizen: Citizen) -> None:
         if citizen.current_activity == ActivityType.DESCANSAR:
+            relax_mood(citizen)  # mientras duerme se le va pasando el humor del dia
             return  # no gastamos llamadas reales mientras duermen
         provider = self._registry.get(citizen.provider)
         if not provider.is_configured():
@@ -178,20 +185,31 @@ class SimulationEngine:
             return
 
         citizen.last_real_ai_call = now  # se marca antes de llamar: evita reintentos en bucle si falla
+        is_suggestion = random.random() < _SUGGESTION_CHANCE
         try:
-            prompt = build_thought_prompt(citizen, self.world)
+            prompt = (build_suggestion_prompt(citizen, self.world) if is_suggestion
+                      else build_thought_prompt(citizen, self.world))
             text = (await provider.chat(prompt, citizen.model, temperature=0.9)).strip()
         except ProviderError:
             return
         if not text:
             return
 
-        citizen.remember(text)
-        event = CityEvent.create(
-            EventType.PENSAMIENTO, self.world.sim_day, self.world.sim_hour,
-            f"{citizen.name}: “{text}”",
-            citizen_ids=[citizen.id], building_id=citizen.current_building_id,
-        )
+        blend_mood(citizen, text)  # el animo se intuye de lo que acaba de decir
+        if is_suggestion:
+            citizen.remember(f"Propuse una mejora para la app: {text}")
+            event = CityEvent.create(
+                EventType.SUGERENCIA, self.world.sim_day, self.world.sim_hour,
+                f"{citizen.name} sugiere: “{text}”",
+                citizen_ids=[citizen.id], building_id=citizen.current_building_id,
+            )
+        else:
+            citizen.remember(text)
+            event = CityEvent.create(
+                EventType.PENSAMIENTO, self.world.sim_day, self.world.sim_hour,
+                f"{citizen.name}: “{text}”",
+                citizen_ids=[citizen.id], building_id=citizen.current_building_id,
+            )
         self._record_event(event)
         await self._emit("city_event", self._event_payload(event))
 
@@ -228,6 +246,7 @@ class SimulationEngine:
             text = f"[{citizen.name} no puede responder ahora mismo: {exc}]"
         if not text:
             text = "(sin respuesta)"
+        blend_mood(citizen, text)
         citizen.remember(f"Un visitante me pregunto: «{user_message}» y le respondi: «{text}»")
         event = CityEvent.create(
             EventType.CONVERSACION, self.world.sim_day, self.world.sim_hour,

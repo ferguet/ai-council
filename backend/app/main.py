@@ -16,7 +16,7 @@ from app.providers.registry import ProviderRegistry
 from app.simulation.engine import SimulationEngine
 from app.simulation.persistence import WorldStore
 from app.simulation.scheduler import SimulationScheduler
-from app.simulation.world_data import build_default_world
+from app.simulation.world_data import build_default_citizens, build_default_world
 
 app = FastAPI(
     title="AI Council API",
@@ -38,6 +38,19 @@ app.include_router(websocket_router)
 app.include_router(city_router)
 
 
+def _refresh_personalities(world) -> None:
+    """Re-aplica la personalidad (system_prompt) del roster de codigo sobre el
+    mundo ya guardado. Sin esto, los prompts quedan congelados en la base de
+    datos de la primera vez y editar world_data.py no tendria efecto en la
+    ciudad ya desplegada. Solo toca el 'caracter'; NO borra memoria,
+    proyectos, relaciones ni el reloj de la ciudad."""
+    defaults = build_default_citizens()
+    for cid, default in defaults.items():
+        citizen = world.citizens.get(cid)
+        if citizen is not None:
+            citizen.system_prompt = default.system_prompt
+
+
 def _build_store():
     """Postgres si hay DATABASE_URL configurada (necesario para desplegar en
     un servicio gratuito con disco no persistente, p.ej. Render free +
@@ -57,6 +70,7 @@ async def start_city() -> None:
     registry = ProviderRegistry(settings)
     store = _build_store()
     world = await store.load() if await store.exists() else build_default_world()
+    _refresh_personalities(world)
 
     engine = SimulationEngine(
         world=world,
