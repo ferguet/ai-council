@@ -1,0 +1,20 @@
+# Entornos virtuales (crea el tuyo con: python -m venv venv)
+venv/
+.venv/
+
+# Cache de Python
+__pycache__/
+*.pyc
+.pytest_cache/
+pytest-cache-files-*/
+
+# Variables de entorno con claves reales - nunca subir esto a git
+.env
+
+# Ciudad guardada en local (en la nube se usa Postgres, no este fichero)
+backend/data/
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store

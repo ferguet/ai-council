@@ -1,0 +1,51 @@
+# Blueprint de despliegue para Render (plan gratuito).
+#
+# Al conectar este repositorio en Render, elige "New > Blueprint" y Render
+# detecta este fichero solo. Las variables marcadas con "sync: false" hay
+# que rellenarlas a mano en el panel de Render (nunca se suben a GitHub).
+services:
+  - type: web
+    name: ai-council
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Claves de proveedores de IA - opcional, sin ellas esos ciudadanos
+      # usan texto simulado en vez de llamadas reales.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: GLM_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # Cadena de conexion a Postgres (Supabase). Imprescindible para que la
+      # ciudad no se resetee cada vez que Render duerme el servicio.
+      - key: DATABASE_URL
+        sync: false
+
+      # Director del debate
+      - key: DIRECTOR_PROVIDER
+        value: mock
+      - key: DIRECTOR_MODEL
+        value: director-v1
+      - key: MAX_DEBATE_TURNS
+        value: "20"
+
+      # Ciudad Virtual: cada tick = 1 hora simulada; llamada real de
+      # "pensamiento" como maximo cada 15 min reales por ciudadano.
+      - key: SIM_TICK_SECONDS
+        value: "60"
+      - key: SIM_HOURS_PER_TICK
+        value: "1"
+      - key: SIM_REAL_AI_INTERVAL_MINUTES
+        value: "15"
+      - key: SIM_AUTOSTART
+        value: "true"

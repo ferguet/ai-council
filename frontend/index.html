@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>AI Council</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --border: #262a36; --text: #e7e9ee;
+    --muted: #9aa0ad; --accent: #6c5ce7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; display: flex;
+  }
+  #setup {
+    width: 380px; min-width: 380px; border-right: 1px solid var(--border);
+    padding: 20px; overflow-y: auto; background: var(--panel);
+  }
+  #setup h1 { font-size: 20px; margin: 0 0 4px; }
+  #setup p.sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
+  input[type=text], textarea, select {
+    width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: #0f1117; color: var(--text); font-size: 13px;
+  }
+  textarea { resize: vertical; min-height: 50px; }
+  .agent-card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-top: 10px;
+    background: #12141c;
+  }
+  .agent-card-head { display: flex; justify-content: space-between; align-items: center; }
+  .agent-card-head button { background: none; border: none; color: #ff7675; cursor: pointer; font-size: 16px; }
+  .row2 { display: flex; gap: 8px; }
+  .row2 > div { flex: 1; }
+  button.primary {
+    width: 100%; margin-top: 18px; padding: 11px; border-radius: 10px; border: none;
+    background: var(--accent); color: white; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.secondary {
+    width: 100%; margin-top: 8px; padding: 9px; border-radius: 10px; border: 1px dashed var(--border);
+    background: transparent; color: var(--muted); cursor: pointer; font-size: 13px;
+  }
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #topbar {
+    padding: 14px 22px; border-bottom: 1px solid var(--border); display: flex;
+    justify-content: space-between; align-items: center;
+  }
+  #topbar .status { font-size: 12px; color: var(--muted); }
+  #chat { flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 72%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.45; }
+  .msg .who { font-size: 11px; font-weight: 700; margin-bottom: 4px; opacity: .85; }
+  .msg.agent { background: #1c1f2b; align-self: flex-start; border-left: 3px solid var(--accent); }
+  .msg.user { background: var(--accent); align-self: flex-end; color: white; }
+  .msg.director { background: transparent; align-self: center; color: var(--muted); font-style: italic; font-size: 12px; border: 1px dashed var(--border); }
+  .msg.system { background: transparent; align-self: center; color: #ff7675; font-size: 12px; }
+  #composer { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  #composer input { flex: 1; }
+  #composer button { padding: 0 18px; border-radius: 10px; border: none; background: var(--accent); color: white; cursor: pointer; }
+  .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; }
+  .typing { font-size: 12px; color: var(--muted); font-style: italic; padding: 0 22px 8px; min-height: 18px; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1>AI Council</h1>
+  <p class="sub">Configura el tema y quién participa en el debate. <a href="city.html" style="color:var(--accent);">🏙️ Ver Ciudad Virtual</a></p>
+
+  <label>Tema del debate</label>
+  <textarea id="topic" placeholder="Ej: ¿Deberíamos invertir en esta empresa?"></textarea>
+
+  <div id="agents"></div>
+  <button class="secondary" onclick="addAgentCard()">+ Añadir participante</button>
+
+  <button class="primary" id="startBtn" onclick="startDebate()">Iniciar debate</button>
+  <p class="sub" style="margin-top:10px;">Prueba primero con proveedor <b>mock</b>: funciona sin ninguna API key.</p>
+</div>
+
+<div id="main">
+  <div id="topbar">
+    <strong id="topicLabel">Sin debate activo</strong>
+    <span class="status" id="statusLabel"></span>
+  </div>
+  <div id="chat"><div class="empty">Configura el debate a la izquierda y pulsa "Iniciar debate".</div></div>
+  <div class="typing" id="typingLabel"></div>
+  <div id="composer">
+    <input type="text" id="userInput" placeholder="Interviene en el debate en cualquier momento..." disabled />
+    <button onclick="sendUserMessage()">Enviar</button>
+  </div>
+</div>
+
+<script>
+const ROLES = ["Generalista","Médico","Abogado","Programador","Economista","Profesor","Psicólogo","Investigador","Ingeniero"];
+const PROVIDERS = ["mock","gemini","groq","deepseek","glm","ollama","openai","anthropic"];
+const DEFAULT_MODELS = {mock:"mock-v1", gemini:"gemini-3.6-flash", groq:"llama-3.3-70b-versatile", deepseek:"deepseek-v4-flash", glm:"glm-4.7-flash", ollama:"llama3", openai:"gpt-4o-mini", anthropic:"claude-3-5-sonnet-latest"};
+let agentCount = 0;
+let ws = null;
+
+function addAgentCard(name, role, provider) {
+  agentCount++;
+  const id = "agent_" + agentCount;
+  const div = document.createElement("div");
+  div.className = "agent-card";
+  div.id = id;
+  div.innerHTML = `
+    <div class="agent-card-head">
+      <input type="text" style="font-weight:600;border:none;background:transparent;padding:2px 0;width:70%;" value="${name || ('Agente ' + agentCount)}" data-field="name" />
+      <button onclick="document.getElementById('${id}').remove()">✕</button>
+    </div>
+    <div class="row2">
+      <div>
+        <label>Rol</label>
+        <select data-field="role">
+          ${ROLES.map(r => `<option ${r===(role||"Generalista")?"selected":""}>${r}</option>`).join("")}
+        </select>
+      </div>
+      <div>
+        <label>Proveedor</label>
+        <select data-field="provider" onchange="onProviderChange('${id}')">
+          ${PROVIDERS.map(p => `<option value="${p}" ${p===(provider||"mock")?"selected":""}>${p}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    <label>Modelo</label>
+    <input type="text" data-field="model" value="${DEFAULT_MODELS[provider||"mock"]}" />
+  `;
+  document.getElementById("agents").appendChild(div);
+}
+
+function onProviderChange(id) {
+  const card = document.getElementById(id);
+  const provider = card.querySelector('[data-field=provider]').value;
+  card.querySelector('[data-field=model]').value = DEFAULT_MODELS[provider] || "";
+}
+
+function collectAgents() {
+  return [...document.querySelectorAll(".agent-card")].map(card => ({
+    name: card.querySelector('[data-field=name]').value || "Agente",
+    role: card.querySelector('[data-field=role]').value,
+    provider: card.querySelector('[data-field=provider]').value,
+    model: card.querySelector('[data-field=model]').value,
+  }));
+}
+
+function addMessage(cls, who, content) {
+  const chat = document.getElementById("chat");
+  const empty = chat.querySelector(".empty");
+  if (empty) empty.remove();
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.innerHTML = `<div class="who">${who}</div><div class="content"></div>`;
+  div.querySelector(".content").textContent = content;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+const agentColors = {};
+const streamingDivs = {};
+
+function startDebate() {
+  const topic = document.getElementById("topic").value.trim();
+  const agents = collectAgents();
+  if (!topic || agents.length === 0) {
+    alert("Pon un tema y al menos un participante.");
+    return;
+  }
+  document.getElementById("startBtn").disabled = true;
+  document.getElementById("chat").innerHTML = "";
+  document.getElementById("topicLabel").textContent = topic;
+  document.getElementById("statusLabel").textContent = "conectando...";
+
+  const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + (window.AI_COUNCIL_HOST || location.host || "localhost:8000") + "/ws/debate";
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ topic, participants: agents }));
+    document.getElementById("statusLabel").textContent = "en directo";
+    document.getElementById("userInput").disabled = false;
+  };
+
+  ws.onmessage = (evt) => {
+    const { type, payload } = JSON.parse(evt.data);
+    handleEvent(type, payload);
+  };
+
+  ws.onclose = () => {
+    document.getElementById("statusLabel").textContent = "desconectado";
+    document.getElementById("startBtn").disabled = false;
+  };
+
+  ws.onerror = () => {
+    document.getElementById("statusLabel").textContent = "error de conexión";
+  };
+}
+
+function handleEvent(type, payload) {
+  const typingLabel = document.getElementById("typingLabel");
+  switch (type) {
+    case "session_started":
+      payload.participants.forEach(p => agentColors[p.id] = p.color);
+      break;
+    case "agent_typing":
+      typingLabel.textContent = `${payload.agent_name} está escribiendo...`;
+      streamingDivs[payload.agent_id] = addMessage("agent", payload.agent_name, "");
+      streamingDivs[payload.agent_id].style.borderLeftColor = agentColors[payload.agent_id] || "#6c5ce7";
+      break;
+    case "agent_chunk":
+      if (streamingDivs[payload.agent_id]) {
+        streamingDivs[payload.agent_id].querySelector(".content").textContent += payload.chunk;
+        document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
+      }
+      break;
+    case "agent_message_complete":
+      typingLabel.textContent = "";
+      delete streamingDivs[payload.agent_id];
+      break;
+    case "agent_error":
+      addMessage("system", "Sistema", `Error con ${payload.agent_id}: ${payload.error}`);
+      break;
+    case "director_decision":
+      if (payload.reasoning) addMessage("director", "Director", payload.reasoning);
+      break;
+    case "summary":
+      addMessage("director", "Resumen del Director", payload.content);
+      break;
+    case "user_message":
+      break; // ya lo pintamos localmente al enviarlo
+    case "debate_ended":
+      typingLabel.textContent = "";
+      addMessage("system", "Sistema", `Debate finalizado (${payload.status}).`);
+      document.getElementById("statusLabel").textContent = "finalizado";
+      break;
+    case "error":
+      addMessage("system", "Sistema", payload.message || "Error desconocido");
+      break;
+  }
+}
+
+function sendUserMessage() {
+  const input = document.getElementById("userInput");
+  const content = input.value.trim();
+  if (!content || !ws || ws.readyState !== WebSocket.OPEN) return;
+  addMessage("user", "Tú", content);
+  ws.send(JSON.stringify({ type: "user_message", content }));
+  input.value = "";
+}
+
+document.getElementById("userInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendUserMessage();
+});
+
+// Participantes de ejemplo para empezar rápido
+addAgentCard("Analista Económico", "Economista", "mock");
+addAgentCard("Ingeniero de Producto", "Ingeniero", "mock");
+addAgentCard("Investigador Crítico", "Investigador", "mock");
+</script>
+</body>
+</html>

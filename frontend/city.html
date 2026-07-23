@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Ciudad Virtual · AI Council</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --border: #262a36; --text: #e7e9ee;
+    --muted: #9aa0ad; --accent: #6c5ce7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  #topbar {
+    padding: 12px 22px; border-bottom: 1px solid var(--border); display: flex;
+    justify-content: space-between; align-items: center; background: var(--panel); flex-shrink: 0;
+  }
+  #topbar h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  #topbar .clock { font-size: 13px; color: var(--muted); }
+  #topbar .conn { font-size: 12px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); }
+  #topbar .conn.live { color: #00b894; border-color: #00b894; }
+  #topbar .conn.down { color: #ff7675; border-color: #ff7675; }
+
+  #layout { flex: 1; display: flex; min-height: 0; }
+  #map {
+    flex: 1; padding: 22px; overflow-y: auto;
+    display: grid; grid-template-columns: repeat(3, minmax(200px, 1fr)); gap: 16px;
+    align-content: start;
+  }
+  .building {
+    border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: var(--panel);
+    min-height: 130px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .building .head { display: flex; align-items: center; gap: 8px; }
+  .building .head .icon { font-size: 22px; }
+  .building .head .name { font-weight: 600; font-size: 14px; }
+  .building .desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .building .occupants { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+  .citizen-chip {
+    display: flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 20px;
+    background: #0f1117; border: 1px solid var(--border); cursor: pointer; font-size: 12px;
+    transition: transform .1s;
+  }
+  .citizen-chip:hover { transform: scale(1.05); }
+  .citizen-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  #side { width: 360px; min-width: 360px; border-left: 1px solid var(--border); background: var(--panel);
+    display: flex; flex-direction: column; }
+  #eventsPanel { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  #eventsPanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 4px; }
+  .event-item { font-size: 12.5px; line-height: 1.45; padding: 8px 10px; border-radius: 8px; background: #0f1117; border-left: 3px solid var(--border); }
+  .event-item.pensamiento { border-left-color: var(--accent); font-style: italic; }
+  .event-item.proyecto_iniciado, .event-item.proyecto_avance, .event-item.proyecto_completado { border-left-color: #00b894; }
+  .event-item.relacion { border-left-color: #fdcb6e; }
+  .event-item.conversacion { border-left-color: #0984e3; }
+  .event-item .when { color: var(--muted); font-size: 10.5px; display: block; margin-bottom: 2px; }
+
+  #citizenPanel { display: none; flex-direction: column; border-top: 1px solid var(--border); max-height: 62vh; }
+  #citizenPanel.open { display: flex; }
+  #citizenPanel .head { padding: 16px 16px 8px; display: flex; gap: 10px; align-items: center; }
+  #citizenPanel .head .avatar { font-size: 30px; }
+  #citizenPanel .head .info strong { display: block; font-size: 15px; }
+  #citizenPanel .head .info span { font-size: 12px; color: var(--muted); }
+  #citizenPanel .close { margin-left: auto; background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; }
+  #citizenPanel .body { padding: 0 16px 8px; overflow-y: auto; font-size: 12.5px; }
+  #citizenPanel .status-line { margin: 4px 0 10px; color: var(--muted); }
+  #citizenPanel .project { background: #0f1117; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+  #citizenPanel .project .bar { height: 5px; border-radius: 4px; background: var(--border); margin-top: 6px; overflow: hidden; }
+  #citizenPanel .project .bar > div { height: 100%; background: var(--accent); }
+  #citizenPanel .memory-item { color: var(--muted); margin-bottom: 6px; }
+  #chatLog { padding: 8px 16px; overflow-y: auto; max-height: 160px; display: flex; flex-direction: column; gap: 6px; }
+  .chat-msg { font-size: 12.5px; padding: 6px 10px; border-radius: 10px; max-width: 90%; }
+  .chat-msg.user { background: var(--accent); color: white; align-self: flex-end; }
+  .chat-msg.citizen { background: #0f1117; border: 1px solid var(--border); align-self: flex-start; }
+  #chatComposer { display: flex; gap: 8px; padding: 10px 16px 16px; }
+  #chatComposer input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: #0f1117; color: var(--text); font-size: 12.5px; }
+  #chatComposer button { padding: 0 14px; border-radius: 8px; border: none; background: var(--accent); color: white; cursor: pointer; }
+  .empty-hint { color: var(--muted); font-size: 12.5px; padding: 16px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>🏙️ Ciudad Virtual <span style="color:var(--muted); font-weight:400;">· AI Council</span></h1>
+  <span class="clock" id="clockLabel">Conectando...</span>
+  <a href="index.html">← Volver al debate</a>
+  <span class="conn down" id="connLabel">desconectado</span>
+</div>
+
+<div id="layout">
+  <div id="map"></div>
+  <div id="side">
+    <div id="eventsPanel">
+      <h2>Actividad en vivo</h2>
+      <div id="eventsList"></div>
+    </div>
+    <div id="citizenPanel">
+      <div class="head">
+        <div class="avatar" id="cpAvatar"></div>
+        <div class="info">
+          <strong id="cpName"></strong>
+          <span id="cpProfession"></span>
+        </div>
+        <button class="close" onclick="closeCitizenPanel()">✕</button>
+      </div>
+      <div class="body">
+        <div class="status-line" id="cpStatus"></div>
+        <div id="cpProject"></div>
+        <div id="cpMemory"></div>
+      </div>
+      <div id="chatLog"></div>
+      <div id="chatComposer">
+        <input type="text" id="chatInput" placeholder="Habla con este ciudadano..." />
+        <button onclick="sendChat()">Enviar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let ws = null;
+let world = null;               // ultimo snapshot completo
+let selectedCitizenId = null;
+let chatHistory = {};           // citizen_id -> [{role, content}]
+
+function wsUrl() {
+  return (location.protocol === "https:" ? "wss://" : "ws://") + (window.AI_COUNCIL_HOST || location.host || "localhost:8000") + "/ws/city";
+}
+
+function connect() {
+  ws = new WebSocket(wsUrl());
+  ws.onopen = () => setConn(true);
+  ws.onclose = () => { setConn(false); setTimeout(connect, 3000); };
+  ws.onerror = () => setConn(false);
+  ws.onmessage = (evt) => handleMessage(JSON.parse(evt.data));
+}
+
+function setConn(live) {
+  const el = document.getElementById("connLabel");
+  el.textContent = live ? "en vivo" : "reconectando...";
+  el.className = "conn " + (live ? "live" : "down");
+}
+
+function handleMessage(msg) {
+  const { type, payload } = msg;
+  if (type === "world_state") {
+    world = payload;
+    renderClock();
+    renderMap();
+    renderEvents(world.events || []);
+    if (selectedCitizenId) renderCitizenPanel(selectedCitizenId);
+  } else if (type === "world_tick") {
+    if (world) { world.sim_day = payload.sim_day; world.sim_hour = payload.sim_hour; world.tick_count = payload.tick_count; }
+    renderClock();
+  } else if (type === "city_event") {
+    if (world) {
+      world.events = world.events || [];
+      world.events.push(payload);
+      applyEventToState(payload);
+    }
+    prependEvent(payload);
+    renderMap();
+    if (selectedCitizenId && payload.citizen_ids && payload.citizen_ids.includes(selectedCitizenId)) {
+      renderCitizenPanel(selectedCitizenId);
+    }
+  } else if (type === "talk_typing") {
+    setChatTyping(payload.citizen_id, true);
+  } else if (type === "talk_reply") {
+    setChatTyping(payload.citizen_id, false);
+    addChatMessage(payload.citizen_id, "citizen", payload.content);
+  } else if (type === "error") {
+    console.error("Error del servidor:", payload.message);
+  }
+}
+
+// Ajustes optimistas al estado local para que la ciudad no espere a un
+// nuevo snapshot completo para reflejar llegadas/proyectos.
+function applyEventToState(ev) {
+  if (!world) return;
+  if (ev.type === "llegada" && ev.citizen_ids.length === 1) {
+    const c = world.citizens[ev.citizen_ids[0]];
+    if (c && ev.building_id) c.current_building_id = ev.building_id;
+  }
+}
+
+function renderClock() {
+  if (!world) return;
+  document.getElementById("clockLabel").textContent = `Dia ${world.sim_day}, ${String(world.sim_hour).padStart(2,"0")}:00`;
+}
+
+function renderMap() {
+  if (!world) return;
+  const map = document.getElementById("map");
+  map.innerHTML = "";
+  const buildings = Object.values(world.buildings).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  buildings.forEach(b => {
+    const citizensHere = Object.values(world.citizens).filter(c => c.current_building_id === b.id);
+    const div = document.createElement("div");
+    div.className = "building";
+    div.innerHTML = `
+      <div class="head"><span class="icon">${b.icon}</span><span class="name">${b.name}</span></div>
+      <div class="desc">${b.description}</div>
+      <div class="occupants">
+        ${citizensHere.map(c => `
+          <div class="citizen-chip" onclick="openCitizenPanel('${c.id}')">
+            <span class="dot" style="background:${c.color}"></span>
+            <span>${c.avatar} ${c.name}</span>
+          </div>`).join("") || '<span style="color:var(--muted);font-size:11px;">(vacio)</span>'}
+      </div>
+    `;
+    map.appendChild(div);
+  });
+}
+
+const EVENT_LABELS = {
+  llegada: "📍", pensamiento: "💭", proyecto_iniciado: "🚀", proyecto_avance: "🔧",
+  proyecto_completado: "✅", reunion: "🗓️", conversacion: "💬", relacion: "🤝", sistema: "⚙️",
+};
+
+function eventHtml(ev) {
+  const icon = EVENT_LABELS[ev.type] || "•";
+  return `<div class="event-item ${ev.type}">
+    <span class="when">${icon} Dia ${ev.sim_day}, ${String(ev.sim_hour).padStart(2,"0")}:00</span>
+    ${ev.description}
+  </div>`;
+}
+
+function renderEvents(events) {
+  const list = document.getElementById("eventsList");
+  list.innerHTML = events.slice().reverse().map(eventHtml).join("");
+}
+
+function prependEvent(ev) {
+  const list = document.getElementById("eventsList");
+  const div = document.createElement("div");
+  div.innerHTML = eventHtml(ev);
+  list.insertBefore(div.firstElementChild, list.firstChild);
+  while (list.children.length > 200) list.removeChild(list.lastChild);
+}
+
+function openCitizenPanel(citizenId) {
+  selectedCitizenId = citizenId;
+  document.getElementById("citizenPanel").classList.add("open");
+  renderCitizenPanel(citizenId);
+}
+
+function closeCitizenPanel() {
+  selectedCitizenId = null;
+  document.getElementById("citizenPanel").classList.remove("open");
+}
+
+function renderCitizenPanel(citizenId) {
+  if (!world) return;
+  const c = world.citizens[citizenId];
+  if (!c) return;
+  const building = world.buildings[c.current_building_id];
+  document.getElementById("cpAvatar").textContent = c.avatar;
+  document.getElementById("cpName").textContent = c.name;
+  document.getElementById("cpProfession").textContent = c.profession;
+  document.getElementById("cpStatus").textContent =
+    `${c.current_activity_label} · ${building ? building.name : "?"}`;
+
+  const projectEl = document.getElementById("cpProject");
+  const project = c.current_project_id ? world.projects[c.current_project_id] : null;
+  projectEl.innerHTML = project ? `
+    <div class="project">
+      <strong>${project.title}</strong>
+      <div class="bar"><div style="width:${project.progress}%"></div></div>
+    </div>` : `<p class="empty-hint" style="padding:0 0 10px;">Sin proyecto activo ahora mismo.</p>`;
+
+  const memoryEl = document.getElementById("cpMemory");
+  const recentMemory = (c.memory || []).slice(-5).reverse();
+  memoryEl.innerHTML = recentMemory.length
+    ? recentMemory.map(m => `<div class="memory-item">"${m}"</div>`).join("")
+    : `<p class="empty-hint" style="padding:0;">Sin recuerdos recientes.</p>`;
+
+  renderChatLog(citizenId);
+}
+
+function renderChatLog(citizenId) {
+  const log = document.getElementById("chatLog");
+  const history = chatHistory[citizenId] || [];
+  log.innerHTML = history.map(m => `<div class="chat-msg ${m.role === "user" ? "user" : "citizen"}">${m.content}</div>`).join("");
+  log.scrollTop = log.scrollHeight;
+}
+
+function addChatMessage(citizenId, role, content) {
+  if (!chatHistory[citizenId]) chatHistory[citizenId] = [];
+  chatHistory[citizenId].push({ role: role === "user" ? "user" : "assistant", content });
+  if (citizenId === selectedCitizenId) renderChatLog(citizenId);
+}
+
+function setChatTyping(citizenId, typing) {
+  if (citizenId !== selectedCitizenId) return;
+  const log = document.getElementById("chatLog");
+  let el = document.getElementById("typingIndicator");
+  if (typing) {
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "typingIndicator";
+      el.className = "chat-msg citizen";
+      el.textContent = "escribiendo...";
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
+    }
+  } else if (el) {
+    el.remove();
+  }
+}
+
+function sendChat() {
+  const input = document.getElementById("chatInput");
+  const content = input.value.trim();
+  if (!content || !selectedCitizenId || !ws || ws.readyState !== WebSocket.OPEN) return;
+  addChatMessage(selectedCitizenId, "user", content);
+  ws.send(JSON.stringify({
+    type: "talk",
+    citizen_id: selectedCitizenId,
+    content,
+    history: (chatHistory[selectedCitizenId] || []).slice(0, -1),
+  }));
+  input.value = "";
+}
+
+document.getElementById("chatInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendChat();
+});
+
+connect();
+</script>
+</body>
+</html>
