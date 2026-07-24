@@ -33,13 +33,11 @@
       radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
       linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
     background-attachment: fixed;
-    /* Fallback a vh antes de dvh: algunos navegadores in-app (WhatsApp,
-       Instagram, Facebook) que se usan justo al abrir un enlace compartido
-       tienen soporte pobre o nulo de dvh y lo calculan como 0, lo que
-       colapsa el layout en columna y hace que las pantallas se amontonen
-       unas sobre otras. Con el fallback, en el peor caso se queda en vh
-       (fijo, sin ajustarse al teclado) en vez de romperse del todo. */
-    height: 100vh; height: 100dvh;
+    /* Triple fallback de altura (ver detalle en city.html, mismo problema):
+       vh -> dvh -> --vh calculado por JS y recalculado en resize/rotacion,
+       para que la barra inferior no quede empujada fuera de la pantalla
+       visible justo al navegar entre index/city/debate.html en movil. */
+    height: 100vh; height: 100dvh; height: calc(var(--vh, 1vh) * 100);
     display:flex; flex-direction:column; overflow:hidden;
   }
   a { color: var(--a2); text-decoration:none; }
@@ -210,7 +208,7 @@
     border:1px solid var(--border); border-bottom:none;
     box-shadow: 0 -20px 60px rgba(0,0,0,.6);
     transform: translateY(110%); transition: transform .3s cubic-bezier(.2,.8,.2,1);
-    max-height: 82vh; max-height: 82dvh; display:flex; flex-direction:column;
+    max-height: 82vh; max-height: 82dvh; max-height: calc(var(--vh, 1vh) * 82); display:flex; flex-direction:column;
     padding-bottom: env(safe-area-inset-bottom);
   }
   .modal.open { transform: translateY(0); }
@@ -301,6 +299,13 @@
 </div>
 
 <script>
+/* Ver comentario gemelo en city.html: recalcula --vh en carga/resize/
+   rotacion para que el fallback de altura del <body> sea fiable en movil. */
+function setVhUnit(){ document.documentElement.style.setProperty("--vh",(window.innerHeight*0.01)+"px"); }
+setVhUnit();
+window.addEventListener("resize",setVhUnit);
+window.addEventListener("orientationchange",()=>setTimeout(setVhUnit,120));
+
 let roster = {};           // id -> {id,name,avatar,color,profession,provider}
 let rosterOrder = [];
 let rooms = [];            // resumen de /conversations

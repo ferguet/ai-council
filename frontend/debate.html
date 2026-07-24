@@ -31,7 +31,12 @@
       radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
       linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
     background-attachment: fixed;
-    height: 100vh; height: 100dvh; display: flex;
+    /* Triple fallback de altura, igual que en index.html/city.html: vh ->
+       dvh -> --vh calculado por JS mas abajo en el bloque de script, para
+       que en movil no se quede un sobrante que empuje el chat/composer
+       fuera de la pantalla visible justo al llegar a esta pagina
+       navegando desde las otras dos. */
+    height: 100vh; height: 100dvh; height: calc(var(--vh, 1vh) * 100); display: flex;
   }
   button { font-family: inherit; }
   #setup {
@@ -118,9 +123,9 @@
      amontonado). Por debajo de 760px se apila: la configuracion arriba,
      colapsable, el chat debajo ocupando el resto. ---------- */
   @media (max-width: 760px) {
-    body { flex-direction: column; height: 100vh; height: 100dvh; }
+    body { flex-direction: column; height: 100vh; height: 100dvh; height: calc(var(--vh, 1vh) * 100); }
     #setup {
-      width: 100%; min-width: 0; max-height: 46vh; max-height: 46dvh;
+      width: 100%; min-width: 0; max-height: 46vh; max-height: 46dvh; max-height: calc(var(--vh, 1vh) * 46);
       border-right: none; border-bottom: 1px solid var(--border); flex-shrink: 0;
     }
     #main { min-height: 0; }
@@ -172,6 +177,13 @@
 </div>
 
 <script>
+/* Ver comentario gemelo en city.html/index.html: recalcula --vh en carga/
+   resize/rotacion para el fallback de altura del <body>. */
+function setVhUnit(){ document.documentElement.style.setProperty("--vh",(window.innerHeight*0.01)+"px"); }
+setVhUnit();
+window.addEventListener("resize",setVhUnit);
+window.addEventListener("orientationchange",()=>setTimeout(setVhUnit,120));
+
 const ROLES = ["Generalista","Médico","Abogado","Programador","Economista","Profesor","Psicólogo","Investigador","Ingeniero"];
 const PROVIDERS = ["mock","gemini","groq","deepseek","glm","ollama","openai","anthropic"];
 const DEFAULT_MODELS = {mock:"mock-v1", gemini:"gemini-3.6-flash", groq:"llama-3.3-70b-versatile", deepseek:"deepseek-v4-flash", glm:"glm-4.7-flash", ollama:"llama3", openai:"gpt-4o-mini", anthropic:"claude-3-5-sonnet-latest"};

@@ -33,10 +33,20 @@
       radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
       linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
     background-attachment: fixed;
-    /* Fallback a vh: en navegadores in-app (WhatsApp/Instagram) que suelen
-       usarse justo al abrir un enlace compartido, dvh a veces se calcula
-       como 0 y colapsa el layout, amontonando las pantallas. */
-    height: 100vh; height: 100dvh;
+    /* Triple fallback de altura para movil:
+       1) 100vh de toda la vida.
+       2) 100dvh, mejor en movil porque se ajusta cuando la barra de
+          direccion del navegador se esconde/aparece.
+       3) --vh calculado por JS (mas abajo): en Android Chrome, sobre todo
+          justo despues de navegar entre paginas (index/city/debate son 3
+          paginas distintas, no una SPA), dvh a veces toma una foto de la
+          barra de direccion todavia animandose y se queda mas alto de lo
+          que cabe en pantalla; como el body tiene overflow:hidden, ese
+          sobrante empuja la barra inferior de navegacion fuera de la
+          pantalla visible y sus botones "desaparecen" hasta que el usuario
+          hace scroll o rota el movil. --vh se recalcula con JS en resize/
+          orientationchange y no depende de que el navegador soporte dvh. */
+    height: 100vh; height: 100dvh; height: calc(var(--vh, 1vh) * 100);
     display:flex; flex-direction:column; overflow:hidden;
   }
   a { color: var(--a2); text-decoration:none; }
@@ -235,21 +245,35 @@
   .seg button .n.show { display:grid; }
 
   /* ---------- Bottom nav ---------- */
+  /* 8 botones (Ciudad/Actividad/Pensar/Ideas/Prensa/Historial/Chat/Debate)
+     en una fila con flex:1 caben holgados en un movil normal, pero en
+     pantallas muy estrechas (~320-360px) el texto de cada boton se queda
+     sin sitio y se solapa/corta. Por debajo de 480px se ocultan las
+     etiquetas de texto y solo quedan los iconos, mas grandes: los botones
+     siguen todos visibles y con buen area de toque, en vez de arriesgarse
+     a que el texto los deje ilegibles o amontonados. overflow-x:auto es
+     un segundo salvavidas por si aun asi no cupieran. */
   #nav {
     display:flex; flex-shrink:0; gap:4px; padding:8px 10px calc(8px + env(safe-area-inset-bottom));
     background: linear-gradient(0deg, rgba(10,11,22,0.9), rgba(10,11,22,0.4));
     backdrop-filter: blur(18px); border-top:1px solid var(--border); z-index:20;
+    overflow-x:auto; -webkit-overflow-scrolling:touch;
   }
   #nav button {
-    flex:1; border:none; background:transparent; color:var(--muted); cursor:pointer;
+    flex:1 0 auto; min-width:34px; border:none; background:transparent; color:var(--muted); cursor:pointer;
     padding:6px 2px; border-radius:12px; display:flex; flex-direction:column; align-items:center; gap:3px;
-    font-size:10.5px; transition:.15s;
+    font-size:10.5px; transition:.15s; white-space:nowrap;
   }
   #nav button .ic { font-size:19px; }
   #nav button.active { color:var(--text); background:rgba(124,92,255,.18); box-shadow: inset 0 0 0 1px var(--border-lit); }
   #nav .badge { position:relative; }
   #nav .badge b { position:absolute; top:-2px; right:-10px; background:var(--a3); color:#fff;
     font-size:9px; min-width:15px; height:15px; border-radius:8px; display:grid; place-items:center; }
+  @media (max-width: 480px) {
+    #nav button .lbl { display:none; }
+    #nav button .ic { font-size:21px; }
+    #nav button { padding:8px 2px; }
+  }
 
   /* ---------- Citizen sheet ---------- */
   #sheet {
@@ -259,7 +283,7 @@
     border:1px solid var(--border); border-bottom:none;
     box-shadow: 0 -20px 60px rgba(0,0,0,.6);
     transform: translateY(110%); transition: transform .32s cubic-bezier(.2,.8,.2,1);
-    max-height: 88vh; max-height: 88dvh; display:flex; flex-direction:column;
+    max-height: 88vh; max-height: 88dvh; max-height: calc(var(--vh, 1vh) * 88); display:flex; flex-direction:column;
     padding-bottom: env(safe-area-inset-bottom);
   }
   #sheet.open { transform: translateY(0); }
@@ -398,14 +422,14 @@
 <button id="installBtn">⬇️ Instalar app</button>
 
 <div id="nav">
-  <button class="active" data-view="cityView"><span class="ic">🏙️</span>Ciudad</button>
-  <button data-view="activityView"><span class="ic">⚡</span>Actividad</button>
-  <button data-view="thoughtsView"><span class="badge"><span class="ic">💭</span><b id="thoughtsBadge" style="display:none">0</b></span>Pensar</button>
-  <button data-view="ideasView"><span class="badge"><span class="ic">💡</span><b id="ideasBadge" style="display:none">0</b></span>Ideas</button>
-  <button data-view="newsView"><span class="badge"><span class="ic">🗞️</span><b id="newsBadge" style="display:none">0</b></span>Prensa</button>
-  <button data-view="timelineView"><span class="ic">🕰️</span>Historial</button>
-  <button onclick="location.href='index.html'"><span class="ic">💬</span>Chat</button>
-  <button onclick="location.href='debate.html'"><span class="ic">🗳️</span>Debate</button>
+  <button class="active" data-view="cityView"><span class="ic">🏙️</span><span class="lbl">Ciudad</span></button>
+  <button data-view="activityView"><span class="ic">⚡</span><span class="lbl">Actividad</span></button>
+  <button data-view="thoughtsView"><span class="badge"><span class="ic">💭</span><b id="thoughtsBadge" style="display:none">0</b></span><span class="lbl">Pensar</span></button>
+  <button data-view="ideasView"><span class="badge"><span class="ic">💡</span><b id="ideasBadge" style="display:none">0</b></span><span class="lbl">Ideas</span></button>
+  <button data-view="newsView"><span class="badge"><span class="ic">🗞️</span><b id="newsBadge" style="display:none">0</b></span><span class="lbl">Prensa</span></button>
+  <button data-view="timelineView"><span class="ic">🕰️</span><span class="lbl">Historial</span></button>
+  <button onclick="location.href='index.html'"><span class="ic">💬</span><span class="lbl">Chat</span></button>
+  <button onclick="location.href='debate.html'"><span class="ic">🗳️</span><span class="lbl">Debate</span></button>
 </div>
 
 <div id="backdrop" onclick="closeSheet()"></div>
@@ -436,6 +460,20 @@
 </div>
 
 <script>
+/* Tercer fallback de altura para movil (ver comentario junto a la regla
+   "height: calc(var(--vh, 1vh) * 100)" en el CSS de <body>): dvh deberia
+   bastar, pero en Android Chrome justo al navegar entre paginas (esta app
+   son 3 paginas sueltas, no una SPA) la barra de direccion a veces esta
+   a mitad de animacion cuando el navegador pinta el primer frame, y dvh se
+   queda con un valor mas alto de lo que realmente cabe en pantalla. Con
+   overflow:hidden en el body eso empuja el nav inferior fuera de la parte
+   visible. Aqui se recalcula con JS (que siempre refleja el alto real ya
+   asentado) en carga, resize y cambios de orientacion.*/
+function setVhUnit(){ document.documentElement.style.setProperty("--vh",(window.innerHeight*0.01)+"px"); }
+setVhUnit();
+window.addEventListener("resize",setVhUnit);
+window.addEventListener("orientationchange",()=>setTimeout(setVhUnit,120));
+
 let ws=null, world=null, selectedId=null;
 let chatHistory={};
 let seenThoughts=0, thoughtsViewed=0;
@@ -792,6 +830,12 @@ function showSub(sub){
 let currentView="cityView";
 document.querySelectorAll("#nav button[data-view]").forEach(btn=>{
   btn.onclick=()=>{
+    // La ficha de un ciudadano (#sheet) se abre por encima de todo con
+    // z-index alto y ocupa hasta el 88% de la pantalla desde abajo, tapando
+    // la barra de navegacion inferior. Si se deja abierta al saltar a otra
+    // pantalla, los botones del nav quedan cubiertos y parecen "haber
+    // desaparecido" aunque siguen ahi debajo.
+    closeSheet();
     currentView=btn.dataset.view;
     document.querySelectorAll("#nav button").forEach(b=>b.classList.remove("active"));
     btn.classList.add("active");
