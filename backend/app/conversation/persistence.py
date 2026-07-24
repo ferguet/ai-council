@@ -30,6 +30,7 @@ def conversations_to_dict(conversations: dict[str, Conversation]) -> dict:
             cid: {
                 "id": c.id, "name": c.name, "kind": c.kind.value,
                 "participant_ids": c.participant_ids, "excluded_ids": c.excluded_ids,
+                "owner_visitor_id": c.owner_visitor_id,
                 "messages": [
                     {
                         "id": m.id, "sender_id": m.sender_id, "sender_name": m.sender_name,
@@ -71,6 +72,9 @@ def conversations_from_dict(data: dict) -> dict[str, Conversation]:
         result[cid] = Conversation(
             id=c["id"], name=c["name"], kind=ConversationKind(c.get("kind", "group")),
             participant_ids=c.get("participant_ids", []), excluded_ids=c.get("excluded_ids", []),
+            # .get(): compatible con salas guardadas antes de que existiera
+            # la puerta de acceso, que no tenian dueno.
+            owner_visitor_id=c.get("owner_visitor_id"),
             messages=messages, created_at=_str_to_dt(c.get("created_at")) or datetime.now(timezone.utc),
         )
     return result

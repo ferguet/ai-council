@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Ciudad IA" />
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon-192.png" />
+<script src="access.js"></script>
 <style>
   :root {
     --bg: #0f1117; --panel: #171a23; --border: #262a36; --text: #e7e9ee;
@@ -67,6 +68,23 @@
   #composer button { padding: 0 18px; border-radius: 10px; border: none; background: var(--accent); color: white; cursor: pointer; }
   .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; }
   .typing { font-size: 12px; color: var(--muted); font-style: italic; padding: 0 22px 8px; min-height: 18px; }
+
+  /* ---------- Movil: el sidebar fijo de 380px no cabe en una pantalla de
+     telefono (deja el chat exprimido a casi nada, letras cortadas y todo
+     amontonado). Por debajo de 760px se apila: la configuracion arriba,
+     colapsable, el chat debajo ocupando el resto. ---------- */
+  @media (max-width: 760px) {
+    body { flex-direction: column; height: 100vh; height: 100dvh; }
+    #setup {
+      width: 100%; min-width: 0; max-height: 46vh; max-height: 46dvh;
+      border-right: none; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    #main { min-height: 0; }
+    .msg { max-width: 88%; }
+    #topbar { padding: 12px 14px; }
+    #chat { padding: 14px 16px; }
+    #composer { padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
+  }
 </style>
 </head>
 <body>
@@ -179,7 +197,7 @@ function startDebate() {
   document.getElementById("topicLabel").textContent = topic;
   document.getElementById("statusLabel").textContent = "conectando...";
 
-  const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + (window.AI_COUNCIL_HOST || location.host || "localhost:8000") + "/ws/debate";
+  const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + (window.AI_COUNCIL_HOST || location.host || "localhost:8000") + "/ws/debate" + AIAccess.wsParam();
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {

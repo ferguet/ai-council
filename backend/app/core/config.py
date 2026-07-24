@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # Servidor
     cors_origins: list[str] = ["*"]
 
+    # Puerta de entrada: una clave compartida que Fran reparte a mano a
+    # quien quiere que use la app, para que no se la pase el enlace a
+    # cualquiera. Sin configurar, la puerta queda abierta (desarrollo local).
+    access_code: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

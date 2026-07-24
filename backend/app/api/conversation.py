@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from app.conversation.attachments import extract_text, kind_for
 from app.conversation.engine import ConversationEngine
+from app.core.access import require_visitor, require_visitor_ws
 from app.core.event_bus import Event, event_bus
 from app.domain.conversation_models import ConversationKind
 
@@ -40,7 +41,7 @@ def _engine(request: Request) -> ConversationEngine:
 
 
 @router.get("/conversations/roster")
-def get_roster(request: Request) -> list[dict]:
+def get_roster(request: Request, visitor: str = Depends(require_visitor)) -> list[dict]:
     """IA reales disponibles ahora mismo (con clave configurada). Nada simulado."""
     eng = _engine(request)
     return [
@@ -51,12 +52,16 @@ def get_roster(request: Request) -> list[dict]:
 
 
 @router.get("/conversations")
-def list_conversations(request: Request) -> list[dict]:
-    return _engine(request).list_summaries()
+def list_conversations(request: Request, visitor: str = Depends(require_visitor)) -> list[dict]:
+    eng = _engine(request)
+    # La sala 'General' de este visitante se crea sola la primera vez que
+    # pide su lista de salas (p.ej. justo despues de meter la clave).
+    eng.ensure_default_conversation(visitor)
+    return eng.list_summaries(visitor)
 
 
 @router.post("/conversations")
-def create_conversation(body: CreateConversationIn, request: Request) -> dict:
+def create_conversation(body: CreateConversationIn, request: Request, visitor: str = Depends(require_visitor)) -> dict:
     eng = _engine(request)
     try:
         kind = ConversationKind(body.kind)
@@ -67,34 +72,33 @@ def create_conversation(body: CreateConversationIn, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="una conversacion privada necesita exactamente 1 IA real valida")
     if not valid_ids:
         raise HTTPException(status_code=400, detail="elige al menos una IA real disponible para el grupo")
-    conv = eng.create_conversation(body.name, valid_ids, kind)
+    conv = eng.create_conversation(body.name, valid_ids, kind, owner_visitor_id=visitor)
     return eng.snapshot(conv.id)
 
 
 @router.get("/conversations/{conversation_id}")
-def get_conversation(conversation_id: str, request: Request) -> dict:
+def get_conversation(conversation_id: str, request: Request, visitor: str = Depends(require_visitor)) -> dict:
     eng = _engine(request)
-    try:
-        return eng.snapshot(conversation_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    if eng.get_owned(conversation_id, visitor) is None:
+        raise HTTPException(status_code=404, detail="Conversacion no encontrada")
+    return eng.snapshot(conversation_id)
 
 
 @router.post("/conversations/{conversation_id}/kick")
-async def kick(conversation_id: str, body: KickInviteIn, request: Request) -> dict:
+async def kick(conversation_id: str, body: KickInviteIn, request: Request, visitor: str = Depends(require_visitor)) -> dict:
     eng = _engine(request)
     try:
-        await eng.kick(conversation_id, body.citizen_id)
+        await eng.kick(conversation_id, body.citizen_id, visitor)
         return eng.snapshot(conversation_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.post("/conversations/{conversation_id}/invite")
-async def invite(conversation_id: str, body: KickInviteIn, request: Request) -> dict:
+async def invite(conversation_id: str, body: KickInviteIn, request: Request, visitor: str = Depends(require_visitor)) -> dict:
     eng = _engine(request)
     try:
-        await eng.invite(conversation_id, body.citizen_id)
+        await eng.invite(conversation_id, body.citizen_id, visitor)
         return eng.snapshot(conversation_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -107,12 +111,13 @@ async def upload_attachment(
     file: UploadFile = File(...),
     caption: str = Form(""),
     to: str = Form(""),  # JSON de lista de ids, opcional
+    visitor: str = Depends(require_visitor),
 ) -> dict:
     """Sube un archivo a la sala: se extrae su texto (si el tipo lo permite)
     y se comparte como un mensaje mas, disparando la ronda de respuestas de
     las IA objetivo igual que un mensaje de texto normal."""
     eng = _engine(request)
-    if eng.get(conversation_id) is None:
+    if eng.get_owned(conversation_id, visitor) is None:
         raise HTTPException(status_code=404, detail="Conversacion no encontrada")
 
     content = await file.read()
@@ -141,7 +146,13 @@ async def conversation_socket(conversation_id: str, websocket: WebSocket) -> Non
     await websocket.accept()
     eng: ConversationEngine = websocket.app.state.conversation_engine
 
-    if eng.get(conversation_id) is None:
+    visitor = require_visitor_ws(websocket.query_params.get("visitor"))
+    if not visitor:
+        await websocket.send_json({"type": "error", "payload": {"message": "Falta la clave de acceso o no es valida"}})
+        await websocket.close(code=4401)
+        return
+
+    if eng.get_owned(conversation_id, visitor) is None:
         await websocket.send_json({"type": "error", "payload": {"message": "Conversacion no encontrada"}})
         await websocket.close()
         return
@@ -169,11 +180,11 @@ async def conversation_socket(conversation_id: str, websocket: WebSocket) -> Non
                 to = data.get("to") or None
                 await eng.send_user_message(conversation_id, content, to=to)
             elif msg_type == "kick":
-                await eng.kick(conversation_id, data.get("citizen_id", ""))
+                await eng.kick(conversation_id, data.get("citizen_id", ""), visitor)
                 await websocket.send_json({"type": "conversation_state", "payload": eng.snapshot(conversation_id)})
             elif msg_type == "invite":
                 try:
-                    await eng.invite(conversation_id, data.get("citizen_id", ""))
+                    await eng.invite(conversation_id, data.get("citizen_id", ""), visitor)
                 except KeyError as exc:
                     await websocket.send_json({"type": "error", "payload": {"message": str(exc)}})
                 await websocket.send_json({"type": "conversation_state", "payload": eng.snapshot(conversation_id)})

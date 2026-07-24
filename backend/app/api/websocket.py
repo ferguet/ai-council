@@ -15,6 +15,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.agents.presets import ROLE_PRESETS
 from app.api.schemas import StartDebateIn
+from app.core.access import require_visitor_ws
 from app.core.config import get_settings
 from app.core.event_bus import Event, event_bus
 from app.domain.enums import DebateStatus
@@ -42,6 +43,11 @@ def _build_agent(p, index: int) -> Agent:
 @router.websocket("/ws/debate")
 async def debate_socket(websocket: WebSocket) -> None:
     await websocket.accept()
+    token = websocket.query_params.get("visitor")
+    if not require_visitor_ws(token):
+        await websocket.send_json({"type": "error", "payload": {"message": "Falta la clave de acceso o no es valida"}})
+        await websocket.close(code=4401)
+        return
     settings = get_settings()
     registry = ProviderRegistry(settings)
 

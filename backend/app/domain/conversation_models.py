@@ -91,11 +91,22 @@ class Conversation:
     participant_ids: list[str] = field(default_factory=list)   # quienes pertenecen a la sala
     excluded_ids: list[str] = field(default_factory=list)       # expulsados temporalmente (siguen en la sala, pero callados)
     messages: list[ConversationMessage] = field(default_factory=list)
+    # De quien es esta sala: cada visitante (ver app/core/access.py) tiene
+    # sus propias salas y no ve ni puede tocar las de los demas. None solo
+    # deberia darse en datos muy antiguos, de antes de que existiera este
+    # campo (ver migracion en app/conversation/persistence.py).
+    owner_visitor_id: str | None = None
     created_at: datetime = field(default_factory=_now)
 
     @staticmethod
-    def create(name: str, kind: ConversationKind, participant_ids: list[str]) -> "Conversation":
-        return Conversation(id=_new_id(), name=name, kind=kind, participant_ids=list(participant_ids))
+    def create(
+        name: str, kind: ConversationKind, participant_ids: list[str],
+        owner_visitor_id: str | None = None,
+    ) -> "Conversation":
+        return Conversation(
+            id=_new_id(), name=name, kind=kind, participant_ids=list(participant_ids),
+            owner_visitor_id=owner_visitor_id,
+        )
 
     def add_message(self, message: ConversationMessage, cap: int = 400) -> None:
         self.messages.append(message)

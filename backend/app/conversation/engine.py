@@ -61,16 +61,21 @@ class ConversationEngine:
     # Gestion de salas
     # ---------------------------------------------------------------
 
-    def ensure_default_conversation(self) -> Conversation:
-        """La sala 'General': todas las IA reales presentes sin que el
-        usuario tenga que anadirlas a mano. Si aparece una IA real nueva
-        (se configura una clave nueva) se une sola la proxima vez que
-        arranca el servicio."""
-        conv = self.conversations.get(DEFAULT_CONVERSATION_ID)
+    def _default_conversation_id(self, visitor_id: str) -> str:
+        return f"{DEFAULT_CONVERSATION_ID}-{visitor_id}"
+
+    def ensure_default_conversation(self, visitor_id: str) -> Conversation:
+        """La sala 'General' DE ESE VISITANTE: todas las IA reales
+        presentes sin que tenga que anadirlas a mano. Cada visitante (ver
+        app/core/access.py) tiene la suya propia, no comparten historial
+        entre ellos. Si aparece una IA real nueva (se configura una clave
+        nueva) se une sola la proxima vez que ese visitante entra."""
+        conv_id = self._default_conversation_id(visitor_id)
+        conv = self.conversations.get(conv_id)
         if conv is None:
             conv = Conversation(
-                id=DEFAULT_CONVERSATION_ID, name="General", kind=ConversationKind.DEFAULT,
-                participant_ids=list(self.roster.keys()),
+                id=conv_id, name="General", kind=ConversationKind.DEFAULT,
+                participant_ids=list(self.roster.keys()), owner_visitor_id=visitor_id,
             )
             self.conversations[conv.id] = conv
         else:
@@ -79,16 +84,29 @@ class ConversationEngine:
                     conv.participant_ids.append(pid)
         return conv
 
-    def create_conversation(self, name: str, participant_ids: list[str], kind: ConversationKind) -> Conversation:
+    def create_conversation(
+        self, name: str, participant_ids: list[str], kind: ConversationKind, owner_visitor_id: str,
+    ) -> Conversation:
         valid_ids = [pid for pid in participant_ids if pid in self.roster]
-        conv = Conversation.create(name=name, kind=kind, participant_ids=valid_ids)
+        conv = Conversation.create(name=name, kind=kind, participant_ids=valid_ids, owner_visitor_id=owner_visitor_id)
         self.conversations[conv.id] = conv
         return conv
 
     def get(self, conversation_id: str) -> Conversation | None:
         return self.conversations.get(conversation_id)
 
-    def list_summaries(self) -> list[dict]:
+    def get_owned(self, conversation_id: str, visitor_id: str) -> Conversation | None:
+        """Como get(), pero solo devuelve la sala si es de ese visitante.
+        Salas antiguas sin dueno (owner_visitor_id=None, de antes de que
+        existiera la puerta de acceso) se tratan como inaccesibles: nadie
+        las reclama automaticamente para evitar que un visitante cualquiera
+        termine viendo historial que no es suyo."""
+        conv = self.conversations.get(conversation_id)
+        if conv is None or conv.owner_visitor_id != visitor_id:
+            return None
+        return conv
+
+    def list_summaries(self, visitor_id: str) -> list[dict]:
         return [
             {
                 "id": c.id, "name": c.name, "kind": c.kind.value,
@@ -96,25 +114,26 @@ class ConversationEngine:
                 "message_count": len(c.messages),
             }
             for c in self.conversations.values()
+            if c.owner_visitor_id == visitor_id
         ]
 
-    def _require(self, conversation_id: str) -> Conversation:
-        conv = self.conversations.get(conversation_id)
+    def _require(self, conversation_id: str, visitor_id: str) -> Conversation:
+        conv = self.get_owned(conversation_id, visitor_id)
         if conv is None:
             raise KeyError(f"Conversacion '{conversation_id}' no existe")
         return conv
 
-    async def kick(self, conversation_id: str, citizen_id: str) -> Conversation:
+    async def kick(self, conversation_id: str, citizen_id: str, visitor_id: str) -> Conversation:
         """Expulsion temporal: sigue en la sala (se ve, se puede reinvitar)
         pero deja de responder hasta que alguien la invite de vuelta."""
-        conv = self._require(conversation_id)
+        conv = self._require(conversation_id, visitor_id)
         if citizen_id not in conv.excluded_ids:
             conv.excluded_ids.append(citizen_id)
         await self._store_save()
         return conv
 
-    async def invite(self, conversation_id: str, citizen_id: str) -> Conversation:
-        conv = self._require(conversation_id)
+    async def invite(self, conversation_id: str, citizen_id: str, visitor_id: str) -> Conversation:
+        conv = self._require(conversation_id, visitor_id)
         if citizen_id not in self.roster:
             raise KeyError(f"'{citizen_id}' no es una IA real disponible ahora mismo")
         if citizen_id in conv.excluded_ids:
@@ -212,7 +231,11 @@ class ConversationEngine:
         return [ChatMessage(role="system", content=system), *transcript]
 
     async def send_user_message(self, conversation_id: str, content: str, to: list[str] | None = None) -> None:
-        conv = self._require(conversation_id)
+        # Sin visitor_id aqui a proposito: quien llama (el WS de
+        # conversacion) ya comprobo la propiedad de la sala al conectar.
+        conv = self.get(conversation_id)
+        if conv is None:
+            raise KeyError(f"Conversacion '{conversation_id}' no existe")
         active = [self.roster[pid] for pid in conv.active_participant_ids() if pid in self.roster]
         mentions = self._parse_mentions(content, active)
 
@@ -231,7 +254,11 @@ class ConversationEngine:
         extraido (ver app/conversation/attachments.py) entra en el 'content'
         del mensaje, asi que cada IA lo ve tal cual dentro del historial que
         ya construye _build_prompt, sin tener que tocar nada del prompt."""
-        conv = self._require(conversation_id)
+        # Sin visitor_id aqui a proposito: quien llama (la ruta de subida)
+        # ya comprobo la propiedad de la sala antes de invocar esto.
+        conv = self.get(conversation_id)
+        if conv is None:
+            raise KeyError(f"Conversacion '{conversation_id}' no existe")
         attachment = Attachment(filename=filename, size_bytes=size_bytes, kind=kind, extracted_text=extracted_text)
 
         header = f"📎 Adjunta el archivo «{filename}» ({round(size_bytes / 1024)} KB)."
@@ -295,7 +322,11 @@ class ConversationEngine:
         await self._store.save(self.conversations)
 
     def snapshot(self, conversation_id: str) -> dict:
-        conv = self._require(conversation_id)
+        # Sin visitor_id aqui a proposito: quien llama ya comprobo la
+        # propiedad de la sala (get_owned) antes de pedir esta foto.
+        conv = self.get(conversation_id)
+        if conv is None:
+            raise KeyError(f"Conversacion '{conversation_id}' no existe")
         return {
             "id": conv.id, "name": conv.name, "kind": conv.kind.value,
             "participant_ids": conv.participant_ids, "excluded_ids": conv.excluded_ids,

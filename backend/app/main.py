@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from app.agents.presets import ROLE_PRESETS
 from app.api.city import router as city_router
@@ -14,6 +15,7 @@ from app.api.websocket import router as websocket_router
 from app.conversation.engine import ConversationEngine
 from app.conversation.persistence import ConversationStore
 from app.conversation.roster import build_active_roster
+from app.core.access import check_code, gate_enabled, issue_token, new_visitor_id, require_visitor
 from app.core.config import get_settings
 from app.core.event_bus import event_bus
 from app.providers.registry import ProviderRegistry
@@ -180,8 +182,9 @@ async def start_city() -> None:
         store=conv_store,
         world=world,
     )
-    conv_engine.ensure_default_conversation()
-    await conv_engine.save()
+    # La sala 'General' ya no se crea aqui: ahora es por visitante (ver
+    # app/core/access.py) y se crea sola la primera vez que cada uno entra
+    # (GET /conversations, mas abajo en api/conversation.py).
     app.state.conversation_engine = conv_engine
 
 
@@ -206,15 +209,39 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+class VerifyIn(BaseModel):
+    code: str
+
+
+@app.get("/access/status")
+def access_status() -> dict:
+    """El frontend lo consulta al arrancar: si la puerta no esta activada
+    (no hay ACCESS_CODE configurada, p.ej. en local) se salta la pantalla
+    de clave por completo."""
+    return {"gate_enabled": gate_enabled()}
+
+
+@app.post("/access/verify")
+def access_verify(body: VerifyIn) -> dict:
+    """Se llama una vez, la primera vez que alguien abre la app. Si la
+    clave es correcta se le da un token propio (ver app/core/access.py):
+    a partir de ahi ese token es lo que separa su conversacion de la de
+    los demas, sin que haga falta ningun sistema de cuentas."""
+    if not check_code(body.code):
+        raise HTTPException(status_code=401, detail="Clave incorrecta")
+    visitor_id = new_visitor_id()
+    return {"token": issue_token(visitor_id), "visitor_id": visitor_id}
+
+
 @app.get("/providers")
-def list_providers() -> list[dict]:
+def list_providers(visitor: str = Depends(require_visitor)) -> list[dict]:
     """Que proveedores existen y cuales estan configurados (tienen key/local listo)."""
     registry = ProviderRegistry(get_settings())
     return registry.available()
 
 
 @app.get("/roles")
-def list_roles() -> list[dict]:
+def list_roles(visitor: str = Depends(require_visitor)) -> list[dict]:
     return [{"name": name, "color": data["color"]} for name, data in ROLE_PRESETS.items()]
 
 

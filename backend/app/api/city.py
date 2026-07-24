@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
+from app.core.access import require_visitor, require_visitor_ws
 from app.core.event_bus import Event, event_bus
 from app.providers.base import ChatMessage
 from app.simulation.engine import CITY_SESSION_ID, SimulationEngine
@@ -26,12 +27,12 @@ def _engine(request: Request) -> SimulationEngine:
 
 
 @router.get("/city/state")
-def get_state(request: Request) -> dict:
+def get_state(request: Request, visitor: str = Depends(require_visitor)) -> dict:
     return _engine(request).snapshot()
 
 
 @router.get("/city/citizens/{citizen_id}")
-def get_citizen(citizen_id: str, request: Request) -> dict:
+def get_citizen(citizen_id: str, request: Request, visitor: str = Depends(require_visitor)) -> dict:
     data = world_to_dict(_engine(request).world)
     citizen = data["citizens"].get(citizen_id)
     if citizen is None:
@@ -40,12 +41,12 @@ def get_citizen(citizen_id: str, request: Request) -> dict:
 
 
 @router.get("/city/events")
-def get_events(request: Request, limit: int = 50) -> list[dict]:
+def get_events(request: Request, limit: int = 50, visitor: str = Depends(require_visitor)) -> list[dict]:
     return _engine(request).recent_events(limit)
 
 
 @router.get("/city/projects")
-def get_projects(request: Request) -> list[dict]:
+def get_projects(request: Request, visitor: str = Depends(require_visitor)) -> list[dict]:
     data = world_to_dict(_engine(request).world)
     return list(data["projects"].values())
 
@@ -53,6 +54,11 @@ def get_projects(request: Request) -> list[dict]:
 @router.websocket("/ws/city")
 async def city_socket(websocket: WebSocket) -> None:
     await websocket.accept()
+    token = websocket.query_params.get("visitor")
+    if not require_visitor_ws(token):
+        await websocket.send_json({"type": "error", "payload": {"message": "Falta la clave de acceso o no es valida"}})
+        await websocket.close(code=4401)
+        return
     engine: SimulationEngine = websocket.app.state.city_engine
 
     await websocket.send_json({"type": "world_state", "payload": engine.snapshot()})

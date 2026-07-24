@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Ciudad IA" />
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon-192.png" />
+<script src="access.js"></script>
 <style>
   :root {
     --bg0:#0a0b16; --bg1:#12132a; --bg2:#1a1140;
@@ -32,7 +33,14 @@
       radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
       linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
     background-attachment: fixed;
-    height: 100dvh; display:flex; flex-direction:column; overflow:hidden;
+    /* Fallback a vh antes de dvh: algunos navegadores in-app (WhatsApp,
+       Instagram, Facebook) que se usan justo al abrir un enlace compartido
+       tienen soporte pobre o nulo de dvh y lo calculan como 0, lo que
+       colapsa el layout en columna y hace que las pantallas se amontonen
+       unas sobre otras. Con el fallback, en el peor caso se queda en vh
+       (fijo, sin ajustarse al teclado) en vez de romperse del todo. */
+    height: 100vh; height: 100dvh;
+    display:flex; flex-direction:column; overflow:hidden;
   }
   a { color: var(--a2); text-decoration:none; }
   button { font-family: inherit; }
@@ -184,7 +192,7 @@
     border:1px solid var(--border); border-bottom:none;
     box-shadow: 0 -20px 60px rgba(0,0,0,.6);
     transform: translateY(110%); transition: transform .3s cubic-bezier(.2,.8,.2,1);
-    max-height: 82dvh; display:flex; flex-direction:column;
+    max-height: 82vh; max-height: 82dvh; display:flex; flex-direction:column;
     padding-bottom: env(safe-area-inset-bottom);
   }
   .modal.open { transform: translateY(0); }
@@ -285,12 +293,12 @@ let createKind = "group";
 let createPicked = new Set();
 
 function apiHost(){ return window.AI_COUNCIL_HOST || location.host || "localhost:8000"; }
-function wsUrl(id){ return (location.protocol==="https:"?"wss://":"ws://")+apiHost()+"/ws/conversation/"+encodeURIComponent(id); }
+function wsUrl(id){ return (location.protocol==="https:"?"wss://":"ws://")+apiHost()+"/ws/conversation/"+encodeURIComponent(id)+AIAccess.wsParam(); }
 
 /* ---------------- Carga inicial ---------------- */
 async function init(){
   try{
-    const r1 = await fetch("/conversations/roster");
+    const r1 = await AIAccess.fetch("/conversations/roster");
     const list = await r1.json();
     list.forEach(p=>{ roster[p.id]=p; });
     rosterOrder = list.map(p=>p.id);
@@ -301,7 +309,7 @@ async function init(){
 
 async function refreshRooms(){
   try{
-    const r = await fetch("/conversations");
+    const r = await AIAccess.fetch("/conversations");
     rooms = await r.json();
   }catch(e){ rooms = rooms.length?rooms:[{id:"general",name:"General",kind:"default",participant_ids:[],excluded_ids:[],message_count:0}]; }
   if(!currentRoomId) currentRoomId = (rooms.find(r=>r.id==="general")||rooms[0]||{id:"general"}).id;
@@ -510,7 +518,7 @@ async function uploadFile(file){
   fd.append("caption", caption);
   if(pickedTargets.size) fd.append("to", JSON.stringify(Array.from(pickedTargets)));
   try{
-    const r = await fetch(`/conversations/${encodeURIComponent(currentRoomId)}/attachments`, { method:"POST", body:fd });
+    const r = await AIAccess.fetch(`/conversations/${encodeURIComponent(currentRoomId)}/attachments`, { method:"POST", body:fd });
     status.textContent = "";
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
@@ -594,7 +602,7 @@ async function submitCreate(){
   const name = document.getElementById("newRoomName").value.trim();
   if(!name || !createPicked.size) return;
   try{
-    const r = await fetch("/conversations", {
+    const r = await AIAccess.fetch("/conversations", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ name, kind: createKind, participant_ids: Array.from(createPicked) }),
     });
@@ -617,7 +625,7 @@ if("serviceWorker" in navigator){
   window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 }
 
-init();
+AIAccess.ready().then(init);
 </script>
 </body>
 </html>

@@ -45,6 +45,14 @@ services:
       - key: DATABASE_URL
         sync: false
 
+      # Puerta de entrada: la clave que reparte Fran a mano a quien quiere
+      # que use la app. Sin esto configurado, la app queda abierta a
+      # cualquiera con el enlace (util solo en local). Cambiarla en
+      # cualquier momento corta el paso a todo el mundo que ya tenia clave
+      # antigua, sin tocar codigo.
+      - key: ACCESS_CODE
+        sync: false
+
       # Director del debate
       - key: DIRECTOR_PROVIDER
         value: mock

@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Ciudad IA" />
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon-192.png" />
+<script src="access.js"></script>
 <style>
   :root {
     --bg0:#0a0b16; --bg1:#12132a; --bg2:#1a1140;
@@ -32,7 +33,11 @@
       radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
       linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
     background-attachment: fixed;
-    height: 100dvh; display:flex; flex-direction:column; overflow:hidden;
+    /* Fallback a vh: en navegadores in-app (WhatsApp/Instagram) que suelen
+       usarse justo al abrir un enlace compartido, dvh a veces se calcula
+       como 0 y colapsa el layout, amontonando las pantallas. */
+    height: 100vh; height: 100dvh;
+    display:flex; flex-direction:column; overflow:hidden;
   }
   a { color: var(--a2); text-decoration:none; }
 
@@ -222,7 +227,7 @@
     border:1px solid var(--border); border-bottom:none;
     box-shadow: 0 -20px 60px rgba(0,0,0,.6);
     transform: translateY(110%); transition: transform .32s cubic-bezier(.2,.8,.2,1);
-    max-height: 88dvh; display:flex; flex-direction:column;
+    max-height: 88vh; max-height: 88dvh; display:flex; flex-direction:column;
     padding-bottom: env(safe-area-inset-bottom);
   }
   #sheet.open { transform: translateY(0); }
@@ -380,7 +385,7 @@ let seenThoughts=0, thoughtsViewed=0;
 
 /* ---------------- WebSocket ---------------- */
 function wsUrl(){
-  return (location.protocol==="https:"?"wss://":"ws://")+(window.AI_COUNCIL_HOST||location.host||"localhost:8000")+"/ws/city";
+  return (location.protocol==="https:"?"wss://":"ws://")+(window.AI_COUNCIL_HOST||location.host||"localhost:8000")+"/ws/city"+AIAccess.wsParam();
 }
 function connect(){
   ws=new WebSocket(wsUrl());
@@ -522,11 +527,17 @@ function renderCity(){
     });
   });
 
-  fitStage(boardW);
+  fitStage(boardW, boardH);
 }
-function fitStage(boardW){
+function fitStage(boardW, boardH){
+  // Antes solo se ajustaba al ancho: en un movil en vertical el tablero
+  // suele caber en ancho pero sobrar en alto, y ese sobrante se recortaba
+  // (edificios y nombres cortados por el overflow:hidden de #stageWrap).
+  // Ahora se ajusta al mas restrictivo de los dos ejes.
   const wrap=document.getElementById("stageWrap");
-  const scale=Math.min(1, (wrap.clientWidth-16)/boardW);
+  const scaleW=(wrap.clientWidth-16)/boardW;
+  const scaleH=(wrap.clientHeight-16)/(boardH||1);
+  const scale=Math.min(1, scaleW, scaleH);
   document.getElementById("stageScale").style.transform=`scale(${scale})`;
 }
 window.addEventListener("resize",()=>{ if(world) renderCity(); });
@@ -776,7 +787,7 @@ document.getElementById("installBtn").onclick=async()=>{
 };
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
 
-connect();
+AIAccess.ready().then(connect);
 </script>
 </body>
 </html>
