@@ -167,6 +167,15 @@
     color:var(--muted); cursor:pointer; font-size:13px; flex-shrink:0; margin-left:4px; }
   #voiceToggle.on { color:var(--a4); border-color:var(--a4); }
 
+  /* Boton "Llamar a Claude": solo funciona con la clave secundaria que
+     solo conoce Fran (ver render.yaml CLAUDE_CALL_CODE). Visible para
+     cualquiera con acceso al chat, pero sin esa clave no hace nada. */
+  #callClaudeBtn { width:30px;height:30px;border-radius:50%; border:1px solid var(--border); background:#ffffff0d;
+    color:var(--muted); cursor:pointer; font-size:14px; flex-shrink:0; margin-left:auto; }
+  #callClaudeBtn:hover { color:var(--a5); border-color:var(--a5); }
+  .bubble.claude-call { background:rgba(255,203,71,.14); border:1px solid rgba(255,203,71,.4); }
+  .bubble.claude-call .nm { color:var(--a5) !important; }
+
   /* ---------- Adjuntos ---------- */
   #dropOverlay { position:fixed; inset:0; z-index:60; display:none; place-items:center;
     background:rgba(10,11,22,.82); backdrop-filter:blur(4px); border:3px dashed var(--a2); margin:10px; border-radius:20px; }
@@ -245,6 +254,7 @@
 <div id="topbar">
   <div class="logo">💬</div>
   <div class="titles"><b id="roomTitle">Chat Grupal</b><span id="roomSub">AI Council · sociedad digital</span></div>
+  <button id="callClaudeBtn" title="Pedir que Claude entre a aclarar dudas (solo Fran)">🔔</button>
   <button id="voiceToggle" title="Leer en voz alta las respuestas de las IA">🔇</button>
   <span class="conn down" id="connLabel"><span class="led"></span>conectando</span>
 </div>
@@ -296,6 +306,18 @@
     <p class="hint" id="kindHint">Elige tantas IA como quieras para el grupo.</p>
   </div>
   <div class="footer"><button id="createBtn" onclick="submitCreate()" disabled>Crear sala</button></div>
+</div>
+
+<div class="modal" id="claudeModal">
+  <div class="grip"></div>
+  <h3>🔔 Llamar a Claude</h3>
+  <div class="body">
+    <p class="hint">Deja marcada en el chat una petición para que Claude entre a aclarar dudas o preguntas de las IA. Solo funciona con tu clave, no con la de acceso general.</p>
+    <label>Tu clave</label>
+    <input type="password" id="claudeCode" placeholder="Clave secundaria" autocomplete="off" />
+    <p class="hint" id="claudeErr" style="color:var(--a3);min-height:16px"></p>
+  </div>
+  <div class="footer"><button id="claudeSubmitBtn" onclick="submitClaudeCall()">Avisar a Claude</button></div>
 </div>
 
 <script>
@@ -467,7 +489,8 @@ function appendMessage(m, skipScroll){
   const p = roster[m.sender_id];
   const row = document.createElement("div");
   row.className = "bubble-row"+(mine?" mine":"");
-  const av = mine ? "🧑" : (p? p.avatar : "🤖");
+  const isClaudeCall = m.sender_id==="claude_call";
+  const av = mine ? "🧑" : (isClaudeCall ? "🔔" : (p? p.avatar : "🤖"));
   const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}) : "";
   let bodyText = trimmedBody(m);
   let attCardHtml = "";
@@ -484,7 +507,7 @@ function appendMessage(m, skipScroll){
     }
   }
   const rlMatch = !mine && bodyText.match(RATE_LIMIT_RE);
-  const bubbleClass = rlMatch ? "bubble rate-limited" : "bubble";
+  const bubbleClass = rlMatch ? "bubble rate-limited" : (isClaudeCall ? "bubble claude-call" : "bubble");
   const nameHtml = mine ? "" : `<div class="nm" style="color:${(p&&p.color)||'#a2a7c4'}">${escapeHtml(m.sender_name)}</div>`;
   if(rlMatch){
     row.innerHTML = `<div class="av" style="background:${((p&&p.color)||'#7c5cff')+'33'}">${av}</div>
@@ -686,8 +709,44 @@ function openCreateModal(){
   document.getElementById("createModal").classList.add("open");
 }
 function closeModal(){
+  // Generico: cierra cualquier modal que este abierto (createModal o
+  // claudeModal), no solo el de crear sala. El backdrop es compartido.
   document.getElementById("backdrop").classList.remove("show");
-  document.getElementById("createModal").classList.remove("open");
+  document.querySelectorAll(".modal.open").forEach(m=>m.classList.remove("open"));
+}
+
+/* ---------------- Llamar a Claude ---------------- */
+document.getElementById("callClaudeBtn").onclick = ()=>{
+  document.getElementById("claudeCode").value = "";
+  document.getElementById("claudeErr").textContent = "";
+  document.getElementById("backdrop").classList.add("show");
+  document.getElementById("claudeModal").classList.add("open");
+  setTimeout(()=>document.getElementById("claudeCode").focus(), 60);
+};
+document.getElementById("claudeCode").addEventListener("keydown", e=>{
+  if(e.key==="Enter") submitClaudeCall();
+});
+async function submitClaudeCall(){
+  const code = document.getElementById("claudeCode").value.trim();
+  const err = document.getElementById("claudeErr");
+  if(!code) return;
+  const btn = document.getElementById("claudeSubmitBtn");
+  btn.disabled = true;
+  try{
+    const r = await AIAccess.fetch(`/conversations/${encodeURIComponent(currentRoomId)}/request-claude`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ code }),
+    });
+    if(!r.ok){
+      err.textContent = r.status===401 ? "Clave incorrecta." : "No se pudo avisar ahora mismo.";
+      btn.disabled = false;
+      return;
+    }
+    closeModal();
+    // el aviso llega solo por el WebSocket ya conectado, como un mensaje mas
+  }catch(e){
+    err.textContent = "Error: "+e;
+  }
+  btn.disabled = false;
 }
 function setKind(k){
   createKind = k;

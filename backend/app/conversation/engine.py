@@ -270,6 +270,23 @@ class ConversationEngine:
 
         await self._generate_replies(conv, content, to)
 
+    async def request_claude_intervention(self, conversation_id: str) -> None:
+        """Boton "Llamar a Claude": deja marcada en el chat una peticion de
+        intervencion, visible para todos con un estilo propio, PERO sin
+        disparar _generate_replies -las IA no reaccionan a esto, es solo
+        una senal para que Claude la vea la proxima vez que entre a mirar
+        el chat (a peticion de Fran) y responda de verdad."""
+        conv = self.get(conversation_id)
+        if conv is None:
+            raise KeyError(f"Conversacion '{conversation_id}' no existe")
+        msg = ConversationMessage.create(
+            "claude_call", "🔔 Aviso",
+            "Fran ha solicitado la intervención de Claude para aclarar dudas o preguntas.",
+        )
+        conv.add_message(msg)
+        await self._emit(conversation_id, "message", self._message_payload(msg))
+        await self._store_save()
+
     async def send_attachment(
         self, conversation_id: str, filename: str, size_bytes: int, kind: str,
         extracted_text: str | None, caption: str, to: list[str] | None = None,

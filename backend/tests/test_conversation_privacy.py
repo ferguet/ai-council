@@ -108,3 +108,26 @@ def test_snapshot_and_send_do_not_require_visitor_but_id_must_exist() -> None:
     eng = _engine()
     with pytest.raises(KeyError):
         eng.snapshot("no-existe")
+
+
+@pytest.mark.asyncio
+async def test_request_claude_intervention_posts_a_marker_without_ai_replies() -> None:
+    """El boton "Llamar a Claude" deja un mensaje marcado en el chat pero
+    NO debe llamar a ningun proveedor real (usa _FakeRegistry, que revienta
+    si algo la invoca): confirma que no dispara _generate_replies."""
+    eng = _engine()
+    conv = eng.ensure_default_conversation("visitor-a")
+
+    await eng.request_claude_intervention(conv.id)
+
+    assert len(conv.messages) == 1
+    marker = conv.messages[0]
+    assert marker.sender_id == "claude_call"
+    assert "Claude" in marker.content
+
+
+@pytest.mark.asyncio
+async def test_request_claude_intervention_raises_for_unknown_conversation() -> None:
+    eng = _engine()
+    with pytest.raises(KeyError):
+        await eng.request_claude_intervention("no-existe")

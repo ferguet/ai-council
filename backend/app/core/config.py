@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     # cualquiera. Sin configurar, la puerta queda abierta (desarrollo local).
     access_code: str | None = None
 
+    # Boton "Llamar a Claude" del Chat Grupal: clave SEGUNDA y distinta de
+    # ACCESS_CODE, que solo conoce Fran. ACCESS_CODE se reparte a quien
+    # invita a charlar con las IA; esta no se reparte a nadie, es solo para
+    # que Fran pueda dejar marcada en el chat una peticion de intervencion
+    # sin que cualquier visitante invitado pueda tocarla tambien. Sin
+    # configurar, el boton queda desactivado (falla cerrado, no abierto).
+    claude_call_code: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

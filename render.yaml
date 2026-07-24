@@ -57,6 +57,12 @@ services:
       - key: ACCESS_CODE
         sync: false
 
+      # Clave SEGUNDA y distinta de ACCESS_CODE, solo para el boton "Llamar
+      # a Claude" del Chat Grupal: esta NO se reparte a nadie, solo la sabe
+      # Fran. Sin configurar, el boton queda desactivado para todo el mundo.
+      - key: CLAUDE_CALL_CODE
+        sync: false
+
       # Director del debate
       - key: DIRECTOR_PROVIDER
         value: mock

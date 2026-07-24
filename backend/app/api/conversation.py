@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from app.conversation.attachments import extract_image, extract_text, kind_for
 from app.conversation.engine import ConversationEngine
 from app.core.access import require_visitor, require_visitor_ws
+from app.core.config import get_settings
 from app.core.event_bus import Event, event_bus
 from app.domain.conversation_models import ConversationKind
 
@@ -34,6 +35,10 @@ class CreateConversationIn(BaseModel):
 
 class KickInviteIn(BaseModel):
     citizen_id: str
+
+
+class RequestClaudeIn(BaseModel):
+    code: str
 
 
 def _engine(request: Request) -> ConversationEngine:
@@ -102,6 +107,24 @@ async def invite(conversation_id: str, body: KickInviteIn, request: Request, vis
         return eng.snapshot(conversation_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/conversations/{conversation_id}/request-claude")
+async def request_claude(
+    conversation_id: str, body: RequestClaudeIn, request: Request, visitor: str = Depends(require_visitor),
+) -> dict:
+    """Boton "Llamar a Claude": solo funciona con la clave SEGUNDA que solo
+    conoce Fran (CLAUDE_CALL_CODE), distinta de la clave de acceso general
+    que se reparte a los invitados. Sin esa clave configurada en el
+    servidor, el boton falla cerrado (nunca abierto) para nadie."""
+    settings = get_settings()
+    if not settings.claude_call_code or body.code != settings.claude_call_code:
+        raise HTTPException(status_code=401, detail="Clave incorrecta")
+    eng = _engine(request)
+    if eng.get_owned(conversation_id, visitor) is None:
+        raise HTTPException(status_code=404, detail="Conversacion no encontrada")
+    await eng.request_claude_intervention(conversation_id)
+    return eng.snapshot(conversation_id)
 
 
 @router.post("/conversations/{conversation_id}/attachments")
