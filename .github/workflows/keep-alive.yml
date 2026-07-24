@@ -1,0 +1,24 @@
+name: Keep AI Council awake
+
+# Render duerme los servicios web gratuitos tras ~15 min sin trafico HTTP
+# (con un "cold start" de 30-60s al despertar). Para que la Ciudad Virtual
+# viva de verdad 24/7 -y no solo cuando alguien la visita- este workflow
+# la visita cada 10 minutos desde los servidores de GitHub, sin depender
+# de que el ordenador de nadie este encendido.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}  # permite lanzarlo a mano desde la pestana Actions, para probar
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://ai-council-ekax.onrender.com/health)
+          echo "Respuesta: $code"
+          if [ "$code" != "200" ]; then
+            echo "El servicio no respondio 200 (respondio $code)"
+            exit 1
+          fi
