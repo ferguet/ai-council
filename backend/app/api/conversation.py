@@ -117,9 +117,16 @@ async def request_claude(
     conoce Fran (CLAUDE_CALL_CODE), distinta de la clave de acceso general
     que se reparte a los invitados. Sin esa clave configurada en el
     servidor, el boton falla cerrado (nunca abierto) para nadie."""
+    # 403, no 401: en esta app 401 significa "tu token de visitante ya no
+    # vale" y access.js reacciona a CUALQUIER 401 borrando el token y
+    # recargando la pagina (ver authFetch en access.js) -si esto devolviera
+    # 401 al escribir mal la clave secundaria, Fran saldria expulsado de
+    # toda la sesion y tendria que volver a meter la clave de acceso
+    # general solo por fallar aqui. 403 es "clave incorrecta", no "sesion
+    # invalida", y no dispara ese efecto.
     settings = get_settings()
     if not settings.claude_call_code or body.code != settings.claude_call_code:
-        raise HTTPException(status_code=401, detail="Clave incorrecta")
+        raise HTTPException(status_code=403, detail="Clave incorrecta")
     eng = _engine(request)
     if eng.get_owned(conversation_id, visitor) is None:
         raise HTTPException(status_code=404, detail="Conversacion no encontrada")

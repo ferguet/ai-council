@@ -737,7 +737,7 @@ async function submitClaudeCall(){
       method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ code }),
     });
     if(!r.ok){
-      err.textContent = r.status===401 ? "Clave incorrecta." : "No se pudo avisar ahora mismo.";
+      err.textContent = r.status===403 ? "Clave incorrecta." : "No se pudo avisar ahora mismo.";
       btn.disabled = false;
       return;
     }
