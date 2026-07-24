@@ -2,8 +2,8 @@
    rapido cacheando el "cascaron". Los datos de la ciudad (WebSocket y API)
    nunca se cachean: siempre van en directo al servidor para ver el estado
    real. */
-const CACHE = "ciudad-ia-v1";
-const SHELL = ["city.html", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const CACHE = "ciudad-ia-v2";
+const SHELL = ["index.html", "city.html", "debate.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
@@ -21,6 +21,7 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   // Nunca cachear API ni websockets: siempre en vivo.
   if (e.request.method !== "GET" || url.pathname.startsWith("/city") ||
+      url.pathname.startsWith("/conversations") ||
       url.pathname.startsWith("/ws") || url.pathname.startsWith("/providers") ||
       url.pathname.startsWith("/health")) {
     return; // deja pasar a la red normal

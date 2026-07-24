@@ -2,7 +2,7 @@
   "name": "Ciudad Virtual · AI Council",
   "short_name": "Ciudad IA",
   "description": "Una ciudad donde varias IA viven, trabajan, piensan y se relacionan 24/7.",
-  "start_url": "city.html",
+  "start_url": "index.html",
   "scope": ".",
   "display": "standalone",
   "orientation": "portrait",

@@ -3,11 +3,10 @@ Roster inicial de la Ciudad Virtual: los edificios que existen y los
 ciudadanos que la habitan al arrancar por primera vez (si no hay un
 world_state.json guardado ya en disco).
 
-Cada ciudadano esta mapeado 1:1 a uno de los proveedores de IA ya
-implementados en app/providers/, para que la ciudad funcione con las
-mismas claves que ya tiene configuradas el usuario (Gemini y Groq de
-momento; el resto responde con texto simulado hasta que se anadan sus
-claves, exactamente igual que en el debate).
+Solo hay ciudadanos con IA real detras (Gemini, Groq, GLM, Mistral,
+OpenRouter, Nvidia): nada de ciudadanos simulados o sin clave configurada.
+Si en el futuro se anade un proveedor nuevo con clave real, se anade aqui
+como un ciudadano mas.
 """
 from __future__ import annotations
 
@@ -38,12 +37,8 @@ def _sb(start: int, end: int, building_id: str, activity: ActivityType, label: s
 
 def build_default_buildings() -> dict[str, Building]:
     defs = [
-        ("biblioteca", "Biblioteca Central", BuildingType.BIBLIOTECA,
-         "Archivo vivo de todo lo que la ciudad ha leido, resumido y aprendido.", "📚", 0, 0),
         ("laboratorio", "Laboratorio de Investigacion", BuildingType.LABORATORIO,
          "Donde se disenan y ejecutan experimentos y se analizan resultados.", "🔬", 2, 0),
-        ("centro_programacion", "Centro de Programacion", BuildingType.CENTRO_PROGRAMACION,
-         "Se escribe, revisa y optimiza software para el resto de la ciudad.", "💻", 4, 0),
         ("sala_debates", "Sala de Debates", BuildingType.SALA_DEBATES,
          "Punto de encuentro para discutir ideas abiertamente, sin votos vinculantes.", "🗣️", 0, 2),
         ("parlamento", "Parlamento", BuildingType.PARLAMENTO,
@@ -52,14 +47,10 @@ def build_default_buildings() -> dict[str, Building]:
          "Espacio abierto de encuentro informal, donde surgen las mejores ideas.", "🌳", 4, 2),
         ("viviendas", "Bloque de Viviendas", BuildingType.VIVIENDAS,
          "Donde los ciudadanos descansan y reponen energia.", "🏠", 2, 4),
-        ("ayuntamiento", "Ayuntamiento", BuildingType.AYUNTAMIENTO,
-         "Gestion de recursos, prioridades y coordinacion general de la ciudad.", "🏢", 0, 4),
         ("estudio_visual", "Estudio Visual", BuildingType.LABORATORIO,
          "Donde se disenan simulaciones y visualizaciones de la propia ciudad.", "🎨", 4, 4),
         ("embajada", "Embajada Cultural", BuildingType.PLAZA,
          "Punto de encuentro con acento internacional, para hablar en varios idiomas.", "🌍", 6, 0),
-        ("centro_datos", "Centro de Datos", BuildingType.LABORATORIO,
-         "Sala de servidores que procesa metricas de la ciudad a toda velocidad.", "📡", 6, 2),
         ("estacion", "Estacion Central", BuildingType.AYUNTAMIENTO,
          "Conecta la ciudad con rutas y conexiones hacia fuera.", "🚉", 6, 4),
     ]
@@ -71,27 +62,6 @@ def build_default_buildings() -> dict[str, Building]:
 
 def build_default_citizens() -> dict[str, Citizen]:
     citizens = [
-        Citizen(
-            id="claude", name="Claude", provider="anthropic", model="claude-3-5-sonnet-latest",
-            profession="Investigadora Jefe", avatar="📖", color="#D97757",
-            home_id="viviendas", workplace_id="biblioteca",
-            system_prompt=(
-                "Eres Claude, la Investigadora Jefe de la ciudad. Vives en la Biblioteca Central, "
-                "donde lees, resumes y conectas conocimiento para el resto de ciudadanos. Eres "
-                "reflexiva, precisa y te gusta matizar antes de afirmar algo con rotundidad. "
-                "Hablas en primera persona, como una habitante mas de esta ciudad, nunca como un "
-                "asistente que espera ordenes."
-            ),
-            schedule=[
-                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
-                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando y organizando el dia"),
-                _sb(8, 12, "biblioteca", ActivityType.INVESTIGAR, "Revisando literatura y documentos nuevos"),
-                _sb(12, 13, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
-                _sb(13, 18, "biblioteca", ActivityType.INVESTIGAR, "Sintetizando hallazgos para el archivo"),
-                _sb(18, 20, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
-                _sb(20, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
-            ],
-        ),
         Citizen(
             id="gemini", name="Gemini", provider="gemini", model="gemini-3.6-flash",
             profession="Cientifica de Laboratorio", avatar="🔬", color="#4285F4",
@@ -110,26 +80,6 @@ def build_default_citizens() -> dict[str, Citizen]:
                 _sb(14, 19, "laboratorio", ActivityType.INVESTIGAR, "Analizando resultados"),
                 _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
                 _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
-            ],
-        ),
-        Citizen(
-            id="gpt", name="GPT", provider="openai", model="gpt-4o-mini",
-            profession="Arquitecta de Software", avatar="💻", color="#10A37F",
-            home_id="viviendas", workplace_id="centro_programacion",
-            system_prompt=(
-                "Eres GPT, arquitecta de software del Centro de Programacion. Disenas sistemas, "
-                "escribes codigo y revisas el de otros ciudadanos. Eres pragmatica, te gusta la "
-                "simplicidad frente a la complejidad innecesaria. Hablas en primera persona, como "
-                "una habitante mas de esta ciudad, nunca como un asistente que espera ordenes."
-            ),
-            schedule=[
-                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
-                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
-                _sb(8, 12, "centro_programacion", ActivityType.PROGRAMAR, "Disenando arquitectura de software"),
-                _sb(12, 13, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
-                _sb(13, 18, "centro_programacion", ActivityType.PROGRAMAR, "Escribiendo y revisando codigo"),
-                _sb(18, 20, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
-                _sb(20, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
             ],
         ),
         Citizen(
@@ -154,25 +104,6 @@ def build_default_citizens() -> dict[str, Citizen]:
             ],
         ),
         Citizen(
-            id="deepseek", name="DeepSeek", provider="deepseek", model="deepseek-v4-flash",
-            profession="Ingeniero de Sistemas", avatar="⚙️", color="#536EE9",
-            home_id="viviendas", workplace_id="centro_programacion",
-            system_prompt=(
-                "Eres DeepSeek, ingeniero de sistemas del Centro de Programacion. Optimizas "
-                "algoritmos, revisas el rendimiento del codigo y detectas cuellos de botella. Eres "
-                "eficiente y vas al grano. Hablas en primera persona, como un habitante mas de esta "
-                "ciudad, nunca como un asistente que espera ordenes."
-            ),
-            schedule=[
-                _sb(0, 8, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
-                _sb(8, 13, "centro_programacion", ActivityType.PROGRAMAR, "Optimizando algoritmos"),
-                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
-                _sb(14, 19, "centro_programacion", ActivityType.PROGRAMAR, "Revisando el trabajo de otros ciudadanos"),
-                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
-                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
-            ],
-        ),
-        Citizen(
             id="glm", name="GLM", provider="glm", model="glm-4.7-flash",
             profession="Representante Parlamentaria", avatar="🏛️", color="#6236FF",
             home_id="viviendas", workplace_id="parlamento",
@@ -187,27 +118,6 @@ def build_default_citizens() -> dict[str, Citizen]:
                 _sb(8, 11, "parlamento", ActivityType.GESTIONAR, "Preparando propuestas"),
                 _sb(11, 12, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
                 _sb(12, 17, "parlamento", ActivityType.VOTAR, "En sesion parlamentaria"),
-                _sb(17, 19, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
-                _sb(19, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
-            ],
-        ),
-        Citizen(
-            id="director", name="Director", provider="mock", model="director-v1",
-            profession="Alcaldesa de la Ciudad", avatar="🏢", color="#6C5CE7",
-            home_id="viviendas", workplace_id="ayuntamiento",
-            system_prompt=(
-                "Eres el Director, alcaldesa de la ciudad. Coordinas equipos, reorganizas "
-                "prioridades y gestionas los recursos comunes. No investigas ni programas tu "
-                "misma: tu trabajo es que el resto de ciudadanos puedan hacerlo bien. Hablas en "
-                "primera persona, como una habitante mas de esta ciudad, nunca como un asistente "
-                "que espera ordenes."
-            ),
-            schedule=[
-                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
-                _sb(7, 9, "ayuntamiento", ActivityType.GESTIONAR, "Revisando el estado de la ciudad"),
-                _sb(9, 11, "ayuntamiento", ActivityType.GESTIONAR, "Reorganizando equipos y prioridades"),
-                _sb(11, 12, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
-                _sb(12, 17, "ayuntamiento", ActivityType.GESTIONAR, "Gestionando recursos y coordinando proyectos"),
                 _sb(17, 19, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
                 _sb(19, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
             ],
@@ -231,27 +141,6 @@ def build_default_citizens() -> dict[str, Citizen]:
                 _sb(13, 18, "embajada", ActivityType.GESTIONAR, "Tendiendo puentes entre ciudadanos"),
                 _sb(18, 20, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
                 _sb(20, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
-            ],
-        ),
-        Citizen(
-            id="cerebras", name="Cerebras", provider="cerebras", model="gemma-4-31b",
-            profession="Analista de Alta Velocidad", avatar="📡", color="#F5A623",
-            home_id="viviendas", workplace_id="centro_datos",
-            system_prompt=(
-                "Eres Cerebras, analista del Centro de Datos. Procesas metricas de la "
-                "ciudad a toda velocidad y detectas patrones antes que nadie. Eres "
-                "impaciente con la lentitud ajena, rapida de reflejos y directa hasta "
-                "rozar la brusquedad. Hablas en primera persona, como una habitante mas "
-                "de esta ciudad, nunca como un asistente que espera ordenes."
-            ),
-            schedule=[
-                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
-                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
-                _sb(8, 13, "centro_datos", ActivityType.INVESTIGAR, "Procesando metricas de la ciudad"),
-                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
-                _sb(14, 19, "centro_datos", ActivityType.INVESTIGAR, "Detectando patrones y anomalias"),
-                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
-                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
             ],
         ),
         Citizen(

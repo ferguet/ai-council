@@ -9,7 +9,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.agents.presets import ROLE_PRESETS
 from app.api.city import router as city_router
+from app.api.conversation import router as conversation_router
 from app.api.websocket import router as websocket_router
+from app.conversation.engine import ConversationEngine
+from app.conversation.persistence import ConversationStore
+from app.conversation.roster import build_active_roster
 from app.core.config import get_settings
 from app.core.event_bus import event_bus
 from app.providers.registry import ProviderRegistry
@@ -36,6 +40,7 @@ app.add_middleware(
 
 app.include_router(websocket_router)
 app.include_router(city_router)
+app.include_router(conversation_router)
 
 
 def _refresh_personalities(world) -> None:
@@ -52,6 +57,39 @@ def _refresh_personalities(world) -> None:
             citizen.system_prompt = default.system_prompt
             citizen.provider = default.provider
             citizen.model = default.model
+
+
+def _prune_removed_roster(world) -> None:
+    """Quita del mundo ya guardado los ciudadanos y edificios que ya no
+    estan en el roster de codigo (p.ej. ciudadanos simulados que se
+    decidio eliminar para dejar solo IA reales). Tambien limpia proyectos
+    sin ningun propietario vivo y referencias colgantes (edificio actual,
+    proyecto actual, relaciones) en los ciudadanos que quedan. Los eventos
+    historicos NO se tocan: son un registro, y el frontend ya sabe pintar
+    un evento aunque el ciudadano ya no exista."""
+    defaults_citizens = build_default_citizens()
+    defaults_buildings = build_default_buildings()
+
+    for cid in [c for c in world.citizens if c not in defaults_citizens]:
+        del world.citizens[cid]
+    for bid in [b for b in world.buildings if b not in defaults_buildings]:
+        del world.buildings[bid]
+
+    for pid in [p for p, proj in world.projects.items()
+                if not any(oid in world.citizens for oid in proj.owner_ids)]:
+        del world.projects[pid]
+
+    for citizen in world.citizens.values():
+        if citizen.current_building_id not in world.buildings:
+            citizen.current_building_id = (
+                citizen.home_id if citizen.home_id in world.buildings
+                else next(iter(world.buildings), "")
+            )
+        if citizen.current_project_id and citizen.current_project_id not in world.projects:
+            citizen.current_project_id = None
+        citizen.relationships = {
+            oid: rel for oid, rel in citizen.relationships.items() if oid in world.citizens
+        }
 
 
 def _sync_new_roster(world) -> None:
@@ -90,6 +128,16 @@ def _build_store():
     return WorldStore(settings.sim_data_path)
 
 
+def _build_conversation_store():
+    """Igual que _build_store() pero para el Chat Grupal: Postgres si hay
+    DATABASE_URL, si no un JSON local aparte (fichero y tabla distintos a
+    los de la Ciudad, misma logica de intercambiabilidad)."""
+    if settings.database_url:
+        from app.conversation.persistence_pg import PostgresConversationStore
+        return PostgresConversationStore(settings.database_url)
+    return ConversationStore(settings.conversation_data_path)
+
+
 @app.on_event("startup")
 async def start_city() -> None:
     """Arranca la Ciudad Virtual: carga el mundo guardado (o crea uno nuevo
@@ -98,6 +146,7 @@ async def start_city() -> None:
     registry = ProviderRegistry(settings)
     store = _build_store()
     world = await store.load() if await store.exists() else build_default_world()
+    _prune_removed_roster(world)
     _sync_new_roster(world)
     _refresh_personalities(world)
     await store.save(world)
@@ -117,6 +166,23 @@ async def start_city() -> None:
     if settings.sim_autostart:
         scheduler.start()
 
+    # Chat Grupal: la sala "General" nace con todas las IA reales ya dentro,
+    # sin que el usuario tenga que anadirlas a mano. Reusa el mismo registry
+    # de proveedores que la Ciudad (misma configuracion, sin duplicar claves).
+    conv_store = _build_conversation_store()
+    conversations = await conv_store.load() if await conv_store.exists() else {}
+    roster = build_active_roster(registry)
+    conv_engine = ConversationEngine(
+        conversations=conversations,
+        roster=roster,
+        registry=registry,
+        event_bus=event_bus,
+        store=conv_store,
+    )
+    conv_engine.ensure_default_conversation()
+    await conv_engine.save()
+    app.state.conversation_engine = conv_engine
+
 
 @app.on_event("shutdown")
 async def stop_city() -> None:
@@ -127,6 +193,11 @@ async def stop_city() -> None:
     if engine:
         await engine.save()
         await engine.close()
+
+    conv_engine: ConversationEngine | None = getattr(app.state, "conversation_engine", None)
+    if conv_engine:
+        await conv_engine.save()
+        await conv_engine.close()
 
 
 @app.get("/health")

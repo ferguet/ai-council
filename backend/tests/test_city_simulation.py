@@ -81,9 +81,9 @@ async def test_talk_to_citizen_returns_text_and_remembers_it() -> None:
             world=world, registry=_AllMockRegistry(), event_bus=EventBus(),
             store=store, hours_per_tick=1, real_ai_interval_minutes=1440,
         )
-        reply = await engine.talk_to_citizen("claude", "Hola, ¿que investigas hoy?")
+        reply = await engine.talk_to_citizen("gemini", "Hola, ¿que investigas hoy?")
         assert isinstance(reply, str) and reply.strip() != ""
-        assert any("visitante" in m for m in world.citizens["claude"].memory)
+        assert any("visitante" in m for m in world.citizens["gemini"].memory)
 
 
 def test_talk_to_unknown_citizen_raises_keyerror() -> None:

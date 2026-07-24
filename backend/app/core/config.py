@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     sim_hours_per_tick: int = 1          # cuantas horas simuladas avanza cada tick
     sim_real_ai_interval_minutes: int = 15  # minimo tiempo real entre llamadas reales de "pensamiento" por ciudadano
     sim_data_path: str = "data/city_state.json"
+
+    # Chat Grupal (Interfaz de conversacion)
+    conversation_data_path: str = "data/conversations.json"
     sim_autostart: bool = True
     # Si esta configurada (p.ej. Postgres de Supabase), la ciudad se guarda
     # ahi en vez de en el disco local. Necesario para desplegar en un

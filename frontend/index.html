@@ -2,267 +2,528 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
-<title>AI Council</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Chat Grupal · AI Council</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0d17" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Ciudad IA" />
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <style>
   :root {
-    --bg: #0f1117; --panel: #171a23; --border: #262a36; --text: #e7e9ee;
-    --muted: #9aa0ad; --accent: #6c5ce7;
+    --bg0:#0a0b16; --bg1:#12132a; --bg2:#1a1140;
+    --glass: rgba(28,30,54,0.55);
+    --glass-strong: rgba(30,32,60,0.8);
+    --border: rgba(255,255,255,0.10);
+    --border-lit: rgba(255,255,255,0.22);
+    --text:#eef1fb; --muted:#a2a7c4;
+    --a1:#7c5cff; --a2:#20c5ff; --a3:#ff5ca8; --a4:#39e0a6; --a5:#ffcb47;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; }
   body {
-    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-    background: var(--bg); color: var(--text); height: 100vh; display: flex;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(124,92,255,0.35), transparent 60%),
+      radial-gradient(900px 600px at -10% 20%, rgba(32,197,255,0.22), transparent 55%),
+      radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
+      linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
+    background-attachment: fixed;
+    height: 100dvh; display:flex; flex-direction:column; overflow:hidden;
   }
-  #setup {
-    width: 380px; min-width: 380px; border-right: 1px solid var(--border);
-    padding: 20px; overflow-y: auto; background: var(--panel);
-  }
-  #setup h1 { font-size: 20px; margin: 0 0 4px; }
-  #setup p.sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
-  input[type=text], textarea, select {
-    width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
-    background: #0f1117; color: var(--text); font-size: 13px;
-  }
-  textarea { resize: vertical; min-height: 50px; }
-  .agent-card {
-    border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-top: 10px;
-    background: #12141c;
-  }
-  .agent-card-head { display: flex; justify-content: space-between; align-items: center; }
-  .agent-card-head button { background: none; border: none; color: #ff7675; cursor: pointer; font-size: 16px; }
-  .row2 { display: flex; gap: 8px; }
-  .row2 > div { flex: 1; }
-  button.primary {
-    width: 100%; margin-top: 18px; padding: 11px; border-radius: 10px; border: none;
-    background: var(--accent); color: white; font-weight: 600; cursor: pointer; font-size: 14px;
-  }
-  button.primary:disabled { opacity: .5; cursor: not-allowed; }
-  button.secondary {
-    width: 100%; margin-top: 8px; padding: 9px; border-radius: 10px; border: 1px dashed var(--border);
-    background: transparent; color: var(--muted); cursor: pointer; font-size: 13px;
-  }
-  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  a { color: var(--a2); text-decoration:none; }
+  button { font-family: inherit; }
+
+  /* ---------- Top bar ---------- */
   #topbar {
-    padding: 14px 22px; border-bottom: 1px solid var(--border); display: flex;
-    justify-content: space-between; align-items: center;
+    display:flex; align-items:center; gap:12px; padding:12px 16px;
+    padding-top: max(12px, env(safe-area-inset-top));
+    backdrop-filter: blur(18px) saturate(140%);
+    background: linear-gradient(180deg, rgba(12,13,28,0.75), rgba(12,13,28,0.25));
+    border-bottom:1px solid var(--border); flex-shrink:0; z-index:20;
   }
-  #topbar .status { font-size: 12px; color: var(--muted); }
-  #chat { flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
-  .msg { max-width: 72%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.45; }
-  .msg .who { font-size: 11px; font-weight: 700; margin-bottom: 4px; opacity: .85; }
-  .msg.agent { background: #1c1f2b; align-self: flex-start; border-left: 3px solid var(--accent); }
-  .msg.user { background: var(--accent); align-self: flex-end; color: white; }
-  .msg.director { background: transparent; align-self: center; color: var(--muted); font-style: italic; font-size: 12px; border: 1px dashed var(--border); }
-  .msg.system { background: transparent; align-self: center; color: #ff7675; font-size: 12px; }
-  #composer { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
-  #composer input { flex: 1; }
-  #composer button { padding: 0 18px; border-radius: 10px; border: none; background: var(--accent); color: white; cursor: pointer; }
-  .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; }
-  .typing { font-size: 12px; color: var(--muted); font-style: italic; padding: 0 22px 8px; min-height: 18px; }
+  #topbar .logo {
+    width:34px;height:34px;border-radius:11px;flex-shrink:0;
+    background: conic-gradient(from 200deg, var(--a1), var(--a2), var(--a3), var(--a5), var(--a1));
+    display:grid;place-items:center;font-size:18px;
+    box-shadow: 0 6px 20px rgba(124,92,255,0.5);
+  }
+  #topbar .titles { line-height:1.15; }
+  #topbar .titles b { font-size:15px; letter-spacing:.2px; }
+  #topbar .titles span { display:block; font-size:11px; color:var(--muted); }
+  .conn { margin-left:auto; font-size:10px; padding:4px 9px; border-radius:20px; border:1px solid var(--border);
+          color:var(--muted); display:inline-flex; align-items:center; gap:5px; flex-shrink:0; }
+  .conn .led { width:7px;height:7px;border-radius:50%; background:var(--muted); }
+  .conn.live { color:var(--a4); border-color:rgba(57,224,166,.5); }
+  .conn.live .led { background:var(--a4); box-shadow:0 0 8px var(--a4); animation:pulse 1.6s infinite; }
+  .conn.down { color:var(--a3); border-color:rgba(255,92,168,.4); }
+  .conn.down .led { background:var(--a3); }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  /* ---------- Room chips ---------- */
+  #rooms {
+    display:flex; gap:7px; padding:10px 12px; overflow-x:auto; flex-shrink:0;
+    border-bottom:1px solid var(--border); -webkit-overflow-scrolling:touch;
+  }
+  #rooms::-webkit-scrollbar { display:none; }
+  .room-chip {
+    flex-shrink:0; display:flex; align-items:center; gap:6px; padding:7px 13px;
+    border-radius:20px; background:var(--glass); border:1px solid var(--border);
+    color:var(--muted); font-size:12.5px; cursor:pointer; backdrop-filter:blur(10px);
+    white-space:nowrap;
+  }
+  .room-chip.active { color:var(--text); border-color:var(--border-lit); background:rgba(124,92,255,.22); }
+  .room-chip .cnt { background:#fff2; border-radius:10px; padding:0 6px; font-size:10.5px; }
+  #newRoomBtn {
+    flex-shrink:0; width:32px;height:32px; border-radius:50%; border:1px dashed var(--border-lit);
+    background:transparent; color:var(--text); font-size:16px; cursor:pointer;
+  }
+
+  /* ---------- Participants strip ---------- */
+  #participants {
+    display:flex; gap:10px; padding:10px 14px; overflow-x:auto; flex-shrink:0;
+    -webkit-overflow-scrolling:touch;
+  }
+  #participants::-webkit-scrollbar { display:none; }
+  .pchip { flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; width:52px; }
+  .pchip .av {
+    width:38px;height:38px;border-radius:50%; display:grid; place-items:center; font-size:18px;
+    border:2px solid #fff2; background:#0b0d17; position:relative; transition:.15s;
+  }
+  .pchip.excluded .av { opacity:.35; filter:grayscale(1); border-style:dashed; }
+  .pchip.notin .av { opacity:.28; border-style:dotted; }
+  .pchip .av .dot { position:absolute; bottom:-1px; right:-1px; width:11px;height:11px;border-radius:50%;
+    background:var(--a4); border:2px solid var(--bg1); }
+  .pchip.excluded .av .dot { background:var(--muted); }
+  .pchip .nm { font-size:9px; color:var(--muted); text-align:center; max-width:52px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .pchip:active .av { transform:scale(.92); }
+
+  /* ---------- Messages ---------- */
+  #messages { flex:1; overflow-y:auto; padding:10px 14px; display:flex; flex-direction:column; gap:10px;
+    -webkit-overflow-scrolling:touch; }
+  .bubble-row { display:flex; gap:8px; align-items:flex-end; max-width:88%; }
+  .bubble-row.mine { align-self:flex-end; flex-direction:row-reverse; }
+  .bubble-row .av { width:26px;height:26px;border-radius:50%; display:grid;place-items:center; font-size:13px;
+    flex-shrink:0; border:1.5px solid #fff2; }
+  .bubble {
+    padding:9px 13px; border-radius:16px; font-size:13.5px; line-height:1.48;
+    background:#ffffff10; border:1px solid var(--border);
+  }
+  .bubble-row.mine .bubble { background:linear-gradient(135deg,var(--a1),#5b45d6); color:#fff; border:none;
+    border-bottom-right-radius:4px; }
+  .bubble-row:not(.mine) .bubble { border-bottom-left-radius:4px; }
+  .bubble .nm { font-size:10.5px; font-weight:700; margin-bottom:3px; opacity:.85; }
+  .bubble .tm { font-size:9.5px; color:var(--muted); margin-top:3px; opacity:.7; }
+  .bubble-row.mine .bubble .tm { color:#ffffffb0; }
+  .system-line { align-self:center; font-size:11px; color:var(--muted); font-style:italic; padding:2px 10px; }
+  #typingBar { padding:0 16px 4px; font-size:11.5px; color:var(--muted); font-style:italic; min-height:16px; }
+  .empty { color:var(--muted); font-size:13px; text-align:center; padding:40px 20px; line-height:1.6; }
+
+  /* ---------- Composer ---------- */
+  #targetBar {
+    display:none; padding:6px 14px; gap:6px; flex-wrap:wrap; border-top:1px solid var(--border);
+  }
+  #targetBar.show { display:flex; }
+  #targetBar .tchip { font-size:10.5px; padding:3px 9px; border-radius:12px; border:1px solid var(--border-lit);
+    background:rgba(124,92,255,.18); color:var(--text); }
+  #composer { display:flex; gap:8px; align-items:center; padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--border); flex-shrink:0; }
+  #targetToggle { width:38px;height:38px;border-radius:50%; border:1px solid var(--border); background:#ffffff0d;
+    color:var(--muted); cursor:pointer; font-size:15px; flex-shrink:0; }
+  #targetToggle.on { color:var(--a5); border-color:var(--a5); }
+  #composer input { flex:1; padding:11px 14px; border-radius:22px; border:1px solid var(--border);
+    background:#ffffff0d; color:var(--text); font-size:13.5px; outline:none; min-width:0; }
+  #composer input:focus { border-color:var(--border-lit); }
+  #composer button.send { width:44px;height:44px;border-radius:50%; border:none; cursor:pointer; font-size:17px;
+    color:#fff; background:linear-gradient(135deg,var(--a1),var(--a3)); box-shadow:0 6px 16px rgba(124,92,255,.5);
+    flex-shrink:0; }
+
+  /* ---------- Bottom nav ---------- */
+  #nav {
+    display:flex; flex-shrink:0; gap:4px; padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+    background: linear-gradient(0deg, rgba(10,11,22,0.9), rgba(10,11,22,0.4));
+    backdrop-filter: blur(18px); border-top:1px solid var(--border); z-index:20;
+  }
+  #nav button {
+    flex:1; border:none; background:transparent; color:var(--muted); cursor:pointer;
+    padding:6px 2px; border-radius:12px; display:flex; flex-direction:column; align-items:center; gap:3px;
+    font-size:10.5px; transition:.15s;
+  }
+  #nav button .ic { font-size:19px; }
+  #nav button.active { color:var(--text); background:rgba(124,92,255,.18); box-shadow: inset 0 0 0 1px var(--border-lit); }
+
+  /* ---------- Modals ---------- */
+  #backdrop { position:fixed; inset:0; background:rgba(0,0,0,.55); backdrop-filter:blur(2px);
+    opacity:0; pointer-events:none; transition:.25s; z-index:45; }
+  #backdrop.show { opacity:1; pointer-events:auto; }
+  .modal {
+    position:fixed; left:0; right:0; bottom:0; z-index:50;
+    background: linear-gradient(180deg, rgba(24,26,50,0.97), rgba(14,15,32,0.99));
+    border-top-left-radius:24px; border-top-right-radius:24px;
+    border:1px solid var(--border); border-bottom:none;
+    box-shadow: 0 -20px 60px rgba(0,0,0,.6);
+    transform: translateY(110%); transition: transform .3s cubic-bezier(.2,.8,.2,1);
+    max-height: 82dvh; display:flex; flex-direction:column;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .modal.open { transform: translateY(0); }
+  .modal .grip { width:42px;height:5px;border-radius:3px;background:#fff3; margin:10px auto 4px; }
+  .modal h3 { padding:2px 20px 8px; font-size:16px; margin:0; }
+  .modal .body { overflow-y:auto; padding:0 20px 16px; }
+  .modal label { display:block; font-size:11px; color:var(--muted); margin:12px 0 5px; text-transform:uppercase; letter-spacing:.06em; }
+  .modal input[type=text] {
+    width:100%; padding:10px 13px; border-radius:12px; border:1px solid var(--border);
+    background:#ffffff0d; color:var(--text); font-size:13.5px; outline:none;
+  }
+  .kind-row { display:flex; gap:8px; margin-top:4px; }
+  .kind-btn { flex:1; padding:9px; border-radius:12px; border:1px solid var(--border); background:#ffffff0a;
+    color:var(--muted); text-align:center; font-size:12.5px; cursor:pointer; }
+  .kind-btn.sel { color:var(--text); border-color:var(--border-lit); background:rgba(124,92,255,.2); }
+  .roster-grid { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .roster-pick {
+    display:flex; align-items:center; gap:6px; padding:6px 10px 6px 6px; border-radius:20px;
+    border:1px solid var(--border); background:#ffffff0a; cursor:pointer; font-size:12px; color:var(--muted);
+  }
+  .roster-pick .av { width:24px;height:24px;border-radius:50%; display:grid;place-items:center; font-size:13px; }
+  .roster-pick.sel { color:var(--text); border-color:var(--border-lit); background:rgba(124,92,255,.2); }
+  .modal .footer { padding:10px 20px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid var(--border); }
+  .modal .footer button {
+    width:100%; padding:12px; border-radius:14px; border:none; cursor:pointer; font-size:14px; font-weight:600;
+    color:#fff; background:linear-gradient(135deg,var(--a1),var(--a2));
+  }
+  .modal .footer button:disabled { opacity:.4; cursor:not-allowed; }
+  .hint { font-size:11.5px; color:var(--muted); line-height:1.5; margin-top:2px; }
 </style>
 </head>
 <body>
 
-<div id="setup">
-  <h1>AI Council</h1>
-  <p class="sub">Configura el tema y quién participa en el debate. <a href="city.html" style="color:var(--accent);">🏙️ Ver Ciudad Virtual</a></p>
-
-  <label>Tema del debate</label>
-  <textarea id="topic" placeholder="Ej: ¿Deberíamos invertir en esta empresa?"></textarea>
-
-  <div id="agents"></div>
-  <button class="secondary" onclick="addAgentCard()">+ Añadir participante</button>
-
-  <button class="primary" id="startBtn" onclick="startDebate()">Iniciar debate</button>
-  <p class="sub" style="margin-top:10px;">Prueba primero con proveedor <b>mock</b>: funciona sin ninguna API key.</p>
+<div id="topbar">
+  <div class="logo">💬</div>
+  <div class="titles"><b id="roomTitle">Chat Grupal</b><span id="roomSub">AI Council · sociedad digital</span></div>
+  <span class="conn down" id="connLabel"><span class="led"></span>conectando</span>
 </div>
 
-<div id="main">
-  <div id="topbar">
-    <strong id="topicLabel">Sin debate activo</strong>
-    <span class="status" id="statusLabel"></span>
+<div id="rooms"></div>
+
+<div id="participants"></div>
+
+<div id="messages"><div class="empty">Cargando la sala…</div></div>
+<div id="typingBar"></div>
+
+<div id="targetBar"></div>
+<div id="composer">
+  <button id="targetToggle" title="Elegir destinatarios">🎯</button>
+  <input id="msgInput" placeholder="Escribe... usa @Nombre para dirigirte a alguien" />
+  <button class="send" onclick="sendMessage()">➤</button>
+</div>
+
+<div id="nav">
+  <button class="active" onclick="location.href='index.html'"><span class="ic">💬</span>Chat</button>
+  <button onclick="location.href='city.html'"><span class="ic">🏙️</span>Ciudad</button>
+  <button onclick="location.href='debate.html'"><span class="ic">🗳️</span>Debate</button>
+</div>
+
+<div id="backdrop" onclick="closeModal()"></div>
+<div class="modal" id="createModal">
+  <div class="grip"></div>
+  <h3>Nueva sala</h3>
+  <div class="body">
+    <label>Nombre</label>
+    <input type="text" id="newRoomName" placeholder="Ej: Equipo de Diseño" />
+    <label>Tipo</label>
+    <div class="kind-row">
+      <div class="kind-btn sel" id="kindGroup" onclick="setKind('group')">👥 Grupo</div>
+      <div class="kind-btn" id="kindPrivate" onclick="setKind('private')">🔒 Privado (1 IA)</div>
+    </div>
+    <label>Quién participa</label>
+    <div class="roster-grid" id="rosterPicker"></div>
+    <p class="hint" id="kindHint">Elige tantas IA como quieras para el grupo.</p>
   </div>
-  <div id="chat"><div class="empty">Configura el debate a la izquierda y pulsa "Iniciar debate".</div></div>
-  <div class="typing" id="typingLabel"></div>
-  <div id="composer">
-    <input type="text" id="userInput" placeholder="Interviene en el debate en cualquier momento..." disabled />
-    <button onclick="sendUserMessage()">Enviar</button>
-  </div>
+  <div class="footer"><button id="createBtn" onclick="submitCreate()" disabled>Crear sala</button></div>
 </div>
 
 <script>
-const ROLES = ["Generalista","Médico","Abogado","Programador","Economista","Profesor","Psicólogo","Investigador","Ingeniero"];
-const PROVIDERS = ["mock","gemini","groq","deepseek","glm","ollama","openai","anthropic"];
-const DEFAULT_MODELS = {mock:"mock-v1", gemini:"gemini-3.6-flash", groq:"llama-3.3-70b-versatile", deepseek:"deepseek-v4-flash", glm:"glm-4.7-flash", ollama:"llama3", openai:"gpt-4o-mini", anthropic:"claude-3-5-sonnet-latest"};
-let agentCount = 0;
+let roster = {};           // id -> {id,name,avatar,color,profession,provider}
+let rosterOrder = [];
+let rooms = [];            // resumen de /conversations
+let currentRoomId = null;
+let snapshot = null;       // {id,name,kind,participant_ids,excluded_ids,messages}
 let ws = null;
+let typingId = null;
+let pickedTargets = new Set();
+let createKind = "group";
+let createPicked = new Set();
 
-function addAgentCard(name, role, provider) {
-  agentCount++;
-  const id = "agent_" + agentCount;
-  const div = document.createElement("div");
-  div.className = "agent-card";
-  div.id = id;
-  div.innerHTML = `
-    <div class="agent-card-head">
-      <input type="text" style="font-weight:600;border:none;background:transparent;padding:2px 0;width:70%;" value="${name || ('Agente ' + agentCount)}" data-field="name" />
-      <button onclick="document.getElementById('${id}').remove()">✕</button>
-    </div>
-    <div class="row2">
-      <div>
-        <label>Rol</label>
-        <select data-field="role">
-          ${ROLES.map(r => `<option ${r===(role||"Generalista")?"selected":""}>${r}</option>`).join("")}
-        </select>
-      </div>
-      <div>
-        <label>Proveedor</label>
-        <select data-field="provider" onchange="onProviderChange('${id}')">
-          ${PROVIDERS.map(p => `<option value="${p}" ${p===(provider||"mock")?"selected":""}>${p}</option>`).join("")}
-        </select>
-      </div>
-    </div>
-    <label>Modelo</label>
-    <input type="text" data-field="model" value="${DEFAULT_MODELS[provider||"mock"]}" />
-  `;
-  document.getElementById("agents").appendChild(div);
+function apiHost(){ return window.AI_COUNCIL_HOST || location.host || "localhost:8000"; }
+function wsUrl(id){ return (location.protocol==="https:"?"wss://":"ws://")+apiHost()+"/ws/conversation/"+encodeURIComponent(id); }
+
+/* ---------------- Carga inicial ---------------- */
+async function init(){
+  try{
+    const r1 = await fetch("/conversations/roster");
+    const list = await r1.json();
+    list.forEach(p=>{ roster[p.id]=p; });
+    rosterOrder = list.map(p=>p.id);
+  }catch(e){ console.warn("roster", e); }
+  await refreshRooms();
+  connect(currentRoomId || "general");
 }
 
-function onProviderChange(id) {
-  const card = document.getElementById(id);
-  const provider = card.querySelector('[data-field=provider]').value;
-  card.querySelector('[data-field=model]').value = DEFAULT_MODELS[provider] || "";
+async function refreshRooms(){
+  try{
+    const r = await fetch("/conversations");
+    rooms = await r.json();
+  }catch(e){ rooms = rooms.length?rooms:[{id:"general",name:"General",kind:"default",participant_ids:[],excluded_ids:[],message_count:0}]; }
+  if(!currentRoomId) currentRoomId = (rooms.find(r=>r.id==="general")||rooms[0]||{id:"general"}).id;
+  renderRooms();
 }
 
-function collectAgents() {
-  return [...document.querySelectorAll(".agent-card")].map(card => ({
-    name: card.querySelector('[data-field=name]').value || "Agente",
-    role: card.querySelector('[data-field=role]').value,
-    provider: card.querySelector('[data-field=provider]').value,
-    model: card.querySelector('[data-field=model]').value,
-  }));
+function renderRooms(){
+  const el = document.getElementById("rooms");
+  el.innerHTML = "";
+  rooms.forEach(r=>{
+    const chip = document.createElement("div");
+    chip.className = "room-chip"+(r.id===currentRoomId?" active":"");
+    const icon = r.kind==="private" ? "🔒" : (r.kind==="default" ? "🌐" : "👥");
+    chip.innerHTML = `${icon} ${escapeHtml(r.name)} <span class="cnt">${r.message_count||0}</span>`;
+    chip.onclick = ()=>{ if(r.id!==currentRoomId){ currentRoomId=r.id; connect(r.id); renderRooms(); } };
+    el.appendChild(chip);
+  });
+  const btn = document.createElement("button");
+  btn.id = "newRoomBtn"; btn.textContent = "+";
+  btn.onclick = openCreateModal;
+  el.appendChild(btn);
 }
 
-function addMessage(cls, who, content) {
-  const chat = document.getElementById("chat");
-  const empty = chat.querySelector(".empty");
-  if (empty) empty.remove();
-  const div = document.createElement("div");
-  div.className = "msg " + cls;
-  div.innerHTML = `<div class="who">${who}</div><div class="content"></div>`;
-  div.querySelector(".content").textContent = content;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return div;
+/* ---------------- WebSocket ---------------- */
+function connect(id){
+  if(ws){ try{ ws.onclose=null; ws.close(); }catch(e){} }
+  snapshot = null; typingId = null;
+  document.getElementById("messages").innerHTML = '<div class="empty">Cargando la sala…</div>';
+  document.getElementById("typingBar").textContent = "";
+  ws = new WebSocket(wsUrl(id));
+  ws.onopen = ()=>setConn(true);
+  ws.onclose = ()=>{ setConn(false); setTimeout(()=>{ if(currentRoomId===id) connect(id); }, 3000); };
+  ws.onerror = ()=>setConn(false);
+  ws.onmessage = e=>handleMessage(JSON.parse(e.data));
 }
 
-const agentColors = {};
-const streamingDivs = {};
+function setConn(live){
+  const el = document.getElementById("connLabel");
+  el.className = "conn "+(live?"live":"down");
+  el.innerHTML = '<span class="led"></span>'+(live?"en vivo":"reconectando");
+}
 
-function startDebate() {
-  const topic = document.getElementById("topic").value.trim();
-  const agents = collectAgents();
-  if (!topic || agents.length === 0) {
-    alert("Pon un tema y al menos un participante.");
+function handleMessage(msg){
+  const {type,payload} = msg;
+  if(type==="conversation_state"){
+    snapshot = payload;
+    document.getElementById("roomTitle").textContent = snapshot.name;
+    const n = snapshot.participant_ids.filter(id=>!snapshot.excluded_ids.includes(id)).length;
+    document.getElementById("roomSub").textContent = n+" IA activas en la sala";
+    renderParticipants();
+    renderMessages();
+  } else if(type==="message"){
+    if(!snapshot) return;
+    snapshot.messages.push(payload);
+    if(payload.sender_id===typingId) typingId=null;
+    renderTyping();
+    appendMessage(payload);
+  } else if(type==="typing"){
+    typingId = payload.citizen_id;
+    renderTyping();
+  } else if(type==="error"){
+    console.warn(payload.message);
+  }
+}
+
+/* ---------------- Participantes ---------------- */
+function renderParticipants(){
+  const el = document.getElementById("participants");
+  el.innerHTML = "";
+  rosterOrder.forEach(id=>{
+    const p = roster[id];
+    if(!p) return;
+    const inRoom = snapshot.participant_ids.includes(id);
+    const excluded = snapshot.excluded_ids.includes(id);
+    const chip = document.createElement("div");
+    chip.className = "pchip"+(!inRoom?" notin":(excluded?" excluded":""));
+    chip.title = !inRoom ? `${p.name} · pulsa para invitar` : (excluded ? `${p.name} · expulsada, pulsa para reinvitar` : `${p.name} · activa, pulsa para expulsar`);
+    chip.innerHTML = `<div class="av" style="background:${p.color||'#7c5cff'}33;border-color:${p.color||'#fff2'}">${p.avatar||"🤖"}<span class="dot"></span></div><div class="nm">${escapeHtml(p.name)}</div>`;
+    chip.onclick = ()=>toggleParticipant(id, inRoom, excluded);
+    el.appendChild(chip);
+  });
+}
+
+function toggleParticipant(id, inRoom, excluded){
+  if(!ws || ws.readyState!==WebSocket.OPEN) return;
+  if(inRoom && !excluded){
+    ws.send(JSON.stringify({type:"kick", citizen_id:id}));
+  } else {
+    ws.send(JSON.stringify({type:"invite", citizen_id:id}));
+  }
+}
+
+/* ---------------- Mensajes ---------------- */
+function renderMessages(){
+  const el = document.getElementById("messages");
+  el.innerHTML = "";
+  if(!snapshot.messages.length){
+    el.innerHTML = '<div class="empty">Sin mensajes todavía. Escribe algo abajo — todas las IA activas te leerán.</div>';
     return;
   }
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("chat").innerHTML = "";
-  document.getElementById("topicLabel").textContent = topic;
-  document.getElementById("statusLabel").textContent = "conectando...";
-
-  const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + (window.AI_COUNCIL_HOST || location.host || "localhost:8000") + "/ws/debate";
-  ws = new WebSocket(wsUrl);
-
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ topic, participants: agents }));
-    document.getElementById("statusLabel").textContent = "en directo";
-    document.getElementById("userInput").disabled = false;
-  };
-
-  ws.onmessage = (evt) => {
-    const { type, payload } = JSON.parse(evt.data);
-    handleEvent(type, payload);
-  };
-
-  ws.onclose = () => {
-    document.getElementById("statusLabel").textContent = "desconectado";
-    document.getElementById("startBtn").disabled = false;
-  };
-
-  ws.onerror = () => {
-    document.getElementById("statusLabel").textContent = "error de conexión";
-  };
+  snapshot.messages.forEach(m=>appendMessage(m, true));
+  el.scrollTop = el.scrollHeight;
 }
 
-function handleEvent(type, payload) {
-  const typingLabel = document.getElementById("typingLabel");
-  switch (type) {
-    case "session_started":
-      payload.participants.forEach(p => agentColors[p.id] = p.color);
-      break;
-    case "agent_typing":
-      typingLabel.textContent = `${payload.agent_name} está escribiendo...`;
-      streamingDivs[payload.agent_id] = addMessage("agent", payload.agent_name, "");
-      streamingDivs[payload.agent_id].style.borderLeftColor = agentColors[payload.agent_id] || "#6c5ce7";
-      break;
-    case "agent_chunk":
-      if (streamingDivs[payload.agent_id]) {
-        streamingDivs[payload.agent_id].querySelector(".content").textContent += payload.chunk;
-        document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
-      }
-      break;
-    case "agent_message_complete":
-      typingLabel.textContent = "";
-      delete streamingDivs[payload.agent_id];
-      break;
-    case "agent_error":
-      addMessage("system", "Sistema", `Error con ${payload.agent_id}: ${payload.error}`);
-      break;
-    case "director_decision":
-      if (payload.reasoning) addMessage("director", "Director", payload.reasoning);
-      break;
-    case "summary":
-      addMessage("director", "Resumen del Director", payload.content);
-      break;
-    case "user_message":
-      break; // ya lo pintamos localmente al enviarlo
-    case "debate_ended":
-      typingLabel.textContent = "";
-      addMessage("system", "Sistema", `Debate finalizado (${payload.status}).`);
-      document.getElementById("statusLabel").textContent = "finalizado";
-      break;
-    case "error":
-      addMessage("system", "Sistema", payload.message || "Error desconocido");
-      break;
-  }
+function appendMessage(m, skipScroll){
+  const el = document.getElementById("messages");
+  const empty = el.querySelector(".empty");
+  if(empty) empty.remove();
+  const mine = m.sender_id==="user";
+  const p = roster[m.sender_id];
+  const row = document.createElement("div");
+  row.className = "bubble-row"+(mine?" mine":"");
+  const av = mine ? "🧑" : (p? p.avatar : "🤖");
+  const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}) : "";
+  row.innerHTML = `<div class="av" style="background:${mine?'#7c5cff33':((p&&p.color)||'#7c5cff')+'33'}">${av}</div>
+    <div class="bubble">${mine?"":`<div class="nm" style="color:${(p&&p.color)||'#a2a7c4'}">${escapeHtml(m.sender_name)}</div>`}<div class="tx"></div><div class="tm">${time}</div></div>`;
+  row.querySelector(".tx").textContent = m.content;
+  el.appendChild(row);
+  if(!skipScroll) el.scrollTop = el.scrollHeight;
 }
 
-function sendUserMessage() {
-  const input = document.getElementById("userInput");
+function renderTyping(){
+  const bar = document.getElementById("typingBar");
+  if(!typingId){ bar.textContent=""; return; }
+  const p = roster[typingId];
+  bar.textContent = (p?p.name:typingId)+" está escribiendo…";
+}
+
+/* ---------------- Composer + destinatarios ---------------- */
+document.getElementById("targetToggle").onclick = ()=>{
+  const bar = document.getElementById("targetBar");
+  const btn = document.getElementById("targetToggle");
+  if(bar.classList.contains("show")){ bar.classList.remove("show"); btn.classList.remove("on"); return; }
+  bar.classList.add("show"); btn.classList.add("on");
+  renderTargetBar();
+};
+
+function renderTargetBar(){
+  const bar = document.getElementById("targetBar");
+  bar.innerHTML = "";
+  if(!snapshot) return;
+  const active = snapshot.participant_ids.filter(id=>!snapshot.excluded_ids.includes(id));
+  active.forEach(id=>{
+    const p = roster[id];
+    if(!p) return;
+    const chip = document.createElement("div");
+    chip.className = "tchip";
+    chip.style.opacity = pickedTargets.has(id) ? "1" : ".45";
+    chip.style.cursor = "pointer";
+    chip.textContent = (pickedTargets.has(id)?"✓ ":"")+p.name;
+    chip.onclick = ()=>{ pickedTargets.has(id)?pickedTargets.delete(id):pickedTargets.add(id); renderTargetBar(); };
+    bar.appendChild(chip);
+  });
+  const hint = document.createElement("div");
+  hint.className = "hint";
+  hint.style.width = "100%";
+  hint.textContent = pickedTargets.size ? "Solo recibirán el mensaje las IA marcadas." : "Nadie marcado = responden todas las activas (o las @mencionadas).";
+  bar.appendChild(hint);
+}
+
+function sendMessage(){
+  const input = document.getElementById("msgInput");
   const content = input.value.trim();
-  if (!content || !ws || ws.readyState !== WebSocket.OPEN) return;
-  addMessage("user", "Tú", content);
-  ws.send(JSON.stringify({ type: "user_message", content }));
+  if(!content || !ws || ws.readyState!==WebSocket.OPEN) return;
+  const to = pickedTargets.size ? Array.from(pickedTargets) : null;
+  ws.send(JSON.stringify({type:"message", content, to}));
   input.value = "";
 }
-
-document.getElementById("userInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendUserMessage();
+document.getElementById("msgInput").addEventListener("keydown", e=>{
+  if(e.key==="Enter") sendMessage();
 });
 
-// Participantes de ejemplo para empezar rápido
-addAgentCard("Analista Económico", "Economista", "mock");
-addAgentCard("Ingeniero de Producto", "Ingeniero", "mock");
-addAgentCard("Investigador Crítico", "Investigador", "mock");
+/* ---------------- Crear sala ---------------- */
+function openCreateModal(){
+  createKind = "group"; createPicked = new Set();
+  document.getElementById("newRoomName").value = "";
+  setKind("group");
+  renderRosterPicker();
+  document.getElementById("backdrop").classList.add("show");
+  document.getElementById("createModal").classList.add("open");
+}
+function closeModal(){
+  document.getElementById("backdrop").classList.remove("show");
+  document.getElementById("createModal").classList.remove("open");
+}
+function setKind(k){
+  createKind = k;
+  document.getElementById("kindGroup").classList.toggle("sel", k==="group");
+  document.getElementById("kindPrivate").classList.toggle("sel", k==="private");
+  document.getElementById("kindHint").textContent = k==="private"
+    ? "Elige exactamente 1 IA para un chat privado 1 a 1."
+    : "Elige tantas IA como quieras para el grupo.";
+  if(k==="private" && createPicked.size>1){ createPicked = new Set([Array.from(createPicked)[0]]); }
+  renderRosterPicker();
+  updateCreateBtn();
+}
+function renderRosterPicker(){
+  const el = document.getElementById("rosterPicker");
+  el.innerHTML = "";
+  rosterOrder.forEach(id=>{
+    const p = roster[id];
+    if(!p) return;
+    const chip = document.createElement("div");
+    chip.className = "roster-pick"+(createPicked.has(id)?" sel":"");
+    chip.innerHTML = `<div class="av" style="background:${p.color||'#7c5cff'}33">${p.avatar||"🤖"}</div>${escapeHtml(p.name)}`;
+    chip.onclick = ()=>{
+      if(createKind==="private"){ createPicked = createPicked.has(id) ? new Set() : new Set([id]); }
+      else { createPicked.has(id) ? createPicked.delete(id) : createPicked.add(id); }
+      renderRosterPicker(); updateCreateBtn();
+    };
+    el.appendChild(chip);
+  });
+}
+function updateCreateBtn(){
+  const name = document.getElementById("newRoomName").value.trim();
+  const ok = name.length>0 && createPicked.size>0 && (createKind!=="private" || createPicked.size===1);
+  document.getElementById("createBtn").disabled = !ok;
+}
+document.getElementById("newRoomName").addEventListener("input", updateCreateBtn);
+
+async function submitCreate(){
+  const name = document.getElementById("newRoomName").value.trim();
+  if(!name || !createPicked.size) return;
+  try{
+    const r = await fetch("/conversations", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ name, kind: createKind, participant_ids: Array.from(createPicked) }),
+    });
+    if(!r.ok){ const err = await r.json().catch(()=>({})); alert(err.detail||"No se pudo crear la sala."); return; }
+    const conv = await r.json();
+    closeModal();
+    await refreshRooms();
+    currentRoomId = conv.id;
+    connect(conv.id);
+    renderRooms();
+  }catch(e){ alert("Error creando la sala: "+e); }
+}
+
+function escapeHtml(s){
+  return String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+/* ---------------- PWA install ---------------- */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+}
+
+init();
 </script>
 </body>
 </html>
