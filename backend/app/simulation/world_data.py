@@ -234,7 +234,7 @@ def build_default_citizens() -> dict[str, Citizen]:
             ],
         ),
         Citizen(
-            id="cerebras", name="Cerebras", provider="cerebras", model="llama-3.3-70b",
+            id="cerebras", name="Cerebras", provider="cerebras", model="gpt-oss-120b",
             profession="Analista de Alta Velocidad", avatar="📡", color="#F5A623",
             home_id="viviendas", workplace_id="centro_datos",
             system_prompt=(
