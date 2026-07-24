@@ -160,6 +160,9 @@ async def start_city() -> None:
         store=store,
         hours_per_tick=settings.sim_hours_per_tick,
         real_ai_interval_minutes=settings.sim_real_ai_interval_minutes,
+        news_provider=settings.news_provider,
+        news_model=settings.news_model,
+        news_interval_hours=settings.news_interval_hours,
     )
     scheduler = SimulationScheduler(engine, tick_seconds=settings.sim_tick_seconds)
 

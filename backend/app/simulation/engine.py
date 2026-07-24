@@ -22,17 +22,19 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.event_bus import Event, EventBus
 from app.domain.city_enums import ActivityType, EventType, ProjectStatus
-from app.domain.city_models import Citizen, CityEvent, Project, WorldState
+from app.domain.city_models import Citizen, CityEvent, NewsEdition, Project, WorldState
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
 from app.simulation.activities import (
     arrival_text,
     blend_mood,
     build_curiosity_prompt,
+    build_newspaper_prompt,
     build_suggestion_prompt,
     build_talk_prompt,
     build_teacher_answer_prompt,
     build_thought_prompt,
+    parse_newspaper_reply,
     pick_project_idea,
     project_log_entry,
     relax_mood,
@@ -73,6 +75,9 @@ class SimulationEngine:
         store: WorldStore,
         hours_per_tick: int = 1,
         real_ai_interval_minutes: int = 15,
+        news_provider: str = "glm",
+        news_model: str = "glm-4.7-flash",
+        news_interval_hours: int = 24,
     ) -> None:
         self.world = world
         self._registry = registry
@@ -80,6 +85,9 @@ class SimulationEngine:
         self._store = store
         self._hours_per_tick = hours_per_tick
         self._real_ai_interval = timedelta(minutes=real_ai_interval_minutes)
+        self._news_provider = news_provider
+        self._news_model = news_model
+        self._news_interval = timedelta(hours=news_interval_hours)
 
     async def _emit(self, type_: str, payload: dict) -> None:
         await self._event_bus.publish(Event(type=type_, session_id=CITY_SESSION_ID, payload=payload))
@@ -111,6 +119,7 @@ class SimulationEngine:
             await self._maybe_real_thought(citizen)
 
         await self._maybe_social_events()
+        await self.generate_news_edition()
 
         await self._store.save(self.world)
         await self._emit("world_tick", {
@@ -352,6 +361,52 @@ class SimulationEngine:
             )
             self._record_event(event)
             await self._emit("city_event", self._event_payload(event))
+
+    @staticmethod
+    def _news_payload(edition: NewsEdition) -> dict:
+        return {
+            "id": edition.id, "sim_day": edition.sim_day, "headline": edition.headline,
+            "body": edition.body, "created_at": edition.created_at.isoformat(),
+        }
+
+    def _events_since_last_news(self) -> list[CityEvent]:
+        if self.world.last_news_at is None:
+            return self.world.events[-80:]
+        return [e for e in self.world.events if e.created_at > self.world.last_news_at]
+
+    async def generate_news_edition(self, force: bool = False) -> NewsEdition | None:
+        """Genera una edicion nueva del periodico si toca (cada
+        news_interval_hours) y hay hechos nuevos que contar, o siempre que
+        force=True (boton de 'generar ahora' del usuario). Devuelve la
+        edicion nueva, o None si no se genero nada (ni tocaba, ni habia
+        proveedor listo, ni hubo respuesta)."""
+        now = datetime.now(timezone.utc)
+        if not force and self.world.last_news_at and (now - self.world.last_news_at) < self._news_interval:
+            return None
+        events = self._events_since_last_news()
+        if not events and not force:
+            return None
+        provider = self._registry.get(self._news_provider)
+        if not provider.is_configured():
+            return None
+        try:
+            prompt = build_newspaper_prompt(self.world, events)
+            text = (await provider.chat(prompt, self._news_model, temperature=0.7)).strip()
+        except ProviderError:
+            return None
+        if not text:
+            return None
+        headline, body = parse_newspaper_reply(text, self.world.sim_day)
+        edition = NewsEdition.create(self.world.sim_day, headline, body)
+        self.world.add_news(edition)
+        self.world.last_news_at = now
+        await self._store.save(self.world)
+        await self._emit("news_edition", self._news_payload(edition))
+        return edition
+
+    def recent_news(self, limit: int = 20) -> list[dict]:
+        """Ediciones mas recientes primero, listas para el frontend."""
+        return [self._news_payload(n) for n in reversed(self.world.news[-limit:])]
 
     async def talk_to_citizen(self, citizen_id: str, user_message: str, history: list[ChatMessage] | None = None) -> str:
         """Llamada real siempre (iniciada por el usuario, no por el motor de fondo)."""

@@ -193,6 +193,21 @@
   .thought.respuesta_profesora { border-left:3px solid #D97757; background:linear-gradient(135deg, rgba(217,119,87,.12), var(--glass)); }
   .empty { color:var(--muted); font-size:13px; text-align:center; padding:40px 20px; line-height:1.6; }
 
+  /* ---------- Periodico ---------- */
+  .news {
+    background: linear-gradient(135deg, rgba(32,197,255,.10), var(--glass));
+    border:1px solid var(--border); border-left:3px solid var(--a2); border-radius:16px;
+    padding:14px 16px; backdrop-filter:blur(12px);
+  }
+  .news .day { font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .news h3 { font-size:15px; margin:4px 0 6px; line-height:1.35; }
+  .news p { font-size:13.5px; line-height:1.55; color:#cfd3ea; margin:0; white-space:pre-wrap; }
+  #newsGenBtn {
+    margin:0 14px 10px; padding:9px; border-radius:12px; border:1px solid var(--border-lit);
+    background:rgba(32,197,255,.15); color:var(--text); font-size:12.5px; cursor:pointer;
+  }
+  #newsGenBtn:disabled { opacity:.5; cursor:default; }
+
   /* segmented toggle (Pensamientos / Aula) */
   .seg { display:flex; gap:6px; padding:0 14px 10px; }
   .seg button { flex:1; padding:8px; border-radius:12px; border:1px solid var(--border); background:#ffffff0a;
@@ -338,6 +353,15 @@
       <div id="ideasList"></div>
     </div>
   </div>
+
+  <!-- PRENSA / PERIODICO -->
+  <div class="view" id="newsView">
+    <button id="newsGenBtn" onclick="generateNewsNow()">🗞️ Generar edición ahora</button>
+    <div class="feed">
+      <h2>🗞️ El periódico de la ciudad</h2>
+      <div id="newsList"></div>
+    </div>
+  </div>
 </div>
 
 <button id="installBtn">⬇️ Instalar app</button>
@@ -347,6 +371,7 @@
   <button data-view="activityView"><span class="ic">⚡</span>Actividad</button>
   <button data-view="thoughtsView"><span class="badge"><span class="ic">💭</span><b id="thoughtsBadge" style="display:none">0</b></span>Pensar</button>
   <button data-view="ideasView"><span class="badge"><span class="ic">💡</span><b id="ideasBadge" style="display:none">0</b></span>Ideas</button>
+  <button data-view="newsView"><span class="badge"><span class="ic">🗞️</span><b id="newsBadge" style="display:none">0</b></span>Prensa</button>
   <button onclick="location.href='index.html'"><span class="ic">💬</span>Chat</button>
   <button onclick="location.href='debate.html'"><span class="ic">🗳️</span>Debate</button>
 </div>
@@ -402,8 +427,12 @@ function setConn(live){
 function handleMessage(msg){
   const {type,payload}=msg;
   if(type==="world_state"){
-    world=payload; renderClock(); renderCity(); renderActivity(); renderThoughts(); renderIdeas(); renderAula();
+    world=payload; renderClock(); renderCity(); renderActivity(); renderThoughts(); renderIdeas(); renderAula(); renderNews();
     if(selectedId) renderSheet(selectedId);
+  } else if(type==="news_edition"){
+    if(world){ world.news=world.news||[]; world.news.push(payload); }
+    prependNews(payload);
+    bumpBadge("newsBadge","newsView");
   } else if(type==="world_tick"){
     if(world){ world.sim_day=payload.sim_day; world.sim_hour=payload.sim_hour; world.tick_count=payload.tick_count; }
     renderClock(); applyDayNight();
@@ -607,6 +636,42 @@ function prependIdea(ev){
   if(l.firstChild && l.firstChild.className!=="empty") l.insertBefore(d.firstElementChild,l.firstChild);
   else l.innerHTML="", l.appendChild(d.firstElementChild);
 }
+function newsCard(ed){
+  return `<div class="news">
+    <div class="day">Día ${ed.sim_day}</div>
+    <h3>${escNews(ed.headline)}</h3>
+    <p>${escNews(ed.body)}</p></div>`;
+}
+function escNews(s){
+  return String(s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+}
+function renderNews(){
+  const l=document.getElementById("newsList");
+  const eds=(world.news||[]).slice().reverse();
+  l.innerHTML=eds.length?eds.map(newsCard).join(""):
+    '<div class="empty">🗞️ Todavía no hay ninguna edición.<br>El periódico se escribe solo una vez al día a partir de lo que ha pasado de verdad en la ciudad, o pulsa "Generar edición ahora" para pedir un resumen ya mismo.</div>';
+}
+function prependNews(ed){
+  const l=document.getElementById("newsList");
+  const d=document.createElement("div"); d.innerHTML=newsCard(ed);
+  if(l.firstChild && l.firstChild.className!=="empty") l.insertBefore(d.firstElementChild,l.firstChild);
+  else l.innerHTML="", l.appendChild(d.firstElementChild);
+}
+async function generateNewsNow(){
+  const btn=document.getElementById("newsGenBtn");
+  btn.disabled=true; btn.textContent="🗞️ Escribiendo…";
+  try{
+    const r=await AIAccess.fetch("/city/news/generate",{method:"POST"});
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      alert(err.detail||"No se pudo generar la edición ahora mismo.");
+    }
+    // si sale bien, la edicion nueva llega sola por el WebSocket (news_edition)
+  }catch(e){
+    alert("Error generando la edición: "+e);
+  }
+  btn.disabled=false; btn.textContent="🗞️ Generar edición ahora";
+}
 function bumpBadge(badgeId,view){
   if(currentView===view) return;
   const b=document.getElementById(badgeId);
@@ -659,6 +724,7 @@ document.querySelectorAll("#nav button[data-view]").forEach(btn=>{
     if(currentView==="cityView" && world) renderCity();
     if(currentView==="thoughtsView"){ const b=document.getElementById("thoughtsBadge"); b.style.display="none"; b.textContent="0"; }
     if(currentView==="ideasView"){ const b=document.getElementById("ideasBadge"); b.style.display="none"; b.textContent="0"; }
+    if(currentView==="newsView"){ const b=document.getElementById("newsBadge"); b.style.display="none"; b.textContent="0"; }
   };
 });
 

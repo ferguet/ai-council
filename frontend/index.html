@@ -153,6 +153,15 @@
     color:var(--muted); cursor:pointer; font-size:16px; flex-shrink:0; }
   #attachBtn.on { color:var(--a4); border-color:var(--a4); }
 
+  /* ---------- Voz ---------- */
+  #micBtn { width:38px;height:38px;border-radius:50%; border:1px solid var(--border); background:#ffffff0d;
+    color:var(--muted); cursor:pointer; font-size:16px; flex-shrink:0; }
+  @keyframes micPulse { 0%,100%{ box-shadow:0 0 0 0 rgba(255,92,168,.55); } 50%{ box-shadow:0 0 0 9px rgba(255,92,168,0); } }
+  #micBtn.listening { color:#fff; border-color:var(--a3); background:var(--a3); animation:micPulse 1.15s infinite; }
+  #voiceToggle { width:30px;height:30px;border-radius:50%; border:1px solid var(--border); background:#ffffff0d;
+    color:var(--muted); cursor:pointer; font-size:13px; flex-shrink:0; margin-left:4px; }
+  #voiceToggle.on { color:var(--a4); border-color:var(--a4); }
+
   /* ---------- Adjuntos ---------- */
   #dropOverlay { position:fixed; inset:0; z-index:60; display:none; place-items:center;
     background:rgba(10,11,22,.82); backdrop-filter:blur(4px); border:3px dashed var(--a2); margin:10px; border-radius:20px; }
@@ -231,6 +240,7 @@
 <div id="topbar">
   <div class="logo">💬</div>
   <div class="titles"><b id="roomTitle">Chat Grupal</b><span id="roomSub">AI Council · sociedad digital</span></div>
+  <button id="voiceToggle" title="Leer en voz alta las respuestas de las IA">🔇</button>
   <span class="conn down" id="connLabel"><span class="led"></span>conectando</span>
 </div>
 
@@ -247,6 +257,7 @@
   <button id="attachBtn" title="Adjuntar archivo">📎</button>
   <input type="file" id="fileInput" style="display:none"
     accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.zip,.txt,.md,.json,.py,.js,.ts,.java,.c,.cpp,.go,.rs,.rb,.php,.sh,.sql,image/*,video/*,audio/*" />
+  <button id="micBtn" title="Hablar por micrófono">🎤</button>
   <button id="targetToggle" title="Elegir destinatarios">🎯</button>
   <input id="msgInput" placeholder="Escribe... usa @Nombre para dirigirte a alguien" />
   <button class="send" onclick="sendMessage()">➤</button>
@@ -369,6 +380,7 @@ function handleMessage(msg){
     if(payload.sender_id===typingId) typingId=null;
     renderTyping();
     appendMessage(payload);
+    if(payload.sender_id!=="user") speak(trimmedBody(payload));
   } else if(type==="typing"){
     typingId = payload.citizen_id;
     renderTyping();
@@ -418,6 +430,16 @@ function renderMessages(){
 
 const ATT_ICONS = {pdf:"📕", word:"📘", excel:"📗", powerpoint:"📙", zip:"🗜️", image:"🖼️", video:"🎬", audio:"🎵", code:"💻", text:"📄", file:"📎"};
 
+function trimmedBody(m){
+  let bodyText = m.content;
+  if(m.attachment){
+    const idx = bodyText.indexOf("\n\n--- contenido extraido");
+    if(idx>=0) bodyText = bodyText.slice(0, idx);
+    bodyText = bodyText.replace(/^📎 Adjunta el archivo[^)]*\)\.?\s*/,"").trim();
+  }
+  return bodyText;
+}
+
 function appendMessage(m, skipScroll){
   const el = document.getElementById("messages");
   const empty = el.querySelector(".empty");
@@ -428,7 +450,7 @@ function appendMessage(m, skipScroll){
   row.className = "bubble-row"+(mine?" mine":"");
   const av = mine ? "🧑" : (p? p.avatar : "🤖");
   const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}) : "";
-  let bodyText = m.content;
+  let bodyText = trimmedBody(m);
   let attCardHtml = "";
   if(m.attachment){
     const a = m.attachment;
@@ -441,9 +463,6 @@ function appendMessage(m, skipScroll){
       attCardHtml = `<div class="att-card"><div class="ic">${icon}</div><div class="meta">
         <b>${escapeHtml(a.filename)}</b><span>${Math.round(a.size_bytes/1024)} KB · ${a.has_text?"texto analizado por las IA":"sin texto extraíble"}</span></div></div>`;
     }
-    const idx = bodyText.indexOf("\n\n--- contenido extraido");
-    if(idx>=0) bodyText = bodyText.slice(0, idx);
-    bodyText = bodyText.replace(/^📎 Adjunta el archivo[^)]*\)\.?\s*/,"").trim();
   }
   row.innerHTML = `<div class="av" style="background:${mine?'#7c5cff33':((p&&p.color)||'#7c5cff')+'33'}">${av}</div>
     <div class="bubble">${mine?"":`<div class="nm" style="color:${(p&&p.color)||'#a2a7c4'}">${escapeHtml(m.sender_name)}</div>`}${attCardHtml}<div class="tx"></div><div class="tm">${time}</div></div>`;
@@ -557,6 +576,75 @@ window.addEventListener("drop", e=>{
   const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
   if(f) uploadFile(f);
 });
+
+/* ---------------- Voz: dictar por micrófono (STT) ---------------- */
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let listening = false;
+if(SpeechRecognitionCtor){
+  recognition = new SpeechRecognitionCtor();
+  recognition.lang = "es-ES";
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.onstart = ()=>{ listening = true; updateMicUI(); };
+  recognition.onend = ()=>{ listening = false; updateMicUI(); };
+  recognition.onerror = (e)=>{
+    listening = false; updateMicUI();
+    if(e.error==="not-allowed" || e.error==="service-not-allowed"){
+      alert("Necesitas dar permiso de micrófono a la app para dictar mensajes.");
+    }
+  };
+  recognition.onresult = (e)=>{
+    let text = "";
+    for(let i=0; i<e.results.length; i++){ text += e.results[i][0].transcript; }
+    document.getElementById("msgInput").value = text;
+  };
+}
+function updateMicUI(){
+  document.getElementById("micBtn").classList.toggle("listening", listening);
+}
+document.getElementById("micBtn").onclick = ()=>{
+  if(!recognition){
+    alert("Tu navegador no soporta dictado por voz. Prueba con Chrome (Android o escritorio).");
+    return;
+  }
+  if(listening){ recognition.stop(); return; }
+  try{ recognition.start(); }catch(e){}
+};
+
+/* ---------------- Voz: las IA leen sus respuestas (TTS) ---------------- */
+let voiceEnabled = localStorage.getItem("aic_voice_enabled")==="1";
+let spanishVoice = null;
+function pickSpanishVoice(){
+  if(!("speechSynthesis" in window)) return;
+  const voices = speechSynthesis.getVoices();
+  spanishVoice = voices.find(v=>v.lang && v.lang.toLowerCase().startsWith("es")) || null;
+}
+if("speechSynthesis" in window){
+  pickSpanishVoice();
+  speechSynthesis.onvoiceschanged = pickSpanishVoice;
+}
+function updateVoiceUI(){
+  const btn = document.getElementById("voiceToggle");
+  btn.classList.toggle("on", voiceEnabled);
+  btn.textContent = voiceEnabled ? "🔊" : "🔇";
+}
+document.getElementById("voiceToggle").onclick = ()=>{
+  voiceEnabled = !voiceEnabled;
+  localStorage.setItem("aic_voice_enabled", voiceEnabled ? "1" : "0");
+  if(!voiceEnabled && "speechSynthesis" in window) speechSynthesis.cancel();
+  updateVoiceUI();
+};
+function speak(text){
+  if(!voiceEnabled || !text || !("speechSynthesis" in window)) return;
+  try{
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "es-ES";
+    if(spanishVoice) u.voice = spanishVoice;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+updateVoiceUI();
 
 /* ---------------- Crear sala ---------------- */
 function openCreateModal(){

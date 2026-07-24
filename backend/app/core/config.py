@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     sim_real_ai_interval_minutes: int = 15  # minimo tiempo real entre llamadas reales de "pensamiento" por ciudadano
     sim_data_path: str = "data/city_state.json"
 
+    # Periodico diario: resumen periodistico de la ciudad, escrito por una
+    # IA sobre eventos reales (no inventados). Usa GLM por defecto porque ya
+    # esta configurada para otro ciudadano y no comparte cuota con Gemini
+    # (que es el proveedor mas ajustado de limite gratuito en este proyecto).
+    news_provider: str = "glm"
+    news_model: str = "glm-4.7-flash"
+    news_interval_hours: int = 24
+
     # Chat Grupal (Interfaz de conversacion)
     conversation_data_path: str = "data/conversations.json"
     sim_autostart: bool = True

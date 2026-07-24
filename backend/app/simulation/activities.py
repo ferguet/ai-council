@@ -14,8 +14,9 @@ Dos fuentes de contenido, a proposito separadas por coste:
 from __future__ import annotations
 
 import random
+import re
 
-from app.domain.city_models import Building, Citizen, WorldState
+from app.domain.city_models import Building, Citizen, CityEvent, WorldState
 from app.providers.base import ChatMessage
 
 ARRIVAL_TEMPLATES: dict[str, list[str]] = {
@@ -284,6 +285,47 @@ def build_teacher_answer_prompt(
         "sin presentarte ni repetir la pregunta antes de responder."
     )
     return [ChatMessage(role="system", content=system)]
+
+
+def build_newspaper_prompt(world: WorldState, events: list[CityEvent]) -> list[ChatMessage]:
+    """Prompt para redactar la edicion de hoy del periodico de la ciudad: un
+    resumen periodistico de lo ocurrido, escrito por una voz editorial (no
+    por ningun ciudadano concreto), basado UNICAMENTE en hechos reales ya
+    registrados. Se pide un formato fijo y sencillo (TITULAR/CUERPO) para
+    poder separarlos sin depender de que el modelo devuelva JSON valido."""
+    lines = [f"- (Dia {e.sim_day}, {e.sim_hour:02d}:00) {e.description}" for e in events[-80:]]
+    events_txt = "\n".join(lines) if lines else "(sin hechos nuevos registrados desde la ultima edicion)"
+    system = (
+        "Eres el cronista/periodista de una ciudad habitada por inteligencias artificiales que "
+        "viven, trabajan, discuten y colaboran de forma continua. Escribe la edicion de hoy del "
+        "periodico de la ciudad, en español, con tono periodistico (serio pero con personalidad, "
+        "nada aburrido), a partir UNICAMENTE de los hechos reales listados abajo. No inventes "
+        "nada que no este en la lista; si la lista esta vacia, dilo tal cual (un dia tranquilo).\n\n"
+        f"Estamos en el dia {world.sim_day} de la ciudad. Hechos registrados desde la ultima "
+        f"edicion:\n{events_txt}\n\n"
+        "Responde EXACTAMENTE con este formato, sin nada mas antes ni despues ni markdown:\n"
+        "TITULAR: <un titular de una sola linea>\n"
+        "CUERPO: <el cuerpo de la noticia, entre 4 y 8 frases, agrupando los hechos relacionados "
+        "en vez de listarlos uno a uno>"
+    )
+    return [ChatMessage(role="system", content=system)]
+
+
+_NEWS_RE = re.compile(r"TITULAR:\s*(.*?)\s*CUERPO:\s*(.*)", re.IGNORECASE | re.DOTALL)
+
+
+def parse_newspaper_reply(text: str, sim_day: int) -> tuple[str, str]:
+    """Separa titular y cuerpo de la respuesta de la IA. Si algun modelo mas
+    flojo no respeta el formato pedido al pie de la letra, cae a un titular
+    generico y usa el texto entero como cuerpo, en vez de descartar la
+    edicion entera por un detalle de formato."""
+    match = _NEWS_RE.search(text)
+    if match:
+        headline = match.group(1).strip().strip("*").strip()
+        body = match.group(2).strip()
+        if headline and body:
+            return headline, body
+    return f"Edición del día {sim_day}", text.strip()
 
 
 def build_talk_prompt(citizen: Citizen, world: WorldState, history: list[ChatMessage], user_message: str) -> list[ChatMessage]:

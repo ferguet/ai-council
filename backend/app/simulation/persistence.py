@@ -21,6 +21,7 @@ from app.domain.city_models import (
     Building,
     Citizen,
     CityEvent,
+    NewsEdition,
     Project,
     Relationship,
     ScheduleBlock,
@@ -97,6 +98,14 @@ def world_to_dict(world: WorldState) -> dict:
             }
             for e in world.events
         ],
+        "news": [
+            {
+                "id": n.id, "sim_day": n.sim_day, "headline": n.headline, "body": n.body,
+                "created_at": _dt_to_str(n.created_at),
+            }
+            for n in world.news
+        ],
+        "last_news_at": _dt_to_str(world.last_news_at),
     }
 
 
@@ -157,8 +166,16 @@ def world_from_dict(data: dict) -> WorldState:
         )
         for e in data.get("events", [])
     ]
+    news = [
+        NewsEdition(
+            id=n["id"], sim_day=n["sim_day"], headline=n["headline"], body=n["body"],
+            created_at=_str_to_dt(n.get("created_at")) or datetime.now(timezone.utc),
+        )
+        for n in data.get("news", [])
+    ]
     return WorldState(
         citizens=citizens, buildings=buildings, projects=projects, events=events,
+        news=news, last_news_at=_str_to_dt(data.get("last_news_at")),
         sim_day=data.get("sim_day", 1), sim_hour=data.get("sim_hour", 8),
         tick_count=data.get("tick_count", 0),
     )

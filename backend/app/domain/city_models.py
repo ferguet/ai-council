@@ -230,6 +230,25 @@ class CityEvent:
 
 
 @dataclass
+class NewsEdition:
+    """Una edicion del periodico de la ciudad: un resumen periodistico,
+    escrito por una IA, de lo que ha pasado desde la edicion anterior. Se
+    genera como mucho una vez cada 'news_interval_hours' (ver config.py),
+    sobre los eventos reales acumulados (proyectos, relaciones, dudas,
+    sugerencias...), nunca inventado desde cero."""
+
+    id: str
+    sim_day: int
+    headline: str
+    body: str
+    created_at: datetime = field(default_factory=_now)
+
+    @staticmethod
+    def create(sim_day: int, headline: str, body: str) -> "NewsEdition":
+        return NewsEdition(id=_new_id(), sim_day=sim_day, headline=headline, body=body)
+
+
+@dataclass
 class WorldState:
     """El mundo entero, en un momento dado. Es lo unico que se persiste a
     disco: con esto basta para reconstruir la ciudad completa al reiniciar."""
@@ -238,6 +257,8 @@ class WorldState:
     buildings: dict[str, Building] = field(default_factory=dict)
     projects: dict[str, Project] = field(default_factory=dict)
     events: list[CityEvent] = field(default_factory=list)   # mas reciente al final, capado
+    news: list[NewsEdition] = field(default_factory=list)   # mas reciente al final, capado
+    last_news_at: datetime | None = None                     # hora real (UTC) de la ultima edicion
 
     sim_day: int = 1
     sim_hour: int = 8
@@ -250,6 +271,11 @@ class WorldState:
 
     def recent_events(self, limit: int = 50) -> list[CityEvent]:
         return self.events[-limit:]
+
+    def add_news(self, edition: NewsEdition, cap: int = 60) -> None:
+        self.news.append(edition)
+        if len(self.news) > cap:
+            self.news = self.news[-cap:]
 
     def sim_time_label(self) -> str:
         return f"Dia {self.sim_day}, {self.sim_hour:02d}:00"
