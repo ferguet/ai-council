@@ -13,6 +13,7 @@ from typing import AsyncIterator
 import httpx
 
 from app.providers.base import AIProvider, ChatMessage, ProviderError
+from app.providers.http_retry import post_with_retry
 
 _URL = "https://api.deepseek.com/chat/completions"
 
@@ -41,8 +42,7 @@ class DeepSeekProvider(AIProvider):
             "messages": self._to_openai_messages(messages),
             "temperature": temperature,
         }
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(_URL, headers=self._headers(), json=payload)
+        resp = await post_with_retry(_URL, headers=self._headers(), json=payload)
         if resp.status_code != 200:
             raise ProviderError(f"DeepSeek error {resp.status_code}: {resp.text[:300]}")
         data = resp.json()

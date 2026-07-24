@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     news_provider: str = "glm"
     news_model: str = "glm-4.7-flash"
     news_interval_hours: int = 24
+    # Si el proveedor principal falla por cuota agotada, se prueba una vez
+    # con este proveedor de reserva antes de rendirse y perder la edicion
+    # del dia. Cerebras por defecto: nivel gratuito muy generoso (1M
+    # tokens/dia) y ningun ciudadano lo usa como personaje, asi que no
+    # compite por cuota con nada mas de la app.
+    news_fallback_provider: str = "cerebras"
+    news_fallback_model: str = "gpt-oss-120b"
 
     # Chat Grupal (Interfaz de conversacion)
     conversation_data_path: str = "data/conversations.json"

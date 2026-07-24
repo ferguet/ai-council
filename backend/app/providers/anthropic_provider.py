@@ -16,6 +16,7 @@ from typing import AsyncIterator
 import httpx
 
 from app.providers.base import AIProvider, ChatMessage, ProviderError
+from app.providers.http_retry import post_with_retry
 
 _URL = "https://api.anthropic.com/v1/messages"
 _VERSION = "2023-06-01"
@@ -61,8 +62,7 @@ class AnthropicProvider(AIProvider):
         }
         if system:
             payload["system"] = system
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(_URL, headers=self._headers(), json=payload)
+        resp = await post_with_retry(_URL, headers=self._headers(), json=payload)
         if resp.status_code != 200:
             raise ProviderError(f"Anthropic error {resp.status_code}: {resp.text[:300]}")
         data = resp.json()

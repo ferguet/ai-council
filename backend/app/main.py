@@ -163,6 +163,8 @@ async def start_city() -> None:
         news_provider=settings.news_provider,
         news_model=settings.news_model,
         news_interval_hours=settings.news_interval_hours,
+        news_fallback_provider=settings.news_fallback_provider,
+        news_fallback_model=settings.news_fallback_model,
     )
     scheduler = SimulationScheduler(engine, tick_seconds=settings.sim_tick_seconds)
 

@@ -14,7 +14,7 @@ import pytest
 from app.core.event_bus import EventBus
 from app.domain.city_enums import EventType
 from app.domain.city_models import CityEvent
-from app.providers.base import AIProvider
+from app.providers.base import AIProvider, ChatMessage, ProviderError
 from app.providers.mock_provider import MockProvider
 from app.simulation.activities import build_newspaper_prompt, parse_newspaper_reply
 from app.simulation.engine import SimulationEngine
@@ -30,11 +30,41 @@ class _AllMockRegistry:
         return self._mock
 
 
-def _engine(world, **kwargs) -> tuple[SimulationEngine, WorldStore, tempfile.TemporaryDirectory]:
+class _FailingProvider(AIProvider):
+    """Simula un proveedor sin cuota: siempre revienta con ProviderError."""
+
+    name = "failing"
+
+    def __init__(self, configured: bool = True) -> None:
+        self._configured = configured
+
+    def is_configured(self) -> bool:
+        return self._configured
+
+    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+        raise ProviderError("proveedor sin cuota (simulado)")
+
+    async def stream_chat(self, messages, model, temperature=0.7):
+        raise ProviderError("proveedor sin cuota (simulado)")
+        yield ""  # pragma: no cover
+
+
+class _NamedRegistry:
+    """Registro por nombre exacto, para poder hacer que el proveedor
+    principal del periodico falle y el de reserva funcione (o al reves)."""
+
+    def __init__(self, providers: dict[str, AIProvider]) -> None:
+        self._providers = providers
+
+    def get(self, name: str) -> AIProvider:
+        return self._providers[name]
+
+
+def _engine(world, registry=None, **kwargs) -> tuple[SimulationEngine, WorldStore, tempfile.TemporaryDirectory]:
     tmp = tempfile.TemporaryDirectory()
     store = WorldStore(str(Path(tmp.name) / "city_state.json"))
     engine = SimulationEngine(
-        world=world, registry=_AllMockRegistry(), event_bus=EventBus(), store=store,
+        world=world, registry=registry or _AllMockRegistry(), event_bus=EventBus(), store=store,
         hours_per_tick=1, real_ai_interval_minutes=1440, **kwargs,
     )
     return engine, store, tmp
@@ -137,3 +167,56 @@ def test_news_survives_persistence_roundtrip():
     assert reloaded.news[0].headline == "Titular de prueba"
     assert reloaded.news[0].body == "Cuerpo de prueba con varias frases."
     assert reloaded.last_news_at is not None
+
+
+@pytest.mark.asyncio
+async def test_generate_news_edition_falls_back_when_primary_out_of_quota():
+    """Si GLM (el proveedor de verdad configurado para el periodico) se
+    queda sin cuota, se prueba una vez con el de reserva antes de perder la
+    edicion del dia entero."""
+    world = build_default_world()
+    world.add_event(CityEvent.create(EventType.PROYECTO_INICIADO, world.sim_day, world.sim_hour, "Un evento cualquiera."))
+    registry = _NamedRegistry({"glm": _FailingProvider(), "cerebras": MockProvider()})
+    engine, _store, tmp = _engine(
+        world, registry=registry, news_provider="glm", news_fallback_provider="cerebras",
+    )
+    try:
+        edition = await engine.generate_news_edition()
+        assert edition is not None
+        assert edition.headline.strip() != ""
+        assert engine.last_news_error is None
+    finally:
+        tmp.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_generate_news_edition_reports_primary_error_when_both_fail():
+    world = build_default_world()
+    world.add_event(CityEvent.create(EventType.PROYECTO_INICIADO, world.sim_day, world.sim_hour, "Un evento cualquiera."))
+    registry = _NamedRegistry({"glm": _FailingProvider(), "cerebras": _FailingProvider()})
+    engine, _store, tmp = _engine(
+        world, registry=registry, news_provider="glm", news_fallback_provider="cerebras",
+    )
+    try:
+        edition = await engine.generate_news_edition()
+        assert edition is None
+        assert "sin cuota" in engine.last_news_error
+        assert world.news == []
+    finally:
+        tmp.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_generate_news_edition_skips_fallback_when_not_configured():
+    world = build_default_world()
+    world.add_event(CityEvent.create(EventType.PROYECTO_INICIADO, world.sim_day, world.sim_hour, "Un evento cualquiera."))
+    registry = _NamedRegistry({"glm": _FailingProvider(), "cerebras": _FailingProvider(configured=False)})
+    engine, _store, tmp = _engine(
+        world, registry=registry, news_provider="glm", news_fallback_provider="cerebras",
+    )
+    try:
+        edition = await engine.generate_news_edition()
+        assert edition is None
+        assert "sin cuota" in engine.last_news_error  # el error reportado sigue siendo el del principal
+    finally:
+        tmp.cleanup()

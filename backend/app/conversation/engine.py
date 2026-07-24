@@ -10,6 +10,7 @@ ver -y reaccionar a- lo que acaban de decir las demas en esa misma ronda.
 """
 from __future__ import annotations
 
+import asyncio
 import random
 import re
 
@@ -320,7 +321,12 @@ class ConversationEngine:
         order = targets[:]
         random.shuffle(order)  # que no respondan siempre en el mismo orden fijo
 
-        for participant in order:
+        for index, participant in enumerate(order):
+            if index > 0:
+                # Pequeno respiro entre IAs: evita que 8 peticiones salgan
+                # en el mismo instante y choquen contra el limite "por
+                # minuto" de las capas gratuitas (ver providers/http_retry.py).
+                await asyncio.sleep(0.6)
             provider = self._registry.get(participant.provider)
             await self._emit(conv.id, "typing", {"citizen_id": participant.id})
             try:

@@ -11,6 +11,7 @@ from typing import AsyncIterator
 import httpx
 
 from app.providers.base import AIProvider, ChatMessage, ProviderError
+from app.providers.http_retry import post_with_retry
 
 _BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -70,8 +71,7 @@ class GeminiProvider(AIProvider):
         payload = self._to_gemini_payload(messages)
         payload["generationConfig"] = {"temperature": temperature}
         headers = {"x-goog-api-key": self._api_key}
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(url, json=payload, headers=headers)
+        resp = await post_with_retry(url, headers=headers, json=payload)
         if resp.status_code != 200:
             raise ProviderError(f"Gemini error {resp.status_code}: {resp.text[:300]}")
         data = resp.json()

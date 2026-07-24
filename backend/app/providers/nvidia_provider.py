@@ -14,6 +14,7 @@ from typing import AsyncIterator
 import httpx
 
 from app.providers.base import AIProvider, ChatMessage, ProviderError
+from app.providers.http_retry import post_with_retry
 
 _URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 # Timeout explicito y mas corto que el resto de proveedores: el catalogo de
@@ -47,8 +48,7 @@ class NvidiaProvider(AIProvider):
             "messages": self._to_openai_messages(messages),
             "temperature": temperature,
         }
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(_URL, headers=self._headers(), json=payload)
+        resp = await post_with_retry(_URL, headers=self._headers(), json=payload, timeout=_TIMEOUT)
         if resp.status_code != 200:
             raise ProviderError(f"NVIDIA error {resp.status_code}: {resp.text[:300]}")
         data = resp.json()

@@ -78,6 +78,8 @@ class SimulationEngine:
         news_provider: str = "glm",
         news_model: str = "glm-4.7-flash",
         news_interval_hours: int = 24,
+        news_fallback_provider: str | None = "cerebras",
+        news_fallback_model: str = "gpt-oss-120b",
     ) -> None:
         self.world = world
         self._registry = registry
@@ -88,6 +90,8 @@ class SimulationEngine:
         self._news_provider = news_provider
         self._news_model = news_model
         self._news_interval = timedelta(hours=news_interval_hours)
+        self._news_fallback_provider = news_fallback_provider
+        self._news_fallback_model = news_fallback_model
         self.last_news_error: str | None = None  # motivo de la ultima generacion fallida/omitida
 
     async def _emit(self, type_: str, payload: dict) -> None:
@@ -390,15 +394,37 @@ class SimulationEngine:
             self.last_news_error = "No hay hechos nuevos que contar desde la última edición."
             return None
         provider = self._registry.get(self._news_provider)
+        model = self._news_model
         if not provider.is_configured():
             self.last_news_error = f"El proveedor de noticias '{self._news_provider}' no está configurado."
             return None
+        prompt = build_newspaper_prompt(self.world, events)
         try:
-            prompt = build_newspaper_prompt(self.world, events)
-            text = (await provider.chat(prompt, self._news_model, temperature=0.7)).strip()
+            text = (await provider.chat(prompt, model, temperature=0.7)).strip()
         except ProviderError as exc:
-            self.last_news_error = str(exc)
-            return None
+            primary_error = str(exc)
+            fallback = self._news_fallback_provider
+            # El periodico no tiene "personaje" propio (a diferencia de los
+            # ciudadanos, que SI son una IA concreta): si el proveedor
+            # principal se queda sin cuota, probar una vez con el de
+            # reserva antes de perder la edicion del dia entero.
+            if not fallback or fallback == self._news_provider:
+                self.last_news_error = primary_error
+                return None
+            fallback_provider = self._registry.get(fallback)
+            if not fallback_provider.is_configured():
+                self.last_news_error = primary_error
+                return None
+            try:
+                text = (
+                    await fallback_provider.chat(prompt, self._news_fallback_model, temperature=0.7)
+                ).strip()
+            except ProviderError:
+                # El error que interesa reportar es el del proveedor
+                # principal (el configurado "de verdad" para este rol); el
+                # de reserva era solo un segundo intento silencioso.
+                self.last_news_error = primary_error
+                return None
         if not text:
             self.last_news_error = "El proveedor de noticias devolvió una respuesta vacía."
             return None
