@@ -308,7 +308,13 @@ def build_newspaper_prompt(world: WorldState, events: list[CityEvent]) -> list[C
         "CUERPO: <el cuerpo de la noticia, entre 4 y 8 frases, agrupando los hechos relacionados "
         "en vez de listarlos uno a uno>"
     )
-    return [ChatMessage(role="system", content=system)]
+    # Algunos proveedores compatibles con la API de OpenAI (p.ej. GLM) rechazan
+    # una lista de mensajes que sea solo "system" (error 400 "messages
+    # parameter is illegal"): hace falta al menos un turno "user" de verdad.
+    return [
+        ChatMessage(role="system", content=system),
+        ChatMessage(role="user", content="Escribe la edición de hoy siguiendo exactamente esas instrucciones."),
+    ]
 
 
 _NEWS_RE = re.compile(r"TITULAR:\s*(.*?)\s*CUERPO:\s*(.*)", re.IGNORECASE | re.DOTALL)
