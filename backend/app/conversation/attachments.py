@@ -10,19 +10,32 @@ que tocar el motor de orquestacion ni el formato de prompt.
 
 Formatos con extraccion de texto real: PDF, Word (.docx), Excel/CSV, texto
 plano y codigo fuente, y ZIP (se listan los miembros y se extrae texto de
-los que sean legibles). Imagenes, video, audio, PowerPoint y formatos
-binarios no soportados se degradan con elegancia: se comparten igualmente
-(nombre + tamano visibles para el usuario y las IA) pero sin contenido
-extraido, dejandolo claro en el propio texto.
+los que sean legibles). Video, audio, PowerPoint y formatos binarios no
+soportados se degradan con elegancia: se comparten igualmente (nombre +
+tamano visibles para el usuario y las IA) pero sin contenido extraido,
+dejandolo claro en el propio texto.
+
+Imagenes (jpg/png/webp/gif/heic): no se les extrae texto, pero si se
+codifican en base64 (ver extract_image) para mandarselas de verdad a un
+proveedor con vision -de momento solo Gemini la usa (ver GeminiProvider y
+ConversationEngine)-, asi que las IA de Gemini (Gemini, Profesora,
+Moderador) ven la imagen real, no solo su nombre. El resto de IA, que no
+tienen vision configurada, siguen viendo solo nombre + tamano.
 """
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import zipfile
 
 _MAX_CHARS = 6000            # tope de texto extraido por archivo (evita prompts gigantes)
 _MAX_ZIP_MEMBERS = 25         # cuantos ficheros de un zip se intentan leer como maximo
+_MAX_IMAGE_BYTES = 8 * 1024 * 1024  # mismo limite que la subida en general
+_IMAGE_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".gif": "image/gif", ".heic": "image/heic", ".heif": "image/heif",
+}
 _TEXT_EXTENSIONS = {
     ".txt", ".md", ".rst", ".log", ".csv", ".tsv", ".json", ".yaml", ".yml",
     ".xml", ".html", ".htm", ".css", ".py", ".js", ".ts", ".tsx", ".jsx",
@@ -137,6 +150,19 @@ def kind_for(filename: str) -> str:
     if ext in _TEXT_EXTENSIONS:
         return "text"
     return "file"
+
+
+def extract_image(filename: str, content: bytes) -> tuple[str, str] | None:
+    """Si el archivo es una imagen de un formato reconocido (y no pesa
+    demasiado), devuelve (base64, mime) listo para mandarselo a un
+    proveedor con vision de verdad (ver GeminiProvider). None si no aplica
+    -otros formatos, o de-facto no soportados por vision- para que el
+    llamador siga con la degradacion habitual (solo nombre + tamano)."""
+    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    mime = _IMAGE_MIME.get(ext)
+    if mime is None or len(content) > _MAX_IMAGE_BYTES:
+        return None
+    return base64.b64encode(content).decode("ascii"), mime
 
 
 def extract_text(filename: str, content: bytes) -> str | None:

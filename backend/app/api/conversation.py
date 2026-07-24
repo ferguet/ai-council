@@ -13,7 +13,7 @@ import json
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from app.conversation.attachments import extract_text, kind_for
+from app.conversation.attachments import extract_image, extract_text, kind_for
 from app.conversation.engine import ConversationEngine
 from app.core.access import require_visitor, require_visitor_ws
 from app.core.event_bus import Event, event_bus
@@ -134,9 +134,11 @@ async def upload_attachment(
             to_ids = None
 
     extracted = extract_text(filename, content)
+    image = extract_image(filename, content)
     await eng.send_attachment(
         conversation_id, filename=filename, size_bytes=len(content), kind=kind_for(filename),
         extracted_text=extracted, caption=caption, to=to_ids,
+        image_base64=image[0] if image else None, image_mime=image[1] if image else None,
     )
     return eng.snapshot(conversation_id)
 

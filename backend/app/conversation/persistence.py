@@ -39,6 +39,7 @@ def conversations_to_dict(conversations: dict[str, Conversation]) -> dict:
                             {
                                 "filename": m.attachment.filename, "size_bytes": m.attachment.size_bytes,
                                 "kind": m.attachment.kind, "extracted_text": m.attachment.extracted_text,
+                                "image_base64": m.attachment.image_base64, "image_mime": m.attachment.image_mime,
                             } if m.attachment else None
                         ),
                         "created_at": _dt_to_str(m.created_at),
@@ -63,6 +64,8 @@ def conversations_from_dict(data: dict) -> dict[str, Conversation]:
                     Attachment(
                         filename=m["attachment"]["filename"], size_bytes=m["attachment"]["size_bytes"],
                         kind=m["attachment"]["kind"], extracted_text=m["attachment"].get("extracted_text"),
+                        image_base64=m["attachment"].get("image_base64"),
+                        image_mime=m["attachment"].get("image_mime"),
                     ) if m.get("attachment") else None
                 ),
                 created_at=_str_to_dt(m.get("created_at")) or datetime.now(timezone.utc),

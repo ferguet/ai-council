@@ -56,6 +56,11 @@ class Attachment:
     size_bytes: int
     kind: str                      # "pdf" | "word" | "excel" | "zip" | "image" | "video" | "audio" | "code" | "file"
     extracted_text: str | None = None   # None si el tipo no se pudo leer como texto
+    # Si es una imagen reconocida (ver extract_image en attachments.py):
+    # base64 + tipo MIME, para que un proveedor con vision (de momento solo
+    # Gemini) la analice de verdad y no solo lea su nombre.
+    image_base64: str | None = None
+    image_mime: str | None = None
 
 
 @dataclass

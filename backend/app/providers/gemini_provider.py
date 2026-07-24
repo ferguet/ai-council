@@ -28,10 +28,21 @@ class GeminiProvider(AIProvider):
     def _to_gemini_payload(messages: list[ChatMessage]) -> dict:
         # Gemini separa el system prompt del resto del historial.
         system_parts = [m.content for m in messages if m.role == "system"]
+
+        def _parts(m: ChatMessage) -> list[dict]:
+            parts: list[dict] = []
+            if m.content:
+                parts.append({"text": m.content})
+            if m.image_base64:
+                parts.append({
+                    "inlineData": {"mimeType": m.image_mime or "image/jpeg", "data": m.image_base64},
+                })
+            return parts or [{"text": " "}]
+
         contents = [
             {
                 "role": "model" if m.role == "assistant" else "user",
-                "parts": [{"text": m.content}],
+                "parts": _parts(m),
             }
             for m in messages
             if m.role != "system"

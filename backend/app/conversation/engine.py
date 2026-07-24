@@ -245,6 +245,11 @@ class ConversationEngine:
                 # ronda tras ronda (ver _PREFIX_RE mas abajo, que limpia
                 # cualquier resto que aun asi se cuele).
                 content=m.content if is_self else f"[{m.sender_name}]: {m.content}",
+                # Si el mensaje trae una imagen (adjunto real, ver
+                # attachments.py), se cuelga aqui tal cual: los proveedores
+                # sin vision simplemente la ignoran (ver ChatMessage).
+                image_base64=m.attachment.image_base64 if m.attachment else None,
+                image_mime=m.attachment.image_mime if m.attachment else None,
             ))
         return [ChatMessage(role="system", content=system), *transcript]
 
@@ -267,22 +272,31 @@ class ConversationEngine:
     async def send_attachment(
         self, conversation_id: str, filename: str, size_bytes: int, kind: str,
         extracted_text: str | None, caption: str, to: list[str] | None = None,
+        image_base64: str | None = None, image_mime: str | None = None,
     ) -> None:
         """Un archivo adjunto se comparte como un mensaje mas: el texto ya
         extraido (ver app/conversation/attachments.py) entra en el 'content'
         del mensaje, asi que cada IA lo ve tal cual dentro del historial que
-        ya construye _build_prompt, sin tener que tocar nada del prompt."""
+        ya construye _build_prompt, sin tener que tocar nada del prompt. Si
+        es una imagen (image_base64 presente), esa misma foto se adjunta
+        tambien al ChatMessage real cuando le toca el turno a un proveedor
+        con vision (de momento solo Gemini la usa, ver _build_prompt)."""
         # Sin visitor_id aqui a proposito: quien llama (la ruta de subida)
         # ya comprobo la propiedad de la sala antes de invocar esto.
         conv = self.get(conversation_id)
         if conv is None:
             raise KeyError(f"Conversacion '{conversation_id}' no existe")
-        attachment = Attachment(filename=filename, size_bytes=size_bytes, kind=kind, extracted_text=extracted_text)
+        attachment = Attachment(
+            filename=filename, size_bytes=size_bytes, kind=kind, extracted_text=extracted_text,
+            image_base64=image_base64, image_mime=image_mime,
+        )
 
         header = f"📎 Adjunta el archivo «{filename}» ({round(size_bytes / 1024)} KB)."
         if caption.strip():
             header += f" {caption.strip()}"
-        if extracted_text:
+        if image_base64:
+            body = f"{header} (es una imagen; algunas IA con vision la ven de verdad, no solo el nombre)."
+        elif extracted_text:
             body = f"{header}\n\n--- contenido extraido del archivo ---\n{extracted_text}"
         else:
             body = f"{header} (no se pudo extraer texto de este tipo de archivo; solo se conoce el nombre)."
@@ -331,6 +345,14 @@ class ConversationEngine:
                 {
                     "filename": m.attachment.filename, "size_bytes": m.attachment.size_bytes,
                     "kind": m.attachment.kind, "has_text": bool(m.attachment.extracted_text),
+                    # data_url solo para imagenes (para pintar una miniatura
+                    # en el frontend): el texto extraido de otros archivos
+                    # sigue sin mandarse entero al cliente, solo el flag
+                    # has_text de arriba.
+                    "data_url": (
+                        f"data:{m.attachment.image_mime};base64,{m.attachment.image_base64}"
+                        if m.attachment.image_base64 else None
+                    ),
                 } if m.attachment else None
             ),
             "created_at": m.created_at.isoformat(),

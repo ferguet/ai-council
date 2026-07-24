@@ -18,6 +18,12 @@ from typing import AsyncIterator
 class ChatMessage:
     role: str  # "system" | "user" | "assistant"
     content: str
+    # Imagen adjunta opcional (base64 + tipo MIME). Solo la usan los
+    # proveedores con vision de verdad implementada (ver GeminiProvider);
+    # el resto de proveedores simplemente la ignoran, sin romperse: siguen
+    # viendo solo el texto de 'content' como hasta ahora.
+    image_base64: str | None = None
+    image_mime: str | None = None
 
 
 class ProviderError(RuntimeError):
