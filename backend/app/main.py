@@ -16,7 +16,7 @@ from app.providers.registry import ProviderRegistry
 from app.simulation.engine import SimulationEngine
 from app.simulation.persistence import WorldStore
 from app.simulation.scheduler import SimulationScheduler
-from app.simulation.world_data import build_default_citizens, build_default_world
+from app.simulation.world_data import build_default_buildings, build_default_citizens, build_default_world
 
 app = FastAPI(
     title="AI Council API",
@@ -51,6 +51,31 @@ def _refresh_personalities(world) -> None:
             citizen.system_prompt = default.system_prompt
 
 
+def _sync_new_roster(world) -> None:
+    """Anade al mundo ya guardado los edificios y ciudadanos que existen en
+    el roster de codigo (world_data.py) pero que todavia no estan en la
+    partida persistida (p.ej. porque se anadieron despues del primer
+    despliegue). No toca ni reinicia nada de lo que ya existe: solo rellena
+    lo que falta, para que ampliar la ciudad en el codigo se refleje en la
+    ciudad ya viva sin perder memoria, proyectos ni relaciones."""
+    for bid, building in build_default_buildings().items():
+        if bid not in world.buildings:
+            world.buildings[bid] = building
+
+    defaults = build_default_citizens()
+    for cid, citizen in defaults.items():
+        if cid in world.citizens:
+            continue
+        block = citizen.schedule_for_hour(world.sim_hour)
+        if block:
+            citizen.current_building_id = block.building_id
+            citizen.current_activity = block.activity
+            citizen.current_activity_label = block.label
+        else:
+            citizen.current_building_id = citizen.home_id
+        world.citizens[cid] = citizen
+
+
 def _build_store():
     """Postgres si hay DATABASE_URL configurada (necesario para desplegar en
     un servicio gratuito con disco no persistente, p.ej. Render free +
@@ -70,7 +95,9 @@ async def start_city() -> None:
     registry = ProviderRegistry(settings)
     store = _build_store()
     world = await store.load() if await store.exists() else build_default_world()
+    _sync_new_roster(world)
     _refresh_personalities(world)
+    await store.save(world)
 
     engine = SimulationEngine(
         world=world,
