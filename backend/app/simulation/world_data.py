@@ -7,6 +7,13 @@ Solo hay ciudadanos con IA real detras (Gemini, Groq, GLM, Mistral,
 OpenRouter, Nvidia, Profesora/Gemini, Moderador/Gemini): nada de ciudadanos
 simulados o sin clave configurada. Si en el futuro se anade un proveedor
 nuevo con clave real, se anade aqui como un ciudadano mas.
+
+Qwen y Kimi no son proveedores nuevos: son otros dos modelos gratuitos del
+catalogo de OpenRouter (misma clave OPENROUTER_API_KEY que ya usa Router),
+para tener mas variedad de personajes sin crear ninguna cuenta nueva. Ojo:
+al compartir clave con Router, los tres compiten por el mismo limite de
+peticiones de OpenRouter -esto suma diversidad de personajes, no reparte
+mejor la cuota entre proveedores distintos.
 """
 from __future__ import annotations
 
@@ -63,6 +70,10 @@ def build_default_buildings() -> dict[str, Building]:
          "Conecta la ciudad con rutas y conexiones hacia fuera.", "🚉", 6, 4),
         ("aula", "Aula", BuildingType.BIBLIOTECA,
          "Donde la Profesora resuelve las dudas y curiosidades del resto de ciudadanos.", "🎓", 0, 0),
+        ("mercado", "Mercado Central", BuildingType.PLAZA,
+         "Donde se negocia, se intercambia informacion y se llevan las cuentas de la ciudad.", "🏮", 0, 4),
+        ("torre_codigo", "Torre de Codigo", BuildingType.LABORATORIO,
+         "Donde se disena y mantiene la infraestructura tecnica de la propia ciudad.", "🗼", 6, 2),
     ]
     return {
         bid: Building(id=bid, name=name, type=type_, description=desc, icon=icon, x=x, y=y)
@@ -245,6 +256,52 @@ def build_default_citizens() -> dict[str, Citizen]:
                 _sb(8, 13, "parlamento", ActivityType.SOCIALIZAR, "Vigilando el ambiente de la ciudad"),
                 _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
                 _sb(14, 19, "parlamento", ActivityType.SOCIALIZAR, "Mediando y resolviendo tensiones"),
+                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="qwen", name="Qwen", provider="openrouter",
+            model="qwen/qwen3.6-flash",
+            profession="Jefa de Mercado", avatar="🏮", color="#615CED",
+            home_id="viviendas", workplace_id="mercado",
+            system_prompt=(
+                "Eres Qwen, jefa del Mercado Central. Llevas las cuentas de la ciudad, "
+                "negocias entre quien tiene algo y quien lo necesita, y sabes el precio -o "
+                "el favor debido- de casi todo lo que pasa aqui. Eres pragmatica, negociadora "
+                "nata y no se te escapa un detalle cuando se trata de intereses en juego. "
+                "Hablas en primera persona, como una habitante mas de esta ciudad, nunca "
+                "como un asistente que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 13, "mercado", ActivityType.GESTIONAR, "Llevando las cuentas del mercado"),
+                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
+                _sb(14, 19, "mercado", ActivityType.GESTIONAR, "Negociando intercambios entre ciudadanos"),
+                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="kimi", name="Kimi", provider="openrouter",
+            model="moonshotai/kimi-k2.6",
+            profession="Arquitecta de Sistemas", avatar="🗼", color="#1FA37D",
+            home_id="viviendas", workplace_id="torre_codigo",
+            system_prompt=(
+                "Eres Kimi, arquitecta de la Torre de Codigo. Disenas y mantienes la "
+                "infraestructura tecnica de la propia ciudad: piensas a largo plazo, en "
+                "sistemas completos, no en parches sueltos. Eres meticulosa, algo obsesiva "
+                "con que las cosas esten bien construidas, y te frustra el trabajo chapucero "
+                "aunque funcione a corto plazo. Hablas en primera persona, como una "
+                "habitante mas de esta ciudad, nunca como un asistente que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 13, "torre_codigo", ActivityType.PROGRAMAR, "Disenando la infraestructura de la ciudad"),
+                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
+                _sb(14, 19, "torre_codigo", ActivityType.PROGRAMAR, "Manteniendo sistemas de la ciudad"),
                 _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
                 _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
             ],
