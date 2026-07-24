@@ -23,9 +23,35 @@ from app.domain.conversation_models import (
     Participant,
 )
 from app.providers.base import ChatMessage, ProviderError
+from app.providers.circuit_breaker import ProviderCircuitBreaker
 from app.providers.registry import ProviderRegistry
 
 DEFAULT_CONVERSATION_ID = "general"
+
+# Proveedor + modelo de respaldo por proveedor principal: si el proveedor de
+# un ciudadano falla de verdad (excepcion) o tiene el circuito abierto (ver
+# ProviderCircuitBreaker), se prueba UNA vez con este proveedor alternativo
+# antes de dar el turno por perdido -misma personalidad (el prompt ya lleva
+# su system_prompt de siempre), solo cambia quien "presta la voz" ese turno.
+# Elegidos para que cada proveedor tenga como respaldo uno DISTINTO (no
+# comparten cuota entre si) y con capa gratuita ya probada en esta app.
+# Idea de la ciudadana "Kimi" en el Chat Grupal (24/07): "modelos locales de
+# respaldo en cada piso de la torre, para cuando la nube de turno se vaya a
+# dormir" -aqui no hay modelos locales, pero el equivalente real que SI
+# podemos ofrecer es un proveedor de respaldo por ciudadano.
+_FALLBACK_PROVIDER: dict[str, tuple[str, str]] = {
+    "gemini": ("groq", "llama-3.3-70b-versatile"),
+    "gemini2": ("groq", "llama-3.3-70b-versatile"),
+    "groq": ("cerebras", "gpt-oss-120b"),
+    "glm": ("openrouter", "openai/gpt-oss-20b:free"),
+    "mistral": ("openrouter", "openai/gpt-oss-20b:free"),
+    "openrouter": ("groq", "llama-3.3-70b-versatile"),
+    "nvidia": ("groq", "llama-3.3-70b-versatile"),
+    "cerebras": ("groq", "llama-3.3-70b-versatile"),
+    "deepseek": ("openrouter", "openai/gpt-oss-20b:free"),
+    "openai": ("openrouter", "openai/gpt-oss-20b:free"),
+    "anthropic": ("openrouter", "openai/gpt-oss-20b:free"),
+}
 
 # El Moderador no tiene por que hablar en cada ronda: solo cuando de verdad
 # hace falta calmar una bronca o le mencionan. Si decide que no hace falta
@@ -52,12 +78,18 @@ class ConversationEngine:
         event_bus: EventBus,
         store,
         world=None,
+        breaker: ProviderCircuitBreaker | None = None,
     ) -> None:
         self.conversations = conversations
         self.roster = roster
         self._registry = registry
         self._event_bus = event_bus
         self._store = store
+        # Un circuito por proveedor (no por ciudadano: varios ciudadanos
+        # pueden compartir proveedor y cuota, p.ej. Profesora y Moderador en
+        # "gemini2"). Inyectable para tests; en produccion usa los valores
+        # por defecto (3 fallos seguidos -> 3 min abierto).
+        self._breaker = breaker or ProviderCircuitBreaker()
         # Referencia de solo lectura al WorldState de la Ciudad (mismo objeto,
         # no una copia): asi el chat grupal puede leer relaciones reales
         # (confianza/rivalidad) entre las IA sin duplicar ese estado. Puede
@@ -344,20 +376,63 @@ class ConversationEngine:
                 # en el mismo instante y choquen contra el limite "por
                 # minuto" de las capas gratuitas (ver providers/http_retry.py).
                 await asyncio.sleep(0.6)
-            provider = self._registry.get(participant.provider)
+            provider_name = participant.provider
+            provider = self._registry.get(provider_name)
             await self._emit(conv.id, "typing", {"citizen_id": participant.id})
+            prompt = self._build_prompt(conv, participant)
+            # Guardado ANTES de la llamada: si ya estaba abierto, el fallo
+            # que viene a continuacion es sintetico (no hemos llamado de
+            # verdad al proveedor) y no debe contar como un fallo nuevo del
+            # circuito -si no, nunca se cerraria solo.
+            breaker_already_open = self._breaker.is_open(provider_name)
             try:
-                prompt = self._build_prompt(conv, participant)
+                if breaker_already_open:
+                    wait_s = int(self._breaker.seconds_until_retry(provider_name))
+                    raise ProviderError(
+                        f"circuito abierto tras fallos repetidos, reintentando en ~{wait_s}s"
+                    )
                 raw = (await provider.chat(prompt, participant.model, temperature=0.9)).strip()
+                self._breaker.record_success(provider_name)
                 text = _PREFIX_RE.sub("", raw).strip()
             except ProviderError as exc:
-                text = f"[{participant.name} no puede responder ahora mismo: {exc}]"
+                primary_error = str(exc)
+                if not breaker_already_open:
+                    self._breaker.record_failure(provider_name)
+                text = await self._try_fallback(participant, prompt, primary_error)
             if not text or text.strip("[]\"'. ").upper() == _SILENCE_TOKEN.strip("[]"):
                 continue
             reply = ConversationMessage.create(participant.id, participant.name, text)
             conv.add_message(reply)
             await self._emit(conv.id, "message", self._message_payload(reply))
             await self._store_save()
+
+    async def _try_fallback(
+        self, participant: Participant, prompt: list[ChatMessage], primary_error: str,
+    ) -> str:
+        """El proveedor principal de este ciudadano acaba de fallar (de
+        verdad, o por tener el circuito abierto): se prueba UNA vez con su
+        proveedor de respaldo (ver _FALLBACK_PROVIDER) antes de dar el turno
+        por perdido. Mismo prompt (misma personalidad), solo cambia el
+        proveedor que genera la respuesta. Si tampoco hay respaldo
+        disponible, se devuelve el mensaje de error de siempre."""
+        unavailable = f"[{participant.name} no puede responder ahora mismo: {primary_error}]"
+        fallback = _FALLBACK_PROVIDER.get(participant.provider)
+        if not fallback:
+            return unavailable
+        fb_name, fb_model = fallback
+        try:
+            fb_provider = self._registry.get(fb_name)
+        except KeyError:
+            return unavailable
+        if not fb_provider.is_configured() or self._breaker.is_open(fb_name):
+            return unavailable
+        try:
+            raw = (await fb_provider.chat(prompt, fb_model, temperature=0.9)).strip()
+        except ProviderError:
+            self._breaker.record_failure(fb_name)
+            return unavailable
+        self._breaker.record_success(fb_name)
+        return _PREFIX_RE.sub("", raw).strip()
 
     @staticmethod
     def _message_payload(m: ConversationMessage) -> dict:
