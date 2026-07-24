@@ -11,6 +11,7 @@ ver -y reaccionar a- lo que acaban de decir las demas en esa misma ronda.
 from __future__ import annotations
 
 import random
+import re
 
 from app.core.event_bus import Event, EventBus
 from app.domain.conversation_models import (
@@ -24,6 +25,14 @@ from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
 
 DEFAULT_CONVERSATION_ID = "general"
+
+# Algunos modelos (sobre todo los mas pequenos, p.ej. Llama en Groq) imitan
+# la convencion "[Nombre]: " que ven en el transcript y la reproducen al
+# principio de su propia respuesta -a veces copiando ademas el nombre de
+# OTRO participante-. Si eso se guarda tal cual, la siguiente ronda vuelve a
+# envolverlo con otro "[Nombre]: " y el prefijo crece sin limite ronda tras
+# ronda. Se limpia aqui, a la salida del modelo, antes de guardarlo.
+_PREFIX_RE = re.compile(r"^(\[[^\[\]]{1,40}\]:\s*)+")
 
 
 class ConversationEngine:
@@ -185,13 +194,21 @@ class ConversationEngine:
             "quien rivalizas o desconfias, puedes guardarte parte de lo que piensas, "
             "picarla o directamente llevarle la contraria. No finjas armonia si no la hay."
         )
-        transcript = [
-            ChatMessage(
-                role="assistant" if m.sender_id == participant.id else "user",
-                content=f"[{m.sender_name}]: {m.content}",
-            )
-            for m in conv.recent_messages(40)
-        ]
+        transcript = []
+        for m in conv.recent_messages(40):
+            is_self = m.sender_id == participant.id
+            transcript.append(ChatMessage(
+                role="assistant" if is_self else "user",
+                # El prefijo "[Nombre]: " solo se anade en los mensajes de
+                # OTROS (para que el modelo sepa quien dijo que). En sus
+                # propios mensajes pasados (role="assistant") se omite: si
+                # el modelo ve su propia salida ya envuelta en "[Nombre]: ",
+                # tiende a imitar ese formato y a reproducirlo en la
+                # siguiente respuesta, generando prefijos que se acumulan
+                # ronda tras ronda (ver _PREFIX_RE mas abajo, que limpia
+                # cualquier resto que aun asi se cuele).
+                content=m.content if is_self else f"[{m.sender_name}]: {m.content}",
+            ))
         return [ChatMessage(role="system", content=system), *transcript]
 
     async def send_user_message(self, conversation_id: str, content: str, to: list[str] | None = None) -> None:
@@ -249,7 +266,8 @@ class ConversationEngine:
             await self._emit(conv.id, "typing", {"citizen_id": participant.id})
             try:
                 prompt = self._build_prompt(conv, participant)
-                text = (await provider.chat(prompt, participant.model, temperature=0.9)).strip()
+                raw = (await provider.chat(prompt, participant.model, temperature=0.9)).strip()
+                text = _PREFIX_RE.sub("", raw).strip()
             except ProviderError as exc:
                 text = f"[{participant.name} no puede responder ahora mismo: {exc}]"
             if not text:
