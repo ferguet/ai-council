@@ -39,16 +39,19 @@ app.include_router(city_router)
 
 
 def _refresh_personalities(world) -> None:
-    """Re-aplica la personalidad (system_prompt) del roster de codigo sobre el
-    mundo ya guardado. Sin esto, los prompts quedan congelados en la base de
-    datos de la primera vez y editar world_data.py no tendria efecto en la
-    ciudad ya desplegada. Solo toca el 'caracter'; NO borra memoria,
-    proyectos, relaciones ni el reloj de la ciudad."""
+    """Re-aplica personalidad, proveedor y modelo del roster de codigo sobre
+    el mundo ya guardado. Sin esto, esos campos quedan congelados en la base
+    de datos de la primera vez y cambios en world_data.py (p.ej. corregir el
+    nombre de un modelo) no tendrian efecto en la ciudad ya desplegada. Solo
+    toca esos 3 campos; NO borra memoria, proyectos, relaciones ni el reloj
+    de la ciudad."""
     defaults = build_default_citizens()
     for cid, default in defaults.items():
         citizen = world.citizens.get(cid)
         if citizen is not None:
             citizen.system_prompt = default.system_prompt
+            citizen.provider = default.provider
+            citizen.model = default.model
 
 
 def _sync_new_roster(world) -> None:
