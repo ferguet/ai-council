@@ -14,6 +14,7 @@ import random
 
 from app.core.event_bus import Event, EventBus
 from app.domain.conversation_models import (
+    Attachment,
     Conversation,
     ConversationKind,
     ConversationMessage,
@@ -165,13 +166,49 @@ class ConversationEngine:
         await self._emit(conversation_id, "message", self._message_payload(user_msg))
         await self._store_save()
 
-        targets = self._resolve_targets(conv, content, to)
+        await self._generate_replies(conv, content, to)
+
+    async def send_attachment(
+        self, conversation_id: str, filename: str, size_bytes: int, kind: str,
+        extracted_text: str | None, caption: str, to: list[str] | None = None,
+    ) -> None:
+        """Un archivo adjunto se comparte como un mensaje mas: el texto ya
+        extraido (ver app/conversation/attachments.py) entra en el 'content'
+        del mensaje, asi que cada IA lo ve tal cual dentro del historial que
+        ya construye _build_prompt, sin tener que tocar nada del prompt."""
+        conv = self._require(conversation_id)
+        attachment = Attachment(filename=filename, size_bytes=size_bytes, kind=kind, extracted_text=extracted_text)
+
+        header = f"📎 Adjunta el archivo «{filename}» ({round(size_bytes / 1024)} KB)."
+        if caption.strip():
+            header += f" {caption.strip()}"
+        if extracted_text:
+            body = f"{header}\n\n--- contenido extraido del archivo ---\n{extracted_text}"
+        else:
+            body = f"{header} (no se pudo extraer texto de este tipo de archivo; solo se conoce el nombre)."
+
+        active = [self.roster[pid] for pid in conv.active_participant_ids() if pid in self.roster]
+        mentions = self._parse_mentions(caption, active)
+
+        msg = ConversationMessage.create("user", "Tú", body, mentions=mentions, to=to or [], attachment=attachment)
+        conv.add_message(msg)
+        await self._emit(conversation_id, "message", self._message_payload(msg))
+        await self._store_save()
+
+        await self._generate_replies(conv, caption or body, to)
+
+    async def _generate_replies(self, conv: Conversation, content_for_mentions: str, to: list[str] | None) -> None:
+        """Genera, por turnos, la respuesta de cada IA objetivo (todas las
+        activas, las @mencionadas, o el subconjunto explicito 'to'). Comun a
+        mensajes de texto y a adjuntos: ambos acaban siendo un mensaje mas
+        en el historial que cada IA lee."""
+        targets = self._resolve_targets(conv, content_for_mentions, to)
         order = targets[:]
         random.shuffle(order)  # que no respondan siempre en el mismo orden fijo
 
         for participant in order:
             provider = self._registry.get(participant.provider)
-            await self._emit(conversation_id, "typing", {"citizen_id": participant.id})
+            await self._emit(conv.id, "typing", {"citizen_id": participant.id})
             try:
                 prompt = self._build_prompt(conv, participant)
                 text = (await provider.chat(prompt, participant.model, temperature=0.9)).strip()
@@ -181,7 +218,7 @@ class ConversationEngine:
                 continue
             reply = ConversationMessage.create(participant.id, participant.name, text)
             conv.add_message(reply)
-            await self._emit(conversation_id, "message", self._message_payload(reply))
+            await self._emit(conv.id, "message", self._message_payload(reply))
             await self._store_save()
 
     @staticmethod
@@ -189,6 +226,12 @@ class ConversationEngine:
         return {
             "id": m.id, "sender_id": m.sender_id, "sender_name": m.sender_name,
             "content": m.content, "mentions": m.mentions, "to": m.to,
+            "attachment": (
+                {
+                    "filename": m.attachment.filename, "size_bytes": m.attachment.size_bytes,
+                    "kind": m.attachment.kind, "has_text": bool(m.attachment.extracted_text),
+                } if m.attachment else None
+            ),
             "created_at": m.created_at.isoformat(),
         }
 

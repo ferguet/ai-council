@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from app.conversation.attachments import extract_text, kind_for
 from app.conversation.engine import ConversationEngine
 from app.core.event_bus import Event, event_bus
 from app.domain.conversation_models import ConversationKind
 
 router = APIRouter(tags=["conversation"])
+
+# Limite generoso pero prudente: Render free tiene 512MB de RAM y el archivo
+# entero pasa por memoria (no hay disco persistente donde volcarlo antes).
+_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
 
 class CreateConversationIn(BaseModel):
@@ -93,6 +98,42 @@ async def invite(conversation_id: str, body: KickInviteIn, request: Request) -> 
         return eng.snapshot(conversation_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/conversations/{conversation_id}/attachments")
+async def upload_attachment(
+    conversation_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+    to: str = Form(""),  # JSON de lista de ids, opcional
+) -> dict:
+    """Sube un archivo a la sala: se extrae su texto (si el tipo lo permite)
+    y se comparte como un mensaje mas, disparando la ronda de respuestas de
+    las IA objetivo igual que un mensaje de texto normal."""
+    eng = _engine(request)
+    if eng.get(conversation_id) is None:
+        raise HTTPException(status_code=404, detail="Conversacion no encontrada")
+
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Archivo demasiado grande (limite 8 MB)")
+
+    filename = file.filename or "archivo"
+    to_ids = None
+    if to:
+        try:
+            parsed = json.loads(to)
+            to_ids = parsed if isinstance(parsed, list) and parsed else None
+        except json.JSONDecodeError:
+            to_ids = None
+
+    extracted = extract_text(filename, content)
+    await eng.send_attachment(
+        conversation_id, filename=filename, size_bytes=len(content), kind=kind_for(filename),
+        extracted_text=extracted, caption=caption, to=to_ids,
+    )
+    return eng.snapshot(conversation_id)
 
 
 @router.websocket("/ws/conversation/{conversation_id}")

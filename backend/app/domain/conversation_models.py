@@ -46,6 +46,19 @@ class Participant:
 
 
 @dataclass
+class Attachment:
+    """Metadatos de un archivo adjunto a un mensaje. El binario no se
+    guarda en ningun sitio persistente (Render free no tiene disco fijo):
+    solo se conserva el texto ya extraido en el momento de la subida, que
+    es lo que las IA acaban leyendo como parte del mensaje."""
+
+    filename: str
+    size_bytes: int
+    kind: str                      # "pdf" | "word" | "excel" | "zip" | "image" | "video" | "audio" | "code" | "file"
+    extracted_text: str | None = None   # None si el tipo no se pudo leer como texto
+
+
+@dataclass
 class ConversationMessage:
     id: str
     sender_id: str              # id de Participant, o "user"
@@ -53,14 +66,16 @@ class ConversationMessage:
     content: str
     mentions: list[str] = field(default_factory=list)   # ids mencionados con @
     to: list[str] = field(default_factory=list)          # subconjunto explicito (si lo hubo)
+    attachment: Attachment | None = None
     created_at: datetime = field(default_factory=_now)
 
     @staticmethod
     def create(sender_id: str, sender_name: str, content: str,
-               mentions: list[str] | None = None, to: list[str] | None = None) -> "ConversationMessage":
+               mentions: list[str] | None = None, to: list[str] | None = None,
+               attachment: Attachment | None = None) -> "ConversationMessage":
         return ConversationMessage(
             id=_new_id(), sender_id=sender_id, sender_name=sender_name, content=content,
-            mentions=mentions or [], to=to or [],
+            mentions=mentions or [], to=to or [], attachment=attachment,
         )
 
 

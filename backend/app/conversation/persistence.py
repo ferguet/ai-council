@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.domain.conversation_models import Conversation, ConversationKind, ConversationMessage
+from app.domain.conversation_models import Attachment, Conversation, ConversationKind, ConversationMessage
 
 
 def _dt_to_str(dt: datetime | None) -> str | None:
@@ -34,6 +34,12 @@ def conversations_to_dict(conversations: dict[str, Conversation]) -> dict:
                     {
                         "id": m.id, "sender_id": m.sender_id, "sender_name": m.sender_name,
                         "content": m.content, "mentions": m.mentions, "to": m.to,
+                        "attachment": (
+                            {
+                                "filename": m.attachment.filename, "size_bytes": m.attachment.size_bytes,
+                                "kind": m.attachment.kind, "extracted_text": m.attachment.extracted_text,
+                            } if m.attachment else None
+                        ),
                         "created_at": _dt_to_str(m.created_at),
                     }
                     for m in c.messages
@@ -52,6 +58,12 @@ def conversations_from_dict(data: dict) -> dict[str, Conversation]:
             ConversationMessage(
                 id=m["id"], sender_id=m["sender_id"], sender_name=m["sender_name"],
                 content=m["content"], mentions=m.get("mentions", []), to=m.get("to", []),
+                attachment=(
+                    Attachment(
+                        filename=m["attachment"]["filename"], size_bytes=m["attachment"]["size_bytes"],
+                        kind=m["attachment"]["kind"], extracted_text=m["attachment"].get("extracted_text"),
+                    ) if m.get("attachment") else None
+                ),
                 created_at=_str_to_dt(m.get("created_at")) or datetime.now(timezone.utc),
             )
             for m in c.get("messages", [])

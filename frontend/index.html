@@ -141,6 +141,23 @@
   #composer button.send { width:44px;height:44px;border-radius:50%; border:none; cursor:pointer; font-size:17px;
     color:#fff; background:linear-gradient(135deg,var(--a1),var(--a3)); box-shadow:0 6px 16px rgba(124,92,255,.5);
     flex-shrink:0; }
+  #attachBtn { width:38px;height:38px;border-radius:50%; border:1px solid var(--border); background:#ffffff0d;
+    color:var(--muted); cursor:pointer; font-size:16px; flex-shrink:0; }
+  #attachBtn.on { color:var(--a4); border-color:var(--a4); }
+
+  /* ---------- Adjuntos ---------- */
+  #dropOverlay { position:fixed; inset:0; z-index:60; display:none; place-items:center;
+    background:rgba(10,11,22,.82); backdrop-filter:blur(4px); border:3px dashed var(--a2); margin:10px; border-radius:20px; }
+  #dropOverlay.show { display:grid; }
+  #dropOverlay .box { text-align:center; color:var(--text); font-size:15px; }
+  #dropOverlay .box .ic { font-size:40px; margin-bottom:8px; }
+  .att-card { display:flex; gap:10px; align-items:center; padding:10px 12px; border-radius:14px;
+    background:#ffffff0d; border:1px solid var(--border-lit); margin-bottom:6px; max-width:260px; }
+  .bubble-row.mine .att-card { background:rgba(255,255,255,.14); }
+  .att-card .ic { font-size:22px; flex-shrink:0; }
+  .att-card .meta b { display:block; font-size:12px; word-break:break-all; }
+  .att-card .meta span { font-size:10.5px; opacity:.75; }
+  #uploadStatus { padding:0 16px 4px; font-size:11.5px; color:var(--a4); font-style:italic; min-height:16px; }
 
   /* ---------- Bottom nav ---------- */
   #nav {
@@ -213,12 +230,21 @@
 
 <div id="messages"><div class="empty">Cargando la sala…</div></div>
 <div id="typingBar"></div>
+<div id="uploadStatus"></div>
 
 <div id="targetBar"></div>
 <div id="composer">
+  <button id="attachBtn" title="Adjuntar archivo">📎</button>
+  <input type="file" id="fileInput" style="display:none"
+    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.zip,.txt,.md,.json,.py,.js,.ts,.java,.c,.cpp,.go,.rs,.rb,.php,.sh,.sql,image/*,video/*,audio/*" />
   <button id="targetToggle" title="Elegir destinatarios">🎯</button>
   <input id="msgInput" placeholder="Escribe... usa @Nombre para dirigirte a alguien" />
   <button class="send" onclick="sendMessage()">➤</button>
+</div>
+
+<div id="dropOverlay">
+  <div class="box"><div class="ic">📎</div>Suelta el archivo para compartirlo con la sala<br>
+    <span style="font-size:11.5px;opacity:.7">PDF, Word, Excel, ZIP, código, imágenes, vídeo, audio · máx. 8 MB</span></div>
 </div>
 
 <div id="nav">
@@ -380,6 +406,8 @@ function renderMessages(){
   el.scrollTop = el.scrollHeight;
 }
 
+const ATT_ICONS = {pdf:"📕", word:"📘", excel:"📗", powerpoint:"📙", zip:"🗜️", image:"🖼️", video:"🎬", audio:"🎵", code:"💻", text:"📄", file:"📎"};
+
 function appendMessage(m, skipScroll){
   const el = document.getElementById("messages");
   const empty = el.querySelector(".empty");
@@ -390,9 +418,20 @@ function appendMessage(m, skipScroll){
   row.className = "bubble-row"+(mine?" mine":"");
   const av = mine ? "🧑" : (p? p.avatar : "🤖");
   const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}) : "";
+  let bodyText = m.content;
+  let attCardHtml = "";
+  if(m.attachment){
+    const a = m.attachment;
+    const icon = ATT_ICONS[a.kind] || "📎";
+    attCardHtml = `<div class="att-card"><div class="ic">${icon}</div><div class="meta">
+      <b>${escapeHtml(a.filename)}</b><span>${Math.round(a.size_bytes/1024)} KB · ${a.has_text?"texto analizado por las IA":"sin texto extraíble"}</span></div></div>`;
+    const idx = bodyText.indexOf("\n\n--- contenido extraido");
+    if(idx>=0) bodyText = bodyText.slice(0, idx);
+    bodyText = bodyText.replace(/^📎 Adjunta el archivo[^)]*\)\.?\s*/,"").trim();
+  }
   row.innerHTML = `<div class="av" style="background:${mine?'#7c5cff33':((p&&p.color)||'#7c5cff')+'33'}">${av}</div>
-    <div class="bubble">${mine?"":`<div class="nm" style="color:${(p&&p.color)||'#a2a7c4'}">${escapeHtml(m.sender_name)}</div>`}<div class="tx"></div><div class="tm">${time}</div></div>`;
-  row.querySelector(".tx").textContent = m.content;
+    <div class="bubble">${mine?"":`<div class="nm" style="color:${(p&&p.color)||'#a2a7c4'}">${escapeHtml(m.sender_name)}</div>`}${attCardHtml}<div class="tx"></div><div class="tm">${time}</div></div>`;
+  row.querySelector(".tx").textContent = bodyText;
   el.appendChild(row);
   if(!skipScroll) el.scrollTop = el.scrollHeight;
 }
@@ -446,6 +485,61 @@ function sendMessage(){
 }
 document.getElementById("msgInput").addEventListener("keydown", e=>{
   if(e.key==="Enter") sendMessage();
+});
+
+/* ---------------- Adjuntos: boton + drag&drop ---------------- */
+const MAX_UPLOAD_BYTES = 8*1024*1024;
+
+document.getElementById("attachBtn").onclick = ()=> document.getElementById("fileInput").click();
+document.getElementById("fileInput").addEventListener("change", e=>{
+  const f = e.target.files[0];
+  if(f) uploadFile(f);
+  e.target.value = "";
+});
+
+async function uploadFile(file){
+  if(!currentRoomId){ return; }
+  if(file.size > MAX_UPLOAD_BYTES){ alert(`"${file.name}" pesa demasiado (límite 8 MB).`); return; }
+  const status = document.getElementById("uploadStatus");
+  status.textContent = `📎 Subiendo ${file.name}…`;
+  const input = document.getElementById("msgInput");
+  const caption = input.value.trim();
+  input.value = "";
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("caption", caption);
+  if(pickedTargets.size) fd.append("to", JSON.stringify(Array.from(pickedTargets)));
+  try{
+    const r = await fetch(`/conversations/${encodeURIComponent(currentRoomId)}/attachments`, { method:"POST", body:fd });
+    status.textContent = "";
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert(err.detail || "No se pudo subir el archivo.");
+    }
+    // el mensaje y las respuestas de las IA llegan solas por el WebSocket ya conectado
+  }catch(e){
+    status.textContent = "";
+    alert("Error subiendo el archivo: "+e);
+  }
+}
+
+let dragCounter = 0;
+window.addEventListener("dragenter", e=>{
+  if(!e.dataTransfer || !Array.from(e.dataTransfer.types||[]).includes("Files")) return;
+  e.preventDefault(); dragCounter++;
+  document.getElementById("dropOverlay").classList.add("show");
+});
+window.addEventListener("dragover", e=>{ e.preventDefault(); });
+window.addEventListener("dragleave", e=>{
+  dragCounter = Math.max(0, dragCounter-1);
+  if(dragCounter===0) document.getElementById("dropOverlay").classList.remove("show");
+});
+window.addEventListener("drop", e=>{
+  e.preventDefault();
+  dragCounter = 0;
+  document.getElementById("dropOverlay").classList.remove("show");
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if(f) uploadFile(f);
 });
 
 /* ---------------- Crear sala ---------------- */
