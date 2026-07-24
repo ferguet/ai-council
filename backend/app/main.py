@@ -19,6 +19,7 @@ from app.core.access import check_code, gate_enabled, issue_token, new_visitor_i
 from app.core.config import get_settings
 from app.core.event_bus import event_bus
 from app.providers.registry import ProviderRegistry
+from app.providers.usage_tracker import ProviderUsageTracker
 from app.simulation.engine import SimulationEngine
 from app.simulation.persistence import WorldStore
 from app.simulation.scheduler import SimulationScheduler
@@ -186,6 +187,7 @@ async def start_city() -> None:
         event_bus=event_bus,
         store=conv_store,
         world=world,
+        usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
     )
     # La sala 'General' ya no se crea aqui: ahora es por visitante (ver
     # app/core/access.py) y se crea sola la primera vez que cada uno entra

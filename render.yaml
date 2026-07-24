@@ -63,6 +63,14 @@ services:
       - key: CLAUDE_CALL_CODE
         sync: false
 
+      # Racionamiento diario del Chat Grupal: tope de peticiones reales por
+      # proveedor y por dia (UTC). Al llegar a este numero, ese proveedor
+      # deja de llamarse de verdad el resto del dia y se usa su proveedor
+      # de respaldo. Subelo si ves que se queda corto, bajalo si un
+      # proveedor sigue agotando su cuota real antes de llegar aqui.
+      - key: PROVIDER_DAILY_SOFT_CAP
+        value: "150"
+
       # Director del debate
       - key: DIRECTOR_PROVIDER
         value: mock

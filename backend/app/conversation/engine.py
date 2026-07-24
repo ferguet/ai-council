@@ -25,6 +25,7 @@ from app.domain.conversation_models import (
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.circuit_breaker import ProviderCircuitBreaker
 from app.providers.registry import ProviderRegistry
+from app.providers.usage_tracker import ProviderUsageTracker
 
 DEFAULT_CONVERSATION_ID = "general"
 
@@ -79,6 +80,7 @@ class ConversationEngine:
         store,
         world=None,
         breaker: ProviderCircuitBreaker | None = None,
+        usage: ProviderUsageTracker | None = None,
     ) -> None:
         self.conversations = conversations
         self.roster = roster
@@ -90,6 +92,10 @@ class ConversationEngine:
         # "gemini2"). Inyectable para tests; en produccion usa los valores
         # por defecto (3 fallos seguidos -> 3 min abierto).
         self._breaker = breaker or ProviderCircuitBreaker()
+        # Racionamiento diario por proveedor: igual que el breaker, uno solo
+        # compartido por proveedor (no por ciudadano). Inyectable para
+        # tests; en produccion usa el tope de settings.provider_daily_soft_cap.
+        self._usage = usage or ProviderUsageTracker()
         # Referencia de solo lectura al WorldState de la Ciudad (mismo objeto,
         # no una copia): asi el chat grupal puede leer relaciones reales
         # (confianza/rivalidad) entre las IA sin duplicar ese estado. Puede
@@ -380,23 +386,30 @@ class ConversationEngine:
             provider = self._registry.get(provider_name)
             await self._emit(conv.id, "typing", {"citizen_id": participant.id})
             prompt = self._build_prompt(conv, participant)
-            # Guardado ANTES de la llamada: si ya estaba abierto, el fallo
-            # que viene a continuacion es sintetico (no hemos llamado de
-            # verdad al proveedor) y no debe contar como un fallo nuevo del
-            # circuito -si no, nunca se cerraria solo.
+            # Guardado ANTES de la llamada: si ya estaba abierto o racionado,
+            # el fallo que viene a continuacion es sintetico (no hemos
+            # llamado de verdad al proveedor) y no debe contar como un fallo
+            # nuevo del circuito -si no, nunca se cerraria solo.
             breaker_already_open = self._breaker.is_open(provider_name)
+            rationed = (not breaker_already_open) and self._usage.is_near_limit(provider_name)
             try:
                 if breaker_already_open:
                     wait_s = int(self._breaker.seconds_until_retry(provider_name))
                     raise ProviderError(
                         f"circuito abierto tras fallos repetidos, reintentando en ~{wait_s}s"
                     )
+                if rationed:
+                    raise ProviderError(
+                        f"racionado por hoy: ya lleva {self._usage.count_today(provider_name)} "
+                        f"peticiones de {self._usage.daily_soft_cap} del tope diario"
+                    )
+                self._usage.record_call(provider_name)
                 raw = (await provider.chat(prompt, participant.model, temperature=0.9)).strip()
                 self._breaker.record_success(provider_name)
                 text = _PREFIX_RE.sub("", raw).strip()
             except ProviderError as exc:
                 primary_error = str(exc)
-                if not breaker_already_open:
+                if not breaker_already_open and not rationed:
                     self._breaker.record_failure(provider_name)
                 text = await self._try_fallback(participant, prompt, primary_error)
             if not text or text.strip("[]\"'. ").upper() == _SILENCE_TOKEN.strip("[]"):
@@ -424,9 +437,14 @@ class ConversationEngine:
             fb_provider = self._registry.get(fb_name)
         except KeyError:
             return unavailable
-        if not fb_provider.is_configured() or self._breaker.is_open(fb_name):
+        if (
+            not fb_provider.is_configured()
+            or self._breaker.is_open(fb_name)
+            or self._usage.is_near_limit(fb_name)
+        ):
             return unavailable
         try:
+            self._usage.record_call(fb_name)
             raw = (await fb_provider.chat(prompt, fb_model, temperature=0.9)).strip()
         except ProviderError:
             self._breaker.record_failure(fb_name)

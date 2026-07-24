@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     # configurar, el boton queda desactivado (falla cerrado, no abierto).
     claude_call_code: str | None = None
 
+    # Racionamiento diario del Chat Grupal: tope conservador de peticiones
+    # reales por proveedor y por dia (UTC), igual para todos porque el
+    # limite real de cada uno varia y no siempre es publico. Al llegar al
+    # tope, ese proveedor deja de llamarse de verdad el resto del dia y se
+    # usa su proveedor de respaldo (ver ProviderUsageTracker y
+    # _FALLBACK_PROVIDER en conversation/engine.py). Ajustable sin tocar
+    # codigo si se ve que se queda corto o largo en la practica.
+    provider_daily_soft_cap: int = 150
+
 
 @lru_cache
 def get_settings() -> Settings:

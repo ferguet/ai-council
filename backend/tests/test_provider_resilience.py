@@ -14,6 +14,7 @@ from app.conversation.engine import ConversationEngine
 from app.domain.conversation_models import Participant
 from app.providers.base import AIProvider, ChatMessage, ProviderError
 from app.providers.circuit_breaker import ProviderCircuitBreaker
+from app.providers.usage_tracker import ProviderUsageTracker
 
 
 class _FakeBus:
@@ -71,10 +72,14 @@ def _roster_with_gemini_citizen() -> dict[str, Participant]:
     }
 
 
-def _engine(registry: _NamedRegistry, breaker: ProviderCircuitBreaker | None = None) -> ConversationEngine:
+def _engine(
+    registry: _NamedRegistry,
+    breaker: ProviderCircuitBreaker | None = None,
+    usage: ProviderUsageTracker | None = None,
+) -> ConversationEngine:
     return ConversationEngine(
         conversations={}, roster=_roster_with_gemini_citizen(), registry=registry,
-        event_bus=_FakeBus(), store=_FakeStore(), breaker=breaker,
+        event_bus=_FakeBus(), store=_FakeStore(), breaker=breaker, usage=usage,
     )
 
 
@@ -191,3 +196,79 @@ async def test_no_fallback_configured_keeps_old_unavailable_message() -> None:
     replies = [m for m in conv.messages if m.sender_id == "solitaria"]
     assert len(replies) == 1
     assert "no puede responder ahora mismo" in replies[0].content
+
+
+# --- ProviderUsageTracker aislado ------------------------------------------------------
+
+
+def test_usage_tracker_not_near_limit_below_cap() -> None:
+    usage = ProviderUsageTracker(daily_soft_cap=3)
+    usage.record_call("gemini")
+    usage.record_call("gemini")
+    assert usage.is_near_limit("gemini") is False
+    assert usage.remaining_today("gemini") == 1
+
+
+def test_usage_tracker_near_limit_at_cap() -> None:
+    usage = ProviderUsageTracker(daily_soft_cap=3)
+    for _ in range(3):
+        usage.record_call("gemini")
+    assert usage.is_near_limit("gemini") is True
+    assert usage.remaining_today("gemini") == 0
+
+
+def test_usage_tracker_resets_on_new_day() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    usage = ProviderUsageTracker(daily_soft_cap=2)
+    day1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    usage.record_call("gemini", now=day1)
+    usage.record_call("gemini", now=day1)
+    assert usage.is_near_limit("gemini", now=day1) is True
+    day2 = day1 + timedelta(days=1)
+    assert usage.is_near_limit("gemini", now=day2) is False
+    assert usage.count_today("gemini", now=day2) == 0
+
+
+# --- Racionamiento integrado en ConversationEngine -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rationed_provider_skips_primary_call_and_uses_fallback() -> None:
+    gemini = _CountingProvider("gemini", fail=False, response="no deberia usarse, esta racionado")
+    groq = _CountingProvider("groq", fail=False, response="respondo desde el respaldo por racionamiento")
+    # gemini ya llego a su tope de hoy (simulado dejandolo pre-cargado);
+    # groq (el respaldo) todavia no ha gastado nada de su propio tope.
+    usage = ProviderUsageTracker(daily_soft_cap=1)
+    usage.record_call("gemini")
+    eng = _engine(_NamedRegistry({"gemini": gemini, "groq": groq}), usage=usage)
+    conv = eng.ensure_default_conversation("visitor-a")
+
+    await eng.send_user_message(conv.id, "hola")
+
+    replies = [m for m in conv.messages if m.sender_id == "gemini"]
+    assert len(replies) == 1
+    assert replies[0].content == "respondo desde el respaldo por racionamiento"
+    # el proveedor principal ni se llega a llamar: el racionamiento es
+    # preventivo, no reactivo a un fallo real
+    assert gemini.calls == 0
+    assert groq.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_rationing_does_not_count_as_a_circuit_breaker_failure() -> None:
+    """Que el racionamiento salte al proveedor de respaldo no debe abrir el
+    circuito del proveedor principal -no ha fallado de verdad, solo se le
+    esta dando descanso por hoy. Si contara como fallo, el circuito se
+    abriria solo y se sumaria un segundo motivo de bloqueo redundante."""
+    gemini = _CountingProvider("gemini", fail=False, response="no deberia usarse")
+    groq = _CountingProvider("groq", fail=False, response="respaldo")
+    breaker = ProviderCircuitBreaker(failure_threshold=1, open_seconds=180)
+    usage = ProviderUsageTracker(daily_soft_cap=1)
+    usage.record_call("gemini")
+    eng = _engine(_NamedRegistry({"gemini": gemini, "groq": groq}), breaker=breaker, usage=usage)
+    conv = eng.ensure_default_conversation("visitor-a")
+
+    await eng.send_user_message(conv.id, "hola")
+
+    assert breaker.is_open("gemini") is False
