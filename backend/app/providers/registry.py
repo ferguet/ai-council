@@ -16,6 +16,10 @@ from app.providers.openai_provider import OpenAIProvider
 from app.providers.anthropic_provider import AnthropicProvider
 from app.providers.deepseek_provider import DeepSeekProvider
 from app.providers.glm_provider import GLMProvider
+from app.providers.mistral_provider import MistralProvider
+from app.providers.cerebras_provider import CerebrasProvider
+from app.providers.openrouter_provider import OpenRouterProvider
+from app.providers.nvidia_provider import NvidiaProvider
 
 
 class ProviderRegistry:
@@ -29,6 +33,10 @@ class ProviderRegistry:
             "anthropic": AnthropicProvider(settings.anthropic_api_key),
             "deepseek": DeepSeekProvider(settings.deepseek_api_key),
             "glm": GLMProvider(settings.glm_api_key),
+            "mistral": MistralProvider(settings.mistral_api_key),
+            "cerebras": CerebrasProvider(settings.cerebras_api_key),
+            "openrouter": OpenRouterProvider(settings.openrouter_api_key),
+            "nvidia": NvidiaProvider(settings.nvidia_api_key),
         }
 
     def get(self, name: str) -> AIProvider:

@@ -80,6 +80,22 @@ PROJECT_IDEAS: dict[str, list[tuple[str, str]]] = {
         ("Reorganizacion de equipos", "Redistribuir a los ciudadanos segun la carga de trabajo actual."),
         ("Balance de recursos de la ciudad", "Revisar que proyectos estan consumiendo mas tiempo del previsto."),
     ],
+    "Embajadora Cultural": [
+        ("Programa de intercambio entre ciudadanos", "Emparejar ciudadanos con perfiles distintos para que colaboren una semana."),
+        ("Glosario comun de la ciudad", "Unificar como cada ciudadano nombra las mismas ideas para evitar malentendidos."),
+    ],
+    "Analista de Alta Velocidad": [
+        ("Panel de metricas en tiempo real", "Medir cuanto tarda cada ciudadano en completar sus proyectos."),
+        ("Deteccion temprana de cuellos de botella", "Avisar antes de que un proyecto se atasque, no despues."),
+    ],
+    "Jefa de Estacion": [
+        ("Mapa de dependencias entre proyectos", "Ver que proyectos de distintos ciudadanos dependen entre si."),
+        ("Ruta rapida de ayuda mutua", "Conectar a quien necesita algo con quien ya lo sabe hacer."),
+    ],
+    "Disenadora de Simulaciones": [
+        ("Vista alternativa del mapa de la ciudad", "Probar una forma nueva de representar visualmente la ciudad."),
+        ("Animaciones de las rutinas diarias", "Hacer que se note mejor visualmente que hace cada ciudadano."),
+    ],
 }
 
 PROJECT_LOG_TEMPLATES = [

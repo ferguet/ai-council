@@ -31,6 +31,14 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
 
       # Cadena de conexion a Postgres (Supabase). Imprescindible para que la
       # ciudad no se resetee cada vez que Render duerme el servicio.

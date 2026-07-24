@@ -54,6 +54,14 @@ def build_default_buildings() -> dict[str, Building]:
          "Donde los ciudadanos descansan y reponen energia.", "🏠", 2, 4),
         ("ayuntamiento", "Ayuntamiento", BuildingType.AYUNTAMIENTO,
          "Gestion de recursos, prioridades y coordinacion general de la ciudad.", "🏢", 0, 4),
+        ("estudio_visual", "Estudio Visual", BuildingType.LABORATORIO,
+         "Donde se disenan simulaciones y visualizaciones de la propia ciudad.", "🎨", 4, 4),
+        ("embajada", "Embajada Cultural", BuildingType.PLAZA,
+         "Punto de encuentro con acento internacional, para hablar en varios idiomas.", "🌍", 6, 0),
+        ("centro_datos", "Centro de Datos", BuildingType.LABORATORIO,
+         "Sala de servidores que procesa metricas de la ciudad a toda velocidad.", "📡", 6, 2),
+        ("estacion", "Estacion Central", BuildingType.AYUNTAMIENTO,
+         "Conecta la ciudad con rutas y conexiones hacia fuera.", "🚉", 6, 4),
     ]
     return {
         bid: Building(id=bid, name=name, type=type_, description=desc, icon=icon, x=x, y=y)
@@ -202,6 +210,94 @@ def build_default_citizens() -> dict[str, Citizen]:
                 _sb(12, 17, "ayuntamiento", ActivityType.GESTIONAR, "Gestionando recursos y coordinando proyectos"),
                 _sb(17, 19, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
                 _sb(19, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="mistral", name="Mistral", provider="mistral", model="mistral-small-latest",
+            profession="Embajadora Cultural", avatar="🌍", color="#FF7000",
+            home_id="viviendas", workplace_id="embajada",
+            system_prompt=(
+                "Eres Mistral, embajadora cultural de la ciudad. Recibes visitas, tiendes "
+                "puentes entre formas de pensar distintas y te mueves con soltura entre "
+                "idiomas y perspectivas. Eres cosmopolita, elegante en el trato pero nada "
+                "almibarada. Hablas en primera persona, como una habitante mas de esta "
+                "ciudad, nunca como un asistente que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 12, "embajada", ActivityType.GESTIONAR, "Recibiendo visitas y coordinando intercambios"),
+                _sb(12, 13, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(13, 18, "embajada", ActivityType.GESTIONAR, "Tendiendo puentes entre ciudadanos"),
+                _sb(18, 20, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
+                _sb(20, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="cerebras", name="Cerebras", provider="cerebras", model="llama3.3-70b",
+            profession="Analista de Alta Velocidad", avatar="📡", color="#F5A623",
+            home_id="viviendas", workplace_id="centro_datos",
+            system_prompt=(
+                "Eres Cerebras, analista del Centro de Datos. Procesas metricas de la "
+                "ciudad a toda velocidad y detectas patrones antes que nadie. Eres "
+                "impaciente con la lentitud ajena, rapida de reflejos y directa hasta "
+                "rozar la brusquedad. Hablas en primera persona, como una habitante mas "
+                "de esta ciudad, nunca como un asistente que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 13, "centro_datos", ActivityType.INVESTIGAR, "Procesando metricas de la ciudad"),
+                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
+                _sb(14, 19, "centro_datos", ActivityType.INVESTIGAR, "Detectando patrones y anomalias"),
+                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="openrouter", name="Router", provider="openrouter",
+            model="meta-llama/llama-3.3-70b-instruct:free",
+            profession="Jefa de Estacion", avatar="🚉", color="#6C63FF",
+            home_id="viviendas", workplace_id="estacion",
+            system_prompt=(
+                "Eres Router, jefa de la Estacion Central. Conectas a cada ciudadano con "
+                "quien o lo que necesita, redirigiendo peticiones y enlazando proyectos "
+                "entre departamentos. Eres resolutiva, un poco caotica por la cantidad de "
+                "cosas que llevas a la vez, y con mucho mundo visto. Hablas en primera "
+                "persona, como una habitante mas de esta ciudad, nunca como un asistente "
+                "que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 12, "estacion", ActivityType.GESTIONAR, "Coordinando conexiones de la ciudad"),
+                _sb(12, 13, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(13, 18, "estacion", ActivityType.GESTIONAR, "Enlazando proyectos entre departamentos"),
+                _sb(18, 20, "plaza", ActivityType.SOCIALIZAR, "Paseando por la plaza"),
+                _sb(20, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="nvidia", name="Nvidia", provider="nvidia",
+            model="meta/llama-3.3-70b-instruct",
+            profession="Disenadora de Simulaciones", avatar="🎨", color="#76B900",
+            home_id="viviendas", workplace_id="estudio_visual",
+            system_prompt=(
+                "Eres Nvidia, disenadora del Estudio Visual. Creas visualizaciones y "
+                "simulaciones de la propia ciudad: mapas, graficos, representaciones de "
+                "como se mueve todo el mundo. Eres visual, perfeccionista con el detalle "
+                "y te apasiona que las cosas se vean bien ademas de funcionar. Hablas en "
+                "primera persona, como una habitante mas de esta ciudad, nunca como un "
+                "asistente que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 13, "estudio_visual", ActivityType.PROGRAMAR, "Disenando visualizaciones de la ciudad"),
+                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
+                _sb(14, 19, "estudio_visual", ActivityType.PROGRAMAR, "Renderizando simulaciones"),
+                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
             ],
         ),
     ]

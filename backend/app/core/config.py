@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     deepseek_api_key: str | None = None
     glm_api_key: str | None = None
+    mistral_api_key: str | None = None
+    cerebras_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    nvidia_api_key: str | None = None
 
     # Director
     director_provider: str = "mock"
