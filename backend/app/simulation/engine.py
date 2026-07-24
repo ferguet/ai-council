@@ -47,6 +47,14 @@ TEACHER_ID = "profesora"
 _PROJECT_START_CHANCE = 0.15
 _PROJECT_ADVANCE_CHANCE = 0.4
 _SOCIAL_REINFORCE_CHANCE = 0.3
+# De los encuentros sociales, cuantos acaban en friccion en vez de cordialidad
+# (base; sube con la rivalidad ya existente, baja con la confianza ya existente:
+# las relaciones tienen memoria, no tiran un dado limpio cada vez).
+_FRICTION_BASE_CHANCE = 0.28
+# De los proyectos que se inician, en cuantos se invita a colaborar a alguien
+# de mucha confianza en vez de emprenderlo en solitario.
+_COLLAB_INVITE_CHANCE = 0.35
+_TRUST_FOR_COLLAB = 0.7
 # Cuando a un ciudadano le toca una llamada real, con esta probabilidad en
 # vez de un pensamiento suelta una sugerencia de mejora para la app.
 _SUGGESTION_CHANCE = 0.30
@@ -141,14 +149,46 @@ class SimulationEngine:
             if random.random() >= _PROJECT_START_CHANCE:
                 return
             title, description = pick_project_idea(citizen)
-            project = Project.create(title, description, [citizen.id], citizen.current_building_id)
+
+            # A veces, en vez de emprenderlo sola, invita a colaborar a quien
+            # mas confianza le inspira (si esa persona anda libre ahora mismo).
+            # Asi las alianzas se traducen en algo concreto, no solo en un numero.
+            partner = None
+            trusted = sorted(
+                (
+                    (self.world.citizens[oid], rel)
+                    for oid, rel in citizen.relationships.items()
+                    if rel.trust >= _TRUST_FOR_COLLAB and oid in self.world.citizens
+                ),
+                key=lambda t: t[1].trust, reverse=True,
+            )
+            for candidate, _rel in trusted:
+                if not candidate.current_project_id or candidate.current_project_id not in self.world.projects:
+                    partner = candidate
+                    break
+            invite_partner = partner is not None and random.random() < _COLLAB_INVITE_CHANCE
+
+            owner_ids = [citizen.id, partner.id] if invite_partner else [citizen.id]
+            project = Project.create(title, description, owner_ids, citizen.current_building_id)
             self.world.projects[project.id] = project
             citizen.current_project_id = project.id
-            citizen.remember(f"{self.world.sim_time_label()}: inicie el proyecto '{title}'.")
+
+            if invite_partner:
+                partner.current_project_id = project.id
+                citizen.relationship_with(partner.id).reinforce(trust_delta=0.05, respect_delta=0.04)
+                partner.relationship_with(citizen.id).reinforce(trust_delta=0.05, respect_delta=0.04)
+                citizen.remember(f"{self.world.sim_time_label()}: inicie '{title}' junto a {partner.name}, en quien confio.")
+                partner.remember(f"{self.world.sim_time_label()}: {citizen.name} me invito a colaborar en '{title}'.")
+                description_text = f"{citizen.name} inicia un nuevo proyecto junto a {partner.name}: {title}."
+                event_citizen_ids = [citizen.id, partner.id]
+            else:
+                citizen.remember(f"{self.world.sim_time_label()}: inicie el proyecto '{title}'.")
+                description_text = f"{citizen.name} inicia un nuevo proyecto: {title}."
+                event_citizen_ids = [citizen.id]
+
             event = CityEvent.create(
                 EventType.PROYECTO_INICIADO, self.world.sim_day, self.world.sim_hour,
-                f"{citizen.name} inicia un nuevo proyecto: {title}.",
-                citizen_ids=[citizen.id], building_id=citizen.current_building_id,
+                description_text, citizen_ids=event_citizen_ids, building_id=citizen.current_building_id,
             )
             self._record_event(event)
             await self._emit("city_event", self._event_payload(event))
@@ -285,11 +325,29 @@ class SimulationEngine:
             if len(group) < 2 or random.random() >= _SOCIAL_REINFORCE_CHANCE:
                 continue
             a, b = random.sample(group, 2)
-            a.relationship_with(b.id).reinforce()
-            b.relationship_with(a.id).reinforce()
+            rel = a.relationship_with(b.id)
+            # La relacion previa tiene memoria: si ya hay rivalidad, es mas
+            # facil que vuelva a haber roce; si ya hay confianza alta, es mas
+            # dificil. No es un dado limpio cada vez.
+            friction_chance = max(0.05, min(0.75, _FRICTION_BASE_CHANCE + rel.rivalry * 0.4 - rel.trust * 0.25))
+            if random.random() < friction_chance:
+                a.relationship_with(b.id).clash()
+                b.relationship_with(a.id).clash()
+                text = random.choice([
+                    f"{a.name} y {b.name} discrepan abiertamente y la conversación se tensa.",
+                    f"{a.name} y {b.name} chocan de opiniones; ninguna cede terreno.",
+                    f"{a.name} pone en duda algo que dice {b.name}, y la cosa no sienta bien.",
+                ])
+            else:
+                a.relationship_with(b.id).reinforce()
+                b.relationship_with(a.id).reinforce()
+                text = random.choice([
+                    f"{a.name} y {b.name} charlan y refuerzan su relación.",
+                    f"{a.name} y {b.name} conectan enseguida, se nota buena sintonía.",
+                    f"{a.name} y {b.name} se ríen juntas de algo, ambiente distendido.",
+                ])
             event = CityEvent.create(
-                EventType.RELACION, self.world.sim_day, self.world.sim_hour,
-                f"{a.name} y {b.name} charlan y refuerzan su relacion.",
+                EventType.RELACION, self.world.sim_day, self.world.sim_hour, text,
                 citizen_ids=[a.id, b.id], building_id=building_id,
             )
             self._record_event(event)

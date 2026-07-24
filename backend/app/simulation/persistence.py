@@ -66,7 +66,8 @@ def world_to_dict(world: WorldState) -> dict:
                 "memory": c.memory,
                 "relationships": {
                     other_id: {
-                        "trust": r.trust, "respect": r.respect, "collaborations": r.collaborations,
+                        "trust": r.trust, "respect": r.respect, "rivalry": r.rivalry,
+                        "collaborations": r.collaborations, "frictions": r.frictions,
                         "last_interaction": _dt_to_str(r.last_interaction),
                     }
                     for other_id, r in c.relationships.items()
@@ -115,7 +116,9 @@ def world_from_dict(data: dict) -> WorldState:
         ]
         relationships = {
             other_id: Relationship(trust=r["trust"], respect=r["respect"],
+                                    rivalry=r.get("rivalry", 0.0),
                                     collaborations=r["collaborations"],
+                                    frictions=r.get("frictions", 0),
                                     last_interaction=_str_to_dt(r.get("last_interaction")))
             for other_id, r in c.get("relationships", {}).items()
         }

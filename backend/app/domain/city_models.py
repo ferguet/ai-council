@@ -59,22 +59,58 @@ class ScheduleBlock:
         return hour >= self.start_hour or hour < self.end_hour  # cruza medianoche
 
 
+def bond_label_for(trust: float, respect: float, rivalry: float) -> str:
+    """Etiqueta cualitativa de una relacion a partir de sus tres ejes. La
+    rivalidad no es lo opuesto a la confianza: se puede rivalizar con
+    alguien en quien tambien se confia (competencia sana), o desconfiar de
+    alguien sin que haya friccion abierta (indiferencia)."""
+    if rivalry >= 0.55 and trust >= 0.45:
+        return "🔥 Rivalidad respetuosa"
+    if rivalry >= 0.5:
+        return "⚔️ Rivalidad abierta"
+    if trust >= 0.75 and respect >= 0.6:
+        return "🤝 Aliada de confianza"
+    if trust >= 0.6:
+        return "🙂 Cordial"
+    if trust <= 0.3:
+        return "🤨 Distante, desconfía"
+    return "😐 Neutral"
+
+
 @dataclass
 class Relationship:
-    """Relacion dirigida entre dos ciudadanos. Evoluciona con el tiempo, no
-    es estatica: colaborar sube confianza/respeto, mucho tiempo sin
-    interactuar los deja igual (no baja solos, de momento)."""
+    """Relacion dirigida entre dos ciudadanos, con tres ejes independientes
+    en vez de un unico numero de 'amistad': confianza, respeto y rivalidad.
+    Evoluciona con cada interaccion -no es estatica-, y no siempre a mejor:
+    dos ciudadanos pueden colaborar en un proyecto y competir en otro, o
+    respetarse sin fiarse el uno del otro."""
 
     trust: float = 0.5
     respect: float = 0.5
+    rivalry: float = 0.0             # 0 = sin tension, 1 = rivalidad abierta
     collaborations: int = 0
+    frictions: int = 0
     last_interaction: datetime | None = None
 
-    def reinforce(self, trust_delta: float = 0.03, respect_delta: float = 0.02) -> None:
-        self.trust = min(1.0, self.trust + trust_delta)
-        self.respect = min(1.0, self.respect + respect_delta)
+    def reinforce(self, trust_delta: float = 0.03, respect_delta: float = 0.02, rivalry_delta: float = -0.01) -> None:
+        """Interaccion positiva: sube confianza/respeto y relaja algo la
+        rivalidad (aunque no la borra: se puede seguir compitiendo)."""
+        self.trust = max(0.0, min(1.0, self.trust + trust_delta))
+        self.respect = max(0.0, min(1.0, self.respect + respect_delta))
+        self.rivalry = max(0.0, min(1.0, self.rivalry + rivalry_delta))
         self.collaborations += 1
         self.last_interaction = _now()
+
+    def clash(self, trust_delta: float = -0.04, rivalry_delta: float = 0.08) -> None:
+        """Interaccion con friccion: baja la confianza y sube la rivalidad.
+        El respeto no baja necesariamente: se puede respetar a un rival."""
+        self.trust = max(0.0, min(1.0, self.trust + trust_delta))
+        self.rivalry = max(0.0, min(1.0, self.rivalry + rivalry_delta))
+        self.frictions += 1
+        self.last_interaction = _now()
+
+    def label(self) -> str:
+        return bond_label_for(self.trust, self.respect, self.rivalry)
 
 
 @dataclass

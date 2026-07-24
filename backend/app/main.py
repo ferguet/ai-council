@@ -178,6 +178,7 @@ async def start_city() -> None:
         registry=registry,
         event_bus=event_bus,
         store=conv_store,
+        world=world,
     )
     conv_engine.ensure_default_conversation()
     await conv_engine.save()

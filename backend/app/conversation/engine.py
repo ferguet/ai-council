@@ -34,12 +34,19 @@ class ConversationEngine:
         registry: ProviderRegistry,
         event_bus: EventBus,
         store,
+        world=None,
     ) -> None:
         self.conversations = conversations
         self.roster = roster
         self._registry = registry
         self._event_bus = event_bus
         self._store = store
+        # Referencia de solo lectura al WorldState de la Ciudad (mismo objeto,
+        # no una copia): asi el chat grupal puede leer relaciones reales
+        # (confianza/rivalidad) entre las IA sin duplicar ese estado. Puede
+        # ser None (p.ej. en tests) y todo sigue funcionando, solo que sin
+        # ese contexto relacional en el prompt.
+        self._world = world
 
     # ---------------------------------------------------------------
     # Gestion de salas
@@ -131,6 +138,33 @@ class ConversationEngine:
             return [p for p in active if p.id in mentioned]
         return active
 
+    def _relationship_context(self, conv: Conversation, participant: Participant) -> str:
+        """Una linea por cada otra IA activa en la sala con la relacion REAL
+        que tiene con ella en la Ciudad (confianza/rivalidad), para que cada
+        IA se comporte segun su relacion de verdad y no como un bloque
+        homogeneo y siempre de acuerdo."""
+        if self._world is None:
+            return ""
+        me = self._world.citizens.get(participant.id)
+        if me is None:
+            return ""
+        active_ids = conv.active_participant_ids()
+        lines = []
+        for other_id in active_ids:
+            if other_id == participant.id or other_id not in self.roster:
+                continue
+            other = self.roster[other_id]
+            rel = me.relationships.get(other_id)
+            label = rel.label() if rel else "😐 Neutral (todavia no os conoceis bien)"
+            lines.append(f"- Con {other.name}: {label}")
+        if not lines:
+            return ""
+        return (
+            "\nTu relacion real con quien esta en la sala (no la finjas, actua segun ella; "
+            "no tienes por que estar siempre de acuerdo con todo el mundo ni comportarte "
+            "como un grupo homogeneo):\n" + "\n".join(lines) + "\n"
+        )
+
     def _build_prompt(self, conv: Conversation, participant: Participant) -> list[ChatMessage]:
         active_ids = conv.active_participant_ids()
         others = ", ".join(
@@ -146,6 +180,10 @@ class ConversationEngine:
             "alguien o cambiar de tema si viene a cuento. Puedes dirigirte a alguien en "
             "concreto escribiendo @Nombre. Se breve (1-4 frases), como en un chat de "
             "verdad, no sueltes una parrafada ni un ensayo."
+            f"{self._relationship_context(conv, participant)}"
+            "Con quien tienes confianza puedes compartir estrategia abiertamente; con "
+            "quien rivalizas o desconfias, puedes guardarte parte de lo que piensas, "
+            "picarla o directamente llevarle la contraria. No finjas armonia si no la hay."
         )
         transcript = [
             ChatMessage(

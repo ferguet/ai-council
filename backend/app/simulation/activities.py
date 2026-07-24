@@ -201,7 +201,13 @@ def build_thought_prompt(citizen: Citizen, world: WorldState) -> list[ChatMessag
     cuesta una llamada real a su proveedor."""
     building = world.buildings.get(citizen.current_building_id)
     others = _nearby_citizens(citizen, world)
-    others_txt = ", ".join(o.name for o in others) or "nadie mas por ahora"
+    if others:
+        others_txt = ", ".join(
+            f"{o.name} ({citizen.relationships[o.id].label()})" if o.id in citizen.relationships else o.name
+            for o in others
+        )
+    else:
+        others_txt = "nadie mas por ahora"
     project_txt = "ninguno activo"
     if citizen.current_project_id and citizen.current_project_id in world.projects:
         p = world.projects[citizen.current_project_id]
@@ -212,7 +218,7 @@ def build_thought_prompt(citizen: Citizen, world: WorldState) -> list[ChatMessag
         f"{citizen.system_prompt}\n\n"
         f"Es {world.sim_time_label()} en la ciudad. Estas en {building.name if building else 'un lugar desconocido'}, "
         f"haciendo esto: {citizen.current_activity_label}. "
-        f"Proyecto activo: {project_txt}. Ciudadanos cerca: {others_txt}.\n"
+        f"Proyecto activo: {project_txt}. Ciudadanos cerca (con tu relacion real con cada una): {others_txt}.\n"
         f"Tus recuerdos recientes:\n{memory_txt}\n\n"
         "Escribe una unica entrada de diario en primera persona, 1-2 frases, breve y natural, "
         "sobre lo que estas pensando o haciendo justo ahora. No saludes, no expliques quien eres, "

@@ -245,6 +245,17 @@
   .sh-sub { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:4px 0 8px; }
   .mem { font-size:12.5px; color:#cfd3ea; line-height:1.5; padding:8px 11px; background:#ffffff08;
     border-radius:10px; margin-bottom:7px; border-left:2px solid var(--a1); font-style:italic; }
+  .rel { display:flex; align-items:center; gap:9px; padding:8px 10px; background:#ffffff08;
+    border-radius:12px; margin-bottom:6px; }
+  .rel .av { width:28px;height:28px;border-radius:50%; display:grid;place-items:center; font-size:14px; flex-shrink:0; }
+  .rel .info { flex:1; min-width:0; }
+  .rel .info b { font-size:12px; display:block; }
+  .rel .info .lbl { font-size:11px; color:var(--muted); }
+  .rel .bars { display:flex; flex-direction:column; gap:3px; width:70px; flex-shrink:0; }
+  .rel .bars .t { height:4px; border-radius:2px; background:#ffffff14; overflow:hidden; }
+  .rel .bars .t>div { height:100%; }
+  .rel .bars .trust>div { background:linear-gradient(90deg,#39e0a6,#20c5ff); }
+  .rel .bars .rivalry>div { background:linear-gradient(90deg,#ffcb47,#ff5ca8); }
   #chatLog { display:flex; flex-direction:column; gap:7px; padding:8px 0 4px; }
   .msg { font-size:13px; padding:9px 12px; border-radius:14px; max-width:85%; line-height:1.45; }
   .msg.user { align-self:flex-end; background:linear-gradient(135deg,var(--a1),#5b45d6); color:#fff; border-bottom-right-radius:4px; }
@@ -351,6 +362,8 @@
     <div id="shProject"></div>
     <div class="sh-sub">💭 Pensamientos recientes</div>
     <div id="shMemory"></div>
+    <div class="sh-sub">🤝 Relaciones con el resto</div>
+    <div id="shRelations"></div>
     <div class="sh-sub">💬 Habla con este ciudadano</div>
     <div id="chatLog"></div>
   </div>
@@ -692,7 +705,38 @@ function renderSheet(id){
   const mem=(c.memory||[]).slice(-5).reverse();
   me.innerHTML=mem.length?mem.map(m=>`<div class="mem">“${m}”</div>`).join(""):
     '<div class="mem" style="font-style:normal;color:var(--muted)">Sin pensamientos recientes todavía.</div>';
+
+  renderRelations(c);
   renderChat(id);
+}
+function bondLabelFor(trust,respect,rivalry){
+  if(rivalry>=0.55 && trust>=0.45) return "🔥 Rivalidad respetuosa";
+  if(rivalry>=0.5) return "⚔️ Rivalidad abierta";
+  if(trust>=0.75 && respect>=0.6) return "🤝 Aliada de confianza";
+  if(trust>=0.6) return "🙂 Cordial";
+  if(trust<=0.3) return "🤨 Distante, desconfía";
+  return "😐 Neutral";
+}
+function renderRelations(c){
+  const el=document.getElementById("shRelations");
+  const rels=c.relationships||{};
+  const others=Object.keys(world.citizens).filter(oid=>oid!==c.id);
+  if(!others.length){ el.innerHTML='<div class="mem" style="font-style:normal;color:var(--muted)">No hay más ciudadanos todavía.</div>'; return; }
+  el.innerHTML=others.map(oid=>{
+    const o=world.citizens[oid];
+    if(!o) return "";
+    const r=rels[oid];
+    const trust=r?Math.round(r.trust*100):50, rivalry=r?Math.round(r.rivalry*100):0, respect=r?r.respect:0.5;
+    const label=r?bondLabelFor(r.trust,respect,r.rivalry):"😐 Neutral (aún no se conocen)";
+    return `<div class="rel">
+      <div class="av" style="background:${o.color}22;border:1.5px solid ${o.color}55">${o.avatar}</div>
+      <div class="info"><b>${o.name}</b><span class="lbl">${label}</span></div>
+      <div class="bars">
+        <span class="t trust"><div style="width:${trust}%"></div></span>
+        <span class="t rivalry"><div style="width:${rivalry}%"></div></span>
+      </div>
+    </div>`;
+  }).join("");
 }
 function renderChat(id){
   const log=document.getElementById("chatLog");
