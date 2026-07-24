@@ -61,11 +61,12 @@ def get_news(request: Request, limit: int = 20, visitor: str = Depends(require_v
 async def generate_news(request: Request, visitor: str = Depends(require_visitor)) -> dict:
     """Fuerza una edicion nueva ahora mismo (salta el intervalo de
     news_interval_hours), para probar o para pedir un resumen a demanda."""
-    edition = await _engine(request).generate_news_edition(force=True)
+    engine = _engine(request)
+    edition = await engine.generate_news_edition(force=True)
     if edition is None:
         raise HTTPException(
             status_code=503,
-            detail="No se pudo generar la edicion (proveedor de noticias no disponible o sin respuesta).",
+            detail=engine.last_news_error or "No se pudo generar la edicion.",
         )
     return {
         "id": edition.id, "sim_day": edition.sim_day, "headline": edition.headline,

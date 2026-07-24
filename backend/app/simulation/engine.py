@@ -88,6 +88,7 @@ class SimulationEngine:
         self._news_provider = news_provider
         self._news_model = news_model
         self._news_interval = timedelta(hours=news_interval_hours)
+        self.last_news_error: str | None = None  # motivo de la ultima generacion fallida/omitida
 
     async def _emit(self, type_: str, payload: dict) -> None:
         await self._event_bus.publish(Event(type=type_, session_id=CITY_SESSION_ID, payload=payload))
@@ -382,24 +383,30 @@ class SimulationEngine:
         proveedor listo, ni hubo respuesta)."""
         now = datetime.now(timezone.utc)
         if not force and self.world.last_news_at and (now - self.world.last_news_at) < self._news_interval:
+            self.last_news_error = "Todavía no toca (no ha pasado el intervalo configurado)."
             return None
         events = self._events_since_last_news()
         if not events and not force:
+            self.last_news_error = "No hay hechos nuevos que contar desde la última edición."
             return None
         provider = self._registry.get(self._news_provider)
         if not provider.is_configured():
+            self.last_news_error = f"El proveedor de noticias '{self._news_provider}' no está configurado."
             return None
         try:
             prompt = build_newspaper_prompt(self.world, events)
             text = (await provider.chat(prompt, self._news_model, temperature=0.7)).strip()
-        except ProviderError:
+        except ProviderError as exc:
+            self.last_news_error = str(exc)
             return None
         if not text:
+            self.last_news_error = "El proveedor de noticias devolvió una respuesta vacía."
             return None
         headline, body = parse_newspaper_reply(text, self.world.sim_day)
         edition = NewsEdition.create(self.world.sim_day, headline, body)
         self.world.add_news(edition)
         self.world.last_news_at = now
+        self.last_news_error = None
         await self._store.save(self.world)
         await self._emit("news_edition", self._news_payload(edition))
         return edition
