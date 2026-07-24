@@ -128,6 +128,13 @@
   .bubble .tm { font-size:9.5px; color:var(--muted); margin-top:3px; opacity:.7; }
   .bubble-row.mine .bubble .tm { color:#ffffffb0; }
   .system-line { align-self:center; font-size:11px; color:var(--muted); font-style:italic; padding:2px 10px; }
+  /* ---------- Aviso de limite de peticiones agotado ---------- */
+  .bubble.rate-limited { background:rgba(255,203,71,.10); border:1px solid rgba(255,203,71,.35); }
+  .bubble.rate-limited .rl-line { font-size:13px; display:flex; align-items:center; gap:6px; }
+  .bubble.rate-limited .rl-details { margin-top:5px; }
+  .bubble.rate-limited .rl-details summary { font-size:10.5px; color:var(--muted); cursor:pointer; }
+  .bubble.rate-limited .rl-raw { font-size:10.5px; color:var(--muted); margin-top:4px; white-space:pre-wrap;
+    word-break:break-word; max-height:120px; overflow-y:auto; }
   #typingBar { padding:0 16px 4px; font-size:11.5px; color:var(--muted); font-style:italic; min-height:16px; }
   .empty { color:var(--muted); font-size:13px; text-align:center; padding:40px 20px; line-height:1.6; }
 
@@ -380,7 +387,7 @@ function handleMessage(msg){
     if(payload.sender_id===typingId) typingId=null;
     renderTyping();
     appendMessage(payload);
-    if(payload.sender_id!=="user") speak(trimmedBody(payload));
+    if(payload.sender_id!=="user" && !RATE_LIMIT_RE.test(trimmedBody(payload))) speak(trimmedBody(payload));
   } else if(type==="typing"){
     typingId = payload.citizen_id;
     renderTyping();
@@ -429,6 +436,13 @@ function renderMessages(){
 }
 
 const ATT_ICONS = {pdf:"📕", word:"📘", excel:"📗", powerpoint:"📙", zip:"🗜️", image:"🖼️", video:"🎬", audio:"🎵", code:"💻", text:"📄", file:"📎"};
+// Cuando una IA se queda sin cuota/limite de peticiones, el motor manda el
+// error tal cual dentro del mensaje: "[Nombre no puede responder ahora
+// mismo: <error crudo del proveedor>]". Antes se veia como una respuesta
+// normal (un bloque de JSON ilegible a mitad de conversacion); ahora se
+// reconoce y se pinta como un aviso claro, con el detalle tecnico oculto
+// tras un desplegable en vez de a la vista.
+const RATE_LIMIT_RE = /^\[.+? no puede responder ahora mismo: ([\s\S]+)\]$/;
 
 function trimmedBody(m){
   let bodyText = m.content;
@@ -464,9 +478,20 @@ function appendMessage(m, skipScroll){
         <b>${escapeHtml(a.filename)}</b><span>${Math.round(a.size_bytes/1024)} KB · ${a.has_text?"texto analizado por las IA":"sin texto extraíble"}</span></div></div>`;
     }
   }
-  row.innerHTML = `<div class="av" style="background:${mine?'#7c5cff33':((p&&p.color)||'#7c5cff')+'33'}">${av}</div>
-    <div class="bubble">${mine?"":`<div class="nm" style="color:${(p&&p.color)||'#a2a7c4'}">${escapeHtml(m.sender_name)}</div>`}${attCardHtml}<div class="tx"></div><div class="tm">${time}</div></div>`;
-  row.querySelector(".tx").textContent = bodyText;
+  const rlMatch = !mine && bodyText.match(RATE_LIMIT_RE);
+  const bubbleClass = rlMatch ? "bubble rate-limited" : "bubble";
+  const nameHtml = mine ? "" : `<div class="nm" style="color:${(p&&p.color)||'#a2a7c4'}">${escapeHtml(m.sender_name)}</div>`;
+  if(rlMatch){
+    row.innerHTML = `<div class="av" style="background:${((p&&p.color)||'#7c5cff')+'33'}">${av}</div>
+      <div class="${bubbleClass}">${nameHtml}<div class="rl-line">⏳ sin cuota ahora mismo, lo intentará más tarde</div>
+      <details class="rl-details"><summary>ver detalle técnico</summary><div class="rl-raw"></div></details>
+      <div class="tm">${time}</div></div>`;
+    row.querySelector(".rl-raw").textContent = rlMatch[1];
+  } else {
+    row.innerHTML = `<div class="av" style="background:${mine?'#7c5cff33':((p&&p.color)||'#7c5cff')+'33'}">${av}</div>
+      <div class="${bubbleClass}">${nameHtml}${attCardHtml}<div class="tx"></div><div class="tm">${time}</div></div>`;
+    row.querySelector(".tx").textContent = bodyText;
+  }
   el.appendChild(row);
   if(!skipScroll) el.scrollTop = el.scrollHeight;
 }

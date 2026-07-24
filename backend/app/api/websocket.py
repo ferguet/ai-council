@@ -11,11 +11,12 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 
 from app.agents.presets import ROLE_PRESETS
 from app.api.schemas import StartDebateIn
-from app.core.access import require_visitor_ws
+from app.conversation.attachments import extract_text, kind_for
+from app.core.access import require_visitor, require_visitor_ws
 from app.core.config import get_settings
 from app.core.event_bus import Event, event_bus
 from app.domain.enums import DebateStatus
@@ -25,7 +26,33 @@ from app.orchestrator.director import Director
 from app.orchestrator.orchestrator import Orchestrator
 from app.providers.registry import ProviderRegistry
 
-router = APIRouter()
+router = APIRouter(tags=["debate"])
+
+# Mismo limite que los adjuntos del Chat Grupal (ver api/conversation.py):
+# generoso pero prudente para el disco/memoria efimeros de Render free.
+_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
+
+@router.post("/debate/extract")
+async def extract_debate_document(
+    file: UploadFile = File(...),
+    visitor: str = Depends(require_visitor),
+) -> dict:
+    """Extrae el texto de un documento para adjuntarlo como contexto del
+    tema del debate (no se guarda el archivo, solo se devuelve el texto
+    extraido; el frontend lo anade al tema antes de arrancar la sesion).
+    Reusa el mismo extractor que los adjuntos del Chat Grupal."""
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Archivo demasiado grande (limite 8 MB)")
+    filename = file.filename or "documento"
+    text = extract_text(filename, content)
+    if text is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No se puede extraer texto de \"{filename}\" (tipo no soportado para el debate).",
+        )
+    return {"filename": filename, "kind": kind_for(filename), "extracted_text": text}
 
 
 def _build_agent(p, index: int) -> Agent:

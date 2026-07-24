@@ -281,6 +281,7 @@
   .msg.user { align-self:flex-end; background:linear-gradient(135deg,var(--a1),#5b45d6); color:#fff; border-bottom-right-radius:4px; }
   .msg.cit { align-self:flex-start; background:#ffffff10; border:1px solid var(--border); border-bottom-left-radius:4px; }
   .msg.typing { align-self:flex-start; color:var(--muted); font-style:italic; }
+  .msg.ratelimited { align-self:flex-start; background:transparent; border:1px dashed var(--a5,#e0a15c); color:var(--a5,#e0a15c); font-style:italic; cursor:help; }
   #composer { display:flex; gap:8px; padding:10px 18px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid var(--border); }
   #composer input { flex:1; padding:11px 14px; border-radius:22px; border:1px solid var(--border);
     background:#ffffff0d; color:var(--text); font-size:13.5px; outline:none; }
@@ -815,10 +816,18 @@ function renderRelations(c){
     </div>`;
   }).join("");
 }
+const CITY_RATE_LIMIT_RE = /^\[.+? no puede responder ahora mismo: ([\s\S]+)\]$/;
 function renderChat(id){
   const log=document.getElementById("chatLog");
   const h=chatHistory[id]||[];
-  log.innerHTML=h.map(m=>`<div class="msg ${m.role==="user"?"user":"cit"}">${m.content}</div>`).join("");
+  log.innerHTML=h.map(m=>{
+    const rl = m.role!=="user" && CITY_RATE_LIMIT_RE.exec(m.content||"");
+    if(rl){
+      const raw=String(rl[1]).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+      return `<div class="msg ratelimited" title="${raw}">⏳ sin cuota ahora mismo, lo intentará más tarde</div>`;
+    }
+    return `<div class="msg ${m.role==="user"?"user":"cit"}">${m.content}</div>`;
+  }).join("");
   log.scrollTop=log.scrollHeight;
 }
 function addMsg(id,role,content){

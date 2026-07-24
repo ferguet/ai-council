@@ -13,60 +13,104 @@
 <script src="access.js"></script>
 <style>
   :root {
-    --bg: #0f1117; --panel: #171a23; --border: #262a36; --text: #e7e9ee;
-    --muted: #9aa0ad; --accent: #6c5ce7;
+    --bg0:#0a0b16; --bg1:#12132a; --bg2:#1a1140;
+    --glass: rgba(28,30,54,0.55);
+    --glass-strong: rgba(30,32,60,0.8);
+    --border: rgba(255,255,255,0.10);
+    --border-lit: rgba(255,255,255,0.22);
+    --text:#eef1fb; --muted:#a2a7c4;
+    --a1:#7c5cff; --a2:#20c5ff; --a3:#ff5ca8; --a4:#39e0a6; --a5:#ffcb47;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
-    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-    background: var(--bg); color: var(--text); height: 100vh; display: flex;
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(124,92,255,0.35), transparent 60%),
+      radial-gradient(900px 600px at -10% 20%, rgba(32,197,255,0.22), transparent 55%),
+      radial-gradient(900px 700px at 50% 120%, rgba(255,92,168,0.20), transparent 55%),
+      linear-gradient(160deg, var(--bg0), var(--bg1) 55%, var(--bg2));
+    background-attachment: fixed;
+    height: 100vh; height: 100dvh; display: flex;
   }
+  button { font-family: inherit; }
   #setup {
     width: 380px; min-width: 380px; border-right: 1px solid var(--border);
-    padding: 20px; overflow-y: auto; background: var(--panel);
+    padding: 18px; overflow-y: auto;
+    background: linear-gradient(180deg, rgba(12,13,28,0.6), rgba(12,13,28,0.3));
+    backdrop-filter: blur(18px) saturate(140%);
   }
-  #setup h1 { font-size: 20px; margin: 0 0 4px; }
-  #setup p.sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
+  #setup h1 { font-size: 19px; margin: 0 0 10px; letter-spacing: .2px; }
+
+  /* ---------- Nav a las otras pantallas: antes eran enlaces de texto
+     subrayados que se veian cutres; ahora son pildoras iguales al resto
+     de la app (index.html/city.html). ---------- */
+  #pageNav { display: flex; gap: 7px; margin-bottom: 18px; flex-wrap: wrap; }
+  #pageNav a, #pageNav span {
+    display: inline-flex; align-items: center; gap: 5px; padding: 7px 13px;
+    border-radius: 20px; background: var(--glass); border: 1px solid var(--border);
+    color: var(--muted); font-size: 12px; text-decoration: none; backdrop-filter: blur(10px);
+  }
+  #pageNav span.active { color: var(--text); border-color: var(--border-lit); background: rgba(124,92,255,.22); }
+  #pageNav a:hover { color: var(--text); border-color: var(--border-lit); }
+
+  label { display: block; font-size: 11px; color: var(--muted); margin: 14px 0 5px; text-transform: uppercase; letter-spacing: .06em; }
   input[type=text], textarea, select {
-    width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
-    background: #0f1117; color: var(--text); font-size: 13px;
+    width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border);
+    background: #ffffff0d; color: var(--text); font-size: 13px; outline: none;
   }
+  input[type=text]:focus, textarea:focus, select:focus { border-color: var(--border-lit); }
   textarea { resize: vertical; min-height: 50px; }
   .agent-card {
-    border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-top: 10px;
-    background: #12141c;
+    border: 1px solid var(--border); border-radius: 14px; padding: 11px; margin-top: 10px;
+    background: var(--glass); backdrop-filter: blur(10px);
   }
   .agent-card-head { display: flex; justify-content: space-between; align-items: center; }
-  .agent-card-head button { background: none; border: none; color: #ff7675; cursor: pointer; font-size: 16px; }
+  .agent-card-head input { background: transparent !important; border: none !important; padding: 2px 0 !important; }
+  .agent-card-head button { background: none; border: none; color: var(--a3); cursor: pointer; font-size: 16px; }
   .row2 { display: flex; gap: 8px; }
   .row2 > div { flex: 1; }
   button.primary {
-    width: 100%; margin-top: 18px; padding: 11px; border-radius: 10px; border: none;
-    background: var(--accent); color: white; font-weight: 600; cursor: pointer; font-size: 14px;
+    width: 100%; margin-top: 18px; padding: 12px; border-radius: 14px; border: none;
+    background: linear-gradient(135deg,var(--a1),var(--a3)); color: white; font-weight: 600;
+    cursor: pointer; font-size: 14px; box-shadow: 0 6px 16px rgba(124,92,255,.4);
   }
-  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
   button.secondary {
-    width: 100%; margin-top: 8px; padding: 9px; border-radius: 10px; border: 1px dashed var(--border);
-    background: transparent; color: var(--muted); cursor: pointer; font-size: 13px;
+    width: 100%; margin-top: 8px; padding: 9px; border-radius: 12px; border: 1px dashed var(--border-lit);
+    background: #ffffff0a; color: var(--muted); cursor: pointer; font-size: 12.5px;
   }
+  button.secondary:hover { color: var(--text); }
+
+  /* ---------- Adjuntar documento ---------- */
+  .att-chip {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 8px 11px;
+    border-radius: 12px; background: rgba(57,224,166,.12); border: 1px solid rgba(57,224,166,.35);
+    font-size: 12px;
+  }
+  .att-chip .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att-chip button { background: none; border: none; color: var(--a3); cursor: pointer; font-size: 14px; }
+  .att-hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   #topbar {
     padding: 14px 22px; border-bottom: 1px solid var(--border); display: flex;
     justify-content: space-between; align-items: center;
+    backdrop-filter: blur(18px) saturate(140%);
+    background: linear-gradient(180deg, rgba(12,13,28,0.5), rgba(12,13,28,0.15));
   }
-  #topbar .status { font-size: 12px; color: var(--muted); }
+  #topbar .status { font-size: 11.5px; color: var(--muted); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); }
   #chat { flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
-  .msg { max-width: 72%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.45; }
+  .msg { max-width: 72%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.48; }
   .msg .who { font-size: 11px; font-weight: 700; margin-bottom: 4px; opacity: .85; }
-  .msg.agent { background: #1c1f2b; align-self: flex-start; border-left: 3px solid var(--accent); }
-  .msg.user { background: var(--accent); align-self: flex-end; color: white; }
+  .msg.agent { background: var(--glass); align-self: flex-start; border: 1px solid var(--border); border-left: 3px solid var(--a1); border-bottom-left-radius: 4px; backdrop-filter: blur(10px); }
+  .msg.user { background: linear-gradient(135deg,var(--a1),#5b45d6); align-self: flex-end; color: white; border-bottom-right-radius: 4px; }
   .msg.director { background: transparent; align-self: center; color: var(--muted); font-style: italic; font-size: 12px; border: 1px dashed var(--border); }
-  .msg.system { background: transparent; align-self: center; color: #ff7675; font-size: 12px; }
-  #composer { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  .msg.system { background: transparent; align-self: center; color: var(--a3); font-size: 12px; }
+  #composer { padding: 14px 22px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); display: flex; gap: 10px; }
   #composer input { flex: 1; }
-  #composer button { padding: 0 18px; border-radius: 10px; border: none; background: var(--accent); color: white; cursor: pointer; }
-  .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; }
+  #composer button { padding: 0 20px; border-radius: 14px; border: none; background: linear-gradient(135deg,var(--a1),var(--a3)); color: white; cursor: pointer; font-weight: 600; }
+  .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; line-height: 1.6; }
   .typing { font-size: 12px; color: var(--muted); font-style: italic; padding: 0 22px 8px; min-height: 18px; }
 
   /* ---------- Movil: el sidebar fijo de 380px no cabe en una pantalla de
@@ -90,17 +134,28 @@
 <body>
 
 <div id="setup">
-  <h1>AI Council</h1>
-  <p class="sub">Configura el tema y quién participa en el debate. <a href="index.html" style="color:var(--accent);">💬 Ir al Chat</a> · <a href="city.html" style="color:var(--accent);">🏙️ Ver Ciudad Virtual</a></p>
+  <h1>🗳️ AI Council</h1>
+  <div id="pageNav">
+    <a href="index.html">💬 Chat</a>
+    <a href="city.html">🏙️ Ciudad</a>
+    <span class="active">🗳️ Debate</span>
+  </div>
 
   <label>Tema del debate</label>
   <textarea id="topic" placeholder="Ej: ¿Deberíamos invertir en esta empresa?"></textarea>
+
+  <label>Adjuntar documento (opcional)</label>
+  <button class="secondary" type="button" id="attachDebateBtn">📎 Adjuntar documento</button>
+  <input type="file" id="debateFileInput" style="display:none"
+    accept=".pdf,.docx,.xlsx,.csv,.tsv,.zip,.txt,.md,.json,.py,.js,.ts,.java,.c,.cpp,.go,.rs,.rb,.php,.sh,.sql" />
+  <div id="debateAttachBox"></div>
+  <p class="att-hint">Su contenido se añade al tema para que todas las IA lo tengan en cuenta al debatir.</p>
 
   <div id="agents"></div>
   <button class="secondary" onclick="addAgentCard()">+ Añadir participante</button>
 
   <button class="primary" id="startBtn" onclick="startDebate()">Iniciar debate</button>
-  <p class="sub" style="margin-top:10px;">Prueba primero con proveedor <b>mock</b>: funciona sin ninguna API key.</p>
+  <p class="att-hint" style="margin-top:10px;">Prueba primero con proveedor <b>mock</b>: funciona sin ninguna API key.</p>
 </div>
 
 <div id="main">
@@ -122,6 +177,40 @@ const PROVIDERS = ["mock","gemini","groq","deepseek","glm","ollama","openai","an
 const DEFAULT_MODELS = {mock:"mock-v1", gemini:"gemini-3.6-flash", groq:"llama-3.3-70b-versatile", deepseek:"deepseek-v4-flash", glm:"glm-4.7-flash", ollama:"llama3", openai:"gpt-4o-mini", anthropic:"claude-3-5-sonnet-latest"};
 let agentCount = 0;
 let ws = null;
+let debateAttachment = null; // {filename, extracted_text} o null
+
+/* ---------------- Adjuntar documento ---------------- */
+document.getElementById("attachDebateBtn").onclick = () => document.getElementById("debateFileInput").click();
+document.getElementById("debateFileInput").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  const btn = document.getElementById("attachDebateBtn");
+  btn.disabled = true;
+  btn.textContent = "📎 Leyendo...";
+  try {
+    const fd = new FormData();
+    fd.append("file", f);
+    const r = await AIAccess.fetch("/debate/extract", { method: "POST", body: fd });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      alert(body.detail || "No se pudo leer el documento.");
+    } else {
+      debateAttachment = { filename: body.filename, extracted_text: body.extracted_text };
+      renderDebateAttach();
+    }
+  } catch (err) {
+    alert("Error subiendo el archivo: " + err);
+  }
+  btn.disabled = false;
+  btn.textContent = "📎 Adjuntar documento";
+});
+function renderDebateAttach() {
+  const box = document.getElementById("debateAttachBox");
+  if (!debateAttachment) { box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="att-chip"><span>📄</span><span class="nm">${debateAttachment.filename}</span><button onclick="removeDebateAttach()">✕</button></div>`;
+}
+function removeDebateAttach() { debateAttachment = null; renderDebateAttach(); }
 
 function addAgentCard(name, role, provider) {
   agentCount++;
@@ -192,6 +281,10 @@ function startDebate() {
     alert("Pon un tema y al menos un participante.");
     return;
   }
+  let finalTopic = topic;
+  if (debateAttachment && debateAttachment.extracted_text) {
+    finalTopic += `\n\n--- documento adjunto: ${debateAttachment.filename} ---\n${debateAttachment.extracted_text}`;
+  }
   document.getElementById("startBtn").disabled = true;
   document.getElementById("chat").innerHTML = "";
   document.getElementById("topicLabel").textContent = topic;
@@ -201,7 +294,7 @@ function startDebate() {
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ topic, participants: agents }));
+    ws.send(JSON.stringify({ topic: finalTopic, participants: agents }));
     document.getElementById("statusLabel").textContent = "en directo";
     document.getElementById("userInput").disabled = false;
   };
