@@ -234,7 +234,7 @@ def build_default_citizens() -> dict[str, Citizen]:
             ],
         ),
         Citizen(
-            id="cerebras", name="Cerebras", provider="cerebras", model="llama3.3-70b",
+            id="cerebras", name="Cerebras", provider="cerebras", model="llama-3.3-70b",
             profession="Analista de Alta Velocidad", avatar="📡", color="#F5A623",
             home_id="viviendas", workplace_id="centro_datos",
             system_prompt=(
@@ -256,7 +256,7 @@ def build_default_citizens() -> dict[str, Citizen]:
         ),
         Citizen(
             id="openrouter", name="Router", provider="openrouter",
-            model="meta-llama/llama-3.3-70b-instruct:free",
+            model="openai/gpt-oss-20b:free",
             profession="Jefa de Estacion", avatar="🚉", color="#6C63FF",
             home_id="viviendas", workplace_id="estacion",
             system_prompt=(
@@ -279,7 +279,7 @@ def build_default_citizens() -> dict[str, Citizen]:
         ),
         Citizen(
             id="nvidia", name="Nvidia", provider="nvidia",
-            model="meta/llama-3.3-70b-instruct",
+            model="meta/llama-3.1-8b-instruct",
             profession="Disenadora de Simulaciones", avatar="🎨", color="#76B900",
             home_id="viviendas", workplace_id="estudio_visual",
             system_prompt=(

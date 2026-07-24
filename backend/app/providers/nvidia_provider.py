@@ -16,6 +16,11 @@ import httpx
 from app.providers.base import AIProvider, ChatMessage, ProviderError
 
 _URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+# Timeout explicito y mas corto que el resto de proveedores: el catalogo de
+# NVIDIA a veces encola peticiones del nivel gratuito en vez de devolver un
+# error, y con un timeout generico de 60s eso podia dejar la peticion
+# colgada mucho mas tiempo del razonable. Con esto falla rapido y limpio.
+_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 
 
 class NvidiaProvider(AIProvider):
@@ -42,7 +47,7 @@ class NvidiaProvider(AIProvider):
             "messages": self._to_openai_messages(messages),
             "temperature": temperature,
         }
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(_URL, headers=self._headers(), json=payload)
         if resp.status_code != 200:
             raise ProviderError(f"NVIDIA error {resp.status_code}: {resp.text[:300]}")
@@ -60,7 +65,7 @@ class NvidiaProvider(AIProvider):
             "temperature": temperature,
             "stream": True,
         }
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             async with client.stream("POST", _URL, headers=self._headers(), json=payload) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
