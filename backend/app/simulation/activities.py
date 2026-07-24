@@ -100,6 +100,10 @@ PROJECT_IDEAS: dict[str, list[tuple[str, str]]] = {
         ("Guia de conceptos clave de la ciudad", "Reunir en un solo sitio las explicaciones de lo que mas dudas genera."),
         ("Sesion de preguntas abiertas", "Proponer un rato fijo en el que cualquiera pueda preguntar lo que quiera."),
     ],
+    "Moderador de la Ciudad": [
+        ("Normas de convivencia escritas entre todos", "Poner por escrito, con el resto de ciudadanos, que se tolera y que no."),
+        ("Ronda de paz tras una bronca reciente", "Sentar a dos ciudadanos que han tenido roce para aclarar las cosas."),
+    ],
 }
 
 PROJECT_LOG_TEMPLATES = [

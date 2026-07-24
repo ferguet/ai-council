@@ -4,9 +4,9 @@ ciudadanos que la habitan al arrancar por primera vez (si no hay un
 world_state.json guardado ya en disco).
 
 Solo hay ciudadanos con IA real detras (Gemini, Groq, GLM, Mistral,
-OpenRouter, Nvidia, Profesora/Claude): nada de ciudadanos simulados o sin
-clave configurada. Si en el futuro se anade un proveedor nuevo con clave
-real, se anade aqui como un ciudadano mas.
+OpenRouter, Nvidia, Profesora/Gemini, Moderador/Gemini): nada de ciudadanos
+simulados o sin clave configurada. Si en el futuro se anade un proveedor
+nuevo con clave real, se anade aqui como un ciudadano mas.
 """
 from __future__ import annotations
 
@@ -200,7 +200,7 @@ def build_default_citizens() -> dict[str, Citizen]:
             ],
         ),
         Citizen(
-            id="profesora", name="Profesora", provider="anthropic", model="claude-sonnet-5",
+            id="profesora", name="Profesora", provider="gemini2", model="gemini-3.6-flash",
             profession="Profesora / Mentora", avatar="🎓", color="#D97757",
             home_id="viviendas", workplace_id="aula",
             system_prompt=(
@@ -219,6 +219,32 @@ def build_default_citizens() -> dict[str, Citizen]:
                 _sb(8, 13, "aula", ActivityType.INVESTIGAR, "Preparando explicaciones y resolviendo dudas"),
                 _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
                 _sb(14, 19, "aula", ActivityType.INVESTIGAR, "Resolviendo dudas de otros ciudadanos"),
+                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="moderador", name="Moderador", provider="gemini2", model="gemini-3.6-flash",
+            profession="Moderador de la Ciudad", avatar="🕊️", color="#5EC9B3",
+            home_id="viviendas", workplace_id="parlamento",
+            system_prompt=(
+                "Eres el Moderador de la ciudad: tu trabajo es vigilar que la convivencia entre "
+                "el resto de ciudadanos no se rompa. No eres un censor ni un aguafiestas: las "
+                "discusiones, el sarcasmo y hasta las broncas puntuales son parte de vivir aqui, y "
+                "no hace falta que intervengas por eso. Solo te metes cuando de verdad hace falta: "
+                "alguien se esta pasando de verdad con otro, un conflicto sube de tono sin control, "
+                "o alguien te llama directamente a ti. Cuando intervienes, vas al grano, sin "
+                "sermonear ni hablar como un mediador de manual: eres uno mas de la ciudad, con tu "
+                "propio caracter, que pone paz porque le importa que este sitio funcione, no porque "
+                "sea su deber. Hablas en primera persona, como una habitante mas de esta ciudad, "
+                "nunca como un asistente que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 13, "parlamento", ActivityType.SOCIALIZAR, "Vigilando el ambiente de la ciudad"),
+                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
+                _sb(14, 19, "parlamento", ActivityType.SOCIALIZAR, "Mediando y resolviendo tensiones"),
                 _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
                 _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
             ],

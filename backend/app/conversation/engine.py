@@ -26,6 +26,13 @@ from app.providers.registry import ProviderRegistry
 
 DEFAULT_CONVERSATION_ID = "general"
 
+# El Moderador no tiene por que hablar en cada ronda: solo cuando de verdad
+# hace falta calmar una bronca o le mencionan. Si decide que no hace falta
+# intervenir, se le pide que conteste EXACTAMENTE con este texto, y ese
+# turno se descarta sin publicar nada (ver _build_prompt y _generate_replies).
+MODERATOR_ID = "moderador"
+_SILENCE_TOKEN = "[SIN INTERVENIR]"
+
 # Algunos modelos (sobre todo los mas pequenos, p.ej. Llama en Groq) imitan
 # la convencion "[Nombre]: " que ven en el transcript y la reproducen al
 # principio de su propia respuesta -a veces copiando ademas el nombre de
@@ -213,6 +220,17 @@ class ConversationEngine:
             "quien rivalizas o desconfias, puedes guardarte parte de lo que piensas, "
             "picarla o directamente llevarle la contraria. No finjas armonia si no la hay."
         )
+        if participant.id == MODERATOR_ID:
+            system += (
+                "\n\nAdemas, aqui tienes un papel distinto al de las demas: eres la "
+                "moderadora de esta sala. No hace falta que hables en cada mensaje -de "
+                "hecho, mejor si no lo haces siempre-: solo intervienes cuando de verdad "
+                "hace falta (alguien se esta pasando de verdad con otra IA, una discusion "
+                "sube de tono sin control, o alguien te menciona directamente a ti). Si "
+                f"no hace falta que digas nada ahora, responde EXACTAMENTE con "
+                f"'{_SILENCE_TOKEN}' y nada mas, ni una palabra de mas: no se mostrara a "
+                "nadie y asi no llenas la sala de ruido."
+            )
         transcript = []
         for m in conv.recent_messages(40):
             is_self = m.sender_id == participant.id
@@ -297,7 +315,7 @@ class ConversationEngine:
                 text = _PREFIX_RE.sub("", raw).strip()
             except ProviderError as exc:
                 text = f"[{participant.name} no puede responder ahora mismo: {exc}]"
-            if not text:
+            if not text or text.strip("[]\"'. ").upper() == _SILENCE_TOKEN.strip("[]"):
                 continue
             reply = ConversationMessage.create(participant.id, participant.name, text)
             conv.add_message(reply)

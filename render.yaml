@@ -39,6 +39,10 @@ services:
         sync: false
       - key: NVIDIA_API_KEY
         sync: false
+      # Segunda clave de Gemini, separada de la que usa la ciudadana
+      # "Gemini": la usan la Profesora y el Moderador.
+      - key: GEMINI_API_KEY_2
+        sync: false
 
       # Cadena de conexion a Postgres (Supabase). Imprescindible para que la
       # ciudad no se resetee cada vez que Render duerme el servicio.

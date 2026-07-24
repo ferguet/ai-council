@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     cerebras_api_key: str | None = None
     openrouter_api_key: str | None = None
     nvidia_api_key: str | None = None
+    # Segunda clave de Gemini, separada de la de la ciudadana "Gemini": la
+    # usan la Profesora y el Moderador, para no compartir cuota/limite con
+    # el laboratorio.
+    gemini_api_key_2: str | None = None
 
     # Director
     director_provider: str = "mock"

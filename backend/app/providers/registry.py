@@ -24,9 +24,15 @@ from app.providers.nvidia_provider import NvidiaProvider
 
 class ProviderRegistry:
     def __init__(self, settings: Settings) -> None:
+        # "gemini2": misma implementacion que "gemini", pero con una clave
+        # distinta (settings.gemini_api_key_2) para la Profesora y el
+        # Moderador, sin compartir cuota con la ciudadana "Gemini".
+        gemini2 = GeminiProvider(settings.gemini_api_key_2)
+        gemini2.name = "gemini2"
         self._providers: dict[str, AIProvider] = {
             "mock": MockProvider(),
             "gemini": GeminiProvider(settings.gemini_api_key),
+            "gemini2": gemini2,
             "groq": GroqProvider(settings.groq_api_key),
             "ollama": OllamaProvider(settings.ollama_base_url),
             "openai": OpenAIProvider(settings.openai_api_key),
