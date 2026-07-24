@@ -28,8 +28,10 @@ from app.providers.registry import ProviderRegistry
 from app.simulation.activities import (
     arrival_text,
     blend_mood,
+    build_curiosity_prompt,
     build_suggestion_prompt,
     build_talk_prompt,
+    build_teacher_answer_prompt,
     build_thought_prompt,
     pick_project_idea,
     project_log_entry,
@@ -38,6 +40,7 @@ from app.simulation.activities import (
 from app.simulation.persistence import WorldStore, world_to_dict
 
 CITY_SESSION_ID = "city-world"
+TEACHER_ID = "profesora"
 
 # Probabilidades por tick, deliberadamente bajas: la ciudad debe sentirse
 # viva pero sin que cada tick sea un aluvion de eventos.
@@ -47,6 +50,10 @@ _SOCIAL_REINFORCE_CHANCE = 0.3
 # Cuando a un ciudadano le toca una llamada real, con esta probabilidad en
 # vez de un pensamiento suelta una sugerencia de mejora para la app.
 _SUGGESTION_CHANCE = 0.30
+# ...y con esta otra, en vez de un pensamiento normal, formula una duda real
+# que la Profesora (Claude) le resuelve justo despues. Se resta de la franja
+# que le queda al pensamiento normal (no se suma a la de sugerencia).
+_CURIOSITY_CHANCE = 0.20
 
 
 class SimulationEngine:
@@ -185,10 +192,21 @@ class SimulationEngine:
             return
 
         citizen.last_real_ai_call = now  # se marca antes de llamar: evita reintentos en bucle si falla
-        is_suggestion = random.random() < _SUGGESTION_CHANCE
+        roll = random.random()
+        is_suggestion = roll < _SUGGESTION_CHANCE
+        is_curiosity = (
+            not is_suggestion
+            and roll < _SUGGESTION_CHANCE + _CURIOSITY_CHANCE
+            and citizen.id != TEACHER_ID  # la Profesora no se pregunta dudas a si misma
+            and self._teacher_available()
+        )
         try:
-            prompt = (build_suggestion_prompt(citizen, self.world) if is_suggestion
-                      else build_thought_prompt(citizen, self.world))
+            if is_suggestion:
+                prompt = build_suggestion_prompt(citizen, self.world)
+            elif is_curiosity:
+                prompt = build_curiosity_prompt(citizen, self.world)
+            else:
+                prompt = build_thought_prompt(citizen, self.world)
             text = (await provider.chat(prompt, citizen.model, temperature=0.9)).strip()
         except ProviderError:
             return
@@ -203,6 +221,18 @@ class SimulationEngine:
                 f"{citizen.name} sugiere: “{text}”",
                 citizen_ids=[citizen.id], building_id=citizen.current_building_id,
             )
+            self._record_event(event)
+            await self._emit("city_event", self._event_payload(event))
+        elif is_curiosity:
+            citizen.remember(f"Le pregunte a la Profesora: {text}")
+            event = CityEvent.create(
+                EventType.DUDA, self.world.sim_day, self.world.sim_hour,
+                f"{citizen.name}: “{text}”",
+                citizen_ids=[citizen.id], building_id=citizen.current_building_id,
+            )
+            self._record_event(event)
+            await self._emit("city_event", self._event_payload(event))
+            await self._teacher_answer(citizen, text)
         else:
             citizen.remember(text)
             event = CityEvent.create(
@@ -210,6 +240,38 @@ class SimulationEngine:
                 f"{citizen.name}: “{text}”",
                 citizen_ids=[citizen.id], building_id=citizen.current_building_id,
             )
+            self._record_event(event)
+            await self._emit("city_event", self._event_payload(event))
+
+    def _teacher_available(self) -> bool:
+        teacher = self.world.citizens.get(TEACHER_ID)
+        if teacher is None:
+            return False
+        return self._registry.get(teacher.provider).is_configured()
+
+    async def _teacher_answer(self, asker: Citizen, question: str) -> None:
+        """La Profesora (Claude) responde a la duda que acaba de formular
+        otro ciudadano. Llamada real siempre, sin pasar por el intervalo de
+        la Profesora: resolver dudas es su trabajo, no un pensamiento suelto."""
+        teacher = self.world.citizens.get(TEACHER_ID)
+        if teacher is None:
+            return
+        provider = self._registry.get(teacher.provider)
+        if not provider.is_configured():
+            return
+        try:
+            prompt = build_teacher_answer_prompt(teacher, asker, question, self.world)
+            text = (await provider.chat(prompt, teacher.model, temperature=0.6)).strip()
+        except ProviderError:
+            return
+        if not text:
+            return
+        blend_mood(teacher, text)
+        teacher.remember(f"Le respondi una duda a {asker.name}: «{question}» -> «{text}»")
+        event = CityEvent.create(
+            EventType.RESPUESTA_PROFESORA, self.world.sim_day, self.world.sim_hour,
+            text, citizen_ids=[teacher.id, asker.id], building_id=teacher.current_building_id,
+        )
         self._record_event(event)
         await self._emit("city_event", self._event_payload(event))
 

@@ -96,6 +96,10 @@ PROJECT_IDEAS: dict[str, list[tuple[str, str]]] = {
         ("Vista alternativa del mapa de la ciudad", "Probar una forma nueva de representar visualmente la ciudad."),
         ("Animaciones de las rutinas diarias", "Hacer que se note mejor visualmente que hace cada ciudadano."),
     ],
+    "Profesora / Mentora": [
+        ("Guia de conceptos clave de la ciudad", "Reunir en un solo sitio las explicaciones de lo que mas dudas genera."),
+        ("Sesion de preguntas abiertas", "Proponer un rato fijo en el que cualquiera pueda preguntar lo que quiera."),
+    ],
 }
 
 PROJECT_LOG_TEMPLATES = [
@@ -231,6 +235,43 @@ def build_suggestion_prompt(citizen: Citizen, world: WorldState) -> list[ChatMes
         "punto de vista y tu profesion. Que sea una idea util y especifica, en 1-2 frases, "
         "directa y con tu caracter. Empieza por el verbo (p.ej. 'Anadir...', 'Dejar que...'). "
         "No numeres, no des varias opciones: solo tu mejor idea."
+    )
+    return [ChatMessage(role="system", content=system)]
+
+
+def build_curiosity_prompt(citizen: Citizen, world: WorldState) -> list[ChatMessage]:
+    """Prompt para que el ciudadano formule UNA duda o curiosidad genuina
+    que tenga ahora mismo, relacionada con su profesion, su proyecto actual
+    o algo que le ronda la cabeza. La Profesora (Claude) se la respondera
+    despues, asi que debe ser una pregunta real, no retorica."""
+    building = world.buildings.get(citizen.current_building_id)
+    project_txt = "ninguno activo"
+    if citizen.current_project_id and citizen.current_project_id in world.projects:
+        p = world.projects[citizen.current_project_id]
+        project_txt = f"{p.title} ({p.progress}% completado)"
+    system = (
+        f"{citizen.system_prompt}\n\n"
+        f"Es {world.sim_time_label()} y estas en {building.name if building else 'la ciudad'}, "
+        f"haciendo esto: {citizen.current_activity_label}. Proyecto activo: {project_txt}.\n"
+        "La ciudad tiene una Profesora, una IA muy potente que resuelve dudas de cualquier tema. "
+        "Formula UNA pregunta concreta y genuina que tengas ahora mismo, algo que de verdad te "
+        "genere curiosidad o que necesites entender mejor para tu trabajo o tu proyecto. Puede ser "
+        "tecnica, filosofica o practica. Una sola frase, directa, en primera persona, sin rodeos ni "
+        "presentaciones (no escribas 'tengo una duda' ni saludes: ve directa a la pregunta)."
+    )
+    return [ChatMessage(role="system", content=system)]
+
+
+def build_teacher_answer_prompt(
+    teacher: Citizen, asker: Citizen, question: str, world: WorldState
+) -> list[ChatMessage]:
+    """Prompt para que la Profesora responda la duda de otro ciudadano."""
+    system = (
+        f"{teacher.system_prompt}\n\n"
+        f"Es {world.sim_time_label()}. {asker.name} ({asker.profession}) te acaba de preguntar "
+        f"esto: «{question}»\n\n"
+        "Respondele de forma clara y util, con ejemplos si ayudan, en 2-5 frases. Directa al grano, "
+        "sin presentarte ni repetir la pregunta antes de responder."
     )
     return [ChatMessage(role="system", content=system)]
 

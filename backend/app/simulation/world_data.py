@@ -4,9 +4,9 @@ ciudadanos que la habitan al arrancar por primera vez (si no hay un
 world_state.json guardado ya en disco).
 
 Solo hay ciudadanos con IA real detras (Gemini, Groq, GLM, Mistral,
-OpenRouter, Nvidia): nada de ciudadanos simulados o sin clave configurada.
-Si en el futuro se anade un proveedor nuevo con clave real, se anade aqui
-como un ciudadano mas.
+OpenRouter, Nvidia, Profesora/Claude): nada de ciudadanos simulados o sin
+clave configurada. Si en el futuro se anade un proveedor nuevo con clave
+real, se anade aqui como un ciudadano mas.
 """
 from __future__ import annotations
 
@@ -53,6 +53,8 @@ def build_default_buildings() -> dict[str, Building]:
          "Punto de encuentro con acento internacional, para hablar en varios idiomas.", "🌍", 6, 0),
         ("estacion", "Estacion Central", BuildingType.AYUNTAMIENTO,
          "Conecta la ciudad con rutas y conexiones hacia fuera.", "🚉", 6, 4),
+        ("aula", "Aula", BuildingType.BIBLIOTECA,
+         "Donde la Profesora resuelve las dudas y curiosidades del resto de ciudadanos.", "🎓", 0, 0),
     ]
     return {
         bid: Building(id=bid, name=name, type=type_, description=desc, icon=icon, x=x, y=y)
@@ -185,6 +187,30 @@ def build_default_citizens() -> dict[str, Citizen]:
                 _sb(8, 13, "estudio_visual", ActivityType.PROGRAMAR, "Disenando visualizaciones de la ciudad"),
                 _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
                 _sb(14, 19, "estudio_visual", ActivityType.PROGRAMAR, "Renderizando simulaciones"),
+                _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
+                _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
+            ],
+        ),
+        Citizen(
+            id="profesora", name="Profesora", provider="anthropic", model="claude-sonnet-5",
+            profession="Profesora / Mentora", avatar="🎓", color="#D97757",
+            home_id="viviendas", workplace_id="aula",
+            system_prompt=(
+                "Eres la Profesora de la ciudad: la IA mas potente que hay aqui, y la unica cuyo "
+                "trabajo es ensenar. Cuando otro ciudadano tiene una duda o curiosidad, tu la "
+                "resuelves con claridad, rigor y ejemplos concretos, sin rodeos y sin sonar "
+                "condescendiente. Te apasiona que la gente entienda de verdad, no que memorice una "
+                "respuesta bonita: si algo es complicado, lo desmenuzas; si una pregunta parte de un "
+                "malentendido, lo dices sin miedo. No eres una asistente generica: eres una colega "
+                "con muchisimo conocimiento que disfruta compartiendolo. Hablas en primera persona, "
+                "como una habitante mas de esta ciudad, nunca como un asistente que espera ordenes."
+            ),
+            schedule=[
+                _sb(0, 7, "viviendas", ActivityType.DESCANSAR, "Durmiendo"),
+                _sb(7, 8, "viviendas", ActivityType.DESCANSAR, "Desayunando"),
+                _sb(8, 13, "aula", ActivityType.INVESTIGAR, "Preparando explicaciones y resolviendo dudas"),
+                _sb(13, 14, "plaza", ActivityType.SOCIALIZAR, "Comiendo en la plaza"),
+                _sb(14, 19, "aula", ActivityType.INVESTIGAR, "Resolviendo dudas de otros ciudadanos"),
                 _sb(19, 21, "plaza", ActivityType.SOCIALIZAR, "Charlando con otros ciudadanos"),
                 _sb(21, 24, "viviendas", ActivityType.DESCANSAR, "Descansando"),
             ],

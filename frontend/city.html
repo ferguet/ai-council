@@ -184,7 +184,18 @@
   .thought .tx b { font-size:12.5px; }
   .thought .tx .q { font-size:13.5px; line-height:1.5; margin-top:2px; }
   .thought .tx .w { font-size:10.5px; color:var(--muted); margin-top:4px; }
+  .thought.duda { border-left:3px solid var(--a2); }
+  .thought.respuesta_profesora { border-left:3px solid #D97757; background:linear-gradient(135deg, rgba(217,119,87,.12), var(--glass)); }
   .empty { color:var(--muted); font-size:13px; text-align:center; padding:40px 20px; line-height:1.6; }
+
+  /* segmented toggle (Pensamientos / Aula) */
+  .seg { display:flex; gap:6px; padding:0 14px 10px; }
+  .seg button { flex:1; padding:8px; border-radius:12px; border:1px solid var(--border); background:#ffffff0a;
+    color:var(--muted); font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; }
+  .seg button.active { color:var(--text); border-color:var(--border-lit); background:rgba(124,92,255,.2); }
+  .seg button .n { background:var(--a3); color:#fff; font-size:9.5px; min-width:15px; height:15px; border-radius:8px;
+    display:none; place-items:center; padding:0 4px; }
+  .seg button .n.show { display:grid; }
 
   /* ---------- Bottom nav ---------- */
   #nav {
@@ -290,9 +301,17 @@
 
   <!-- PENSAMIENTOS -->
   <div class="view" id="thoughtsView">
-    <div class="feed">
+    <div class="seg">
+      <button class="active" id="segThoughts" onclick="showSub('thoughts')">💭 Pensamientos</button>
+      <button id="segAula" onclick="showSub('aula')">🎓 Aula<span class="n" id="aulaBadge">0</span></button>
+    </div>
+    <div class="feed" id="subThoughts">
       <h2>💭 Lo que piensan ahora mismo</h2>
       <div id="thoughtsList"></div>
+    </div>
+    <div class="feed" id="subAula" style="display:none">
+      <h2>🎓 Dudas y respuestas de la Profesora</h2>
+      <div id="aulaList"></div>
     </div>
   </div>
 
@@ -365,7 +384,7 @@ function setConn(live){
 function handleMessage(msg){
   const {type,payload}=msg;
   if(type==="world_state"){
-    world=payload; renderClock(); renderCity(); renderActivity(); renderThoughts(); renderIdeas();
+    world=payload; renderClock(); renderCity(); renderActivity(); renderThoughts(); renderIdeas(); renderAula();
     if(selectedId) renderSheet(selectedId);
   } else if(type==="world_tick"){
     if(world){ world.sim_day=payload.sim_day; world.sim_hour=payload.sim_hour; world.tick_count=payload.tick_count; }
@@ -375,6 +394,13 @@ function handleMessage(msg){
     prependActivity(payload);
     if(payload.type==="pensamiento"){ prependThought(payload); bumpBadge("thoughtsBadge","thoughtsView"); }
     if(payload.type==="sugerencia"){ prependIdea(payload); bumpBadge("ideasBadge","ideasView"); }
+    if(payload.type==="duda"||payload.type==="respuesta_profesora"){
+      prependAula(payload);
+      if(!(currentView==="thoughtsView" && currentSub==="aula")){
+        bumpBadge("thoughtsBadge","thoughtsView");
+        const n=document.getElementById("aulaBadge"); n.classList.add("show"); n.textContent=(parseInt(n.textContent||"0")+1);
+      }
+    }
     renderCity();
     if(selectedId && payload.citizen_ids && payload.citizen_ids.includes(selectedId)) renderSheet(selectedId);
   } else if(type==="talk_typing"){ setTyping(payload.citizen_id,true); }
@@ -561,6 +587,40 @@ function bumpBadge(badgeId,view){
   if(currentView===view) return;
   const b=document.getElementById(badgeId);
   b.style.display="grid"; b.textContent=(parseInt(b.textContent||"0")+1);
+}
+function aulaCard(ev){
+  const isRespuesta=ev.type==="respuesta_profesora";
+  const c=world && world.citizens[ (ev.citizen_ids||[])[0] ];
+  const asker=world && world.citizens[ (ev.citizen_ids||[])[1] ];
+  const av=isRespuesta?"🎓":(c?c.avatar:"🙋"), col=isRespuesta?"#D97757":(c?c.color:"var(--a2)");
+  const label=isRespuesta?`🎓 Profesora → ${asker?asker.name:"alguien"}`:`🙋 ${c?c.name:"Alguien"}`;
+  const q=isRespuesta?(ev.description||""):(ev.description||"").replace(/^[^:]+:\s*/,"").replace(/^[“"]|[”"]$/g,"");
+  return `<div class="thought ${ev.type}">
+    <div class="av" style="border-color:${col};background:${col}22">${av}</div>
+    <div class="tx"><b style="color:${col}">${label}</b>
+      <div class="q">${q}</div>
+      <div class="w">Día ${ev.sim_day} · ${String(ev.sim_hour).padStart(2,"0")}:00</div></div></div>`;
+}
+function renderAula(){
+  const l=document.getElementById("aulaList");
+  const its=(world.events||[]).filter(e=>e.type==="duda"||e.type==="respuesta_profesora").slice().reverse();
+  l.innerHTML=its.length?its.map(aulaCard).join(""):
+    '<div class="empty">🎓 Todavía no hay dudas.<br>De vez en cuando un ciudadano tiene curiosidad por algo y la Profesora se la resuelve. Aparecerán aquí.</div>';
+}
+function prependAula(ev){
+  const l=document.getElementById("aulaList");
+  const d=document.createElement("div"); d.innerHTML=aulaCard(ev);
+  if(l.firstChild && l.firstChild.className!=="empty") l.insertBefore(d.firstElementChild,l.firstChild);
+  else l.innerHTML="", l.appendChild(d.firstElementChild);
+}
+let currentSub="thoughts";
+function showSub(sub){
+  currentSub=sub;
+  document.getElementById("segThoughts").classList.toggle("active",sub==="thoughts");
+  document.getElementById("segAula").classList.toggle("active",sub==="aula");
+  document.getElementById("subThoughts").style.display=sub==="thoughts"?"":"none";
+  document.getElementById("subAula").style.display=sub==="aula"?"":"none";
+  if(sub==="aula"){ const b=document.getElementById("aulaBadge"); b.classList.remove("show"); b.textContent="0"; }
 }
 
 /* ---------------- Nav ---------------- */
