@@ -103,6 +103,7 @@ class SimulationEngine:
             "id": event.id, "type": event.type.value, "sim_day": event.sim_day,
             "sim_hour": event.sim_hour, "citizen_ids": event.citizen_ids,
             "building_id": event.building_id, "description": event.description,
+            "reasoning": event.reasoning,
         }
 
     def _record_event(self, event: CityEvent) -> None:
@@ -176,9 +177,11 @@ class SimulationEngine:
                 ),
                 key=lambda t: t[1].trust, reverse=True,
             )
-            for candidate, _rel in trusted:
+            partner_rel = None
+            for candidate, rel_candidate in trusted:
                 if not candidate.current_project_id or candidate.current_project_id not in self.world.projects:
                     partner = candidate
+                    partner_rel = rel_candidate
                     break
             invite_partner = partner is not None and random.random() < _COLLAB_INVITE_CHANCE
 
@@ -195,14 +198,23 @@ class SimulationEngine:
                 partner.remember(f"{self.world.sim_time_label()}: {citizen.name} me invito a colaborar en '{title}'.")
                 description_text = f"{citizen.name} inicia un nuevo proyecto junto a {partner.name}: {title}."
                 event_citizen_ids = [citizen.id, partner.id]
+                reasoning = (
+                    f"{citizen.name} confía en {partner.name} (confianza {partner_rel.trust:.0%}), "
+                    "por eso le ha invitado en vez de ir por libre."
+                )
             else:
                 citizen.remember(f"{self.world.sim_time_label()}: inicie el proyecto '{title}'.")
                 description_text = f"{citizen.name} inicia un nuevo proyecto: {title}."
                 event_citizen_ids = [citizen.id]
+                reasoning = (
+                    f"Podría haber invitado a {partner.name} (confianza {partner_rel.trust:.0%}), "
+                    "pero esta vez ha preferido ir por libre."
+                ) if partner is not None else None
 
             event = CityEvent.create(
                 EventType.PROYECTO_INICIADO, self.world.sim_day, self.world.sim_hour,
                 description_text, citizen_ids=event_citizen_ids, building_id=citizen.current_building_id,
+                reasoning=reasoning,
             )
             self._record_event(event)
             await self._emit("city_event", self._event_payload(event))
@@ -340,10 +352,13 @@ class SimulationEngine:
                 continue
             a, b = random.sample(group, 2)
             rel = a.relationship_with(b.id)
+            # Se guarda el trust/rivalry de ANTES de tocar la relacion: es lo
+            # que explica por que ha pasado esto, no el resultado ya mutado.
+            prev_trust, prev_rivalry = rel.trust, rel.rivalry
             # La relacion previa tiene memoria: si ya hay rivalidad, es mas
             # facil que vuelva a haber roce; si ya hay confianza alta, es mas
             # dificil. No es un dado limpio cada vez.
-            friction_chance = max(0.05, min(0.75, _FRICTION_BASE_CHANCE + rel.rivalry * 0.4 - rel.trust * 0.25))
+            friction_chance = max(0.05, min(0.75, _FRICTION_BASE_CHANCE + prev_rivalry * 0.4 - prev_trust * 0.25))
             if random.random() < friction_chance:
                 a.relationship_with(b.id).clash()
                 b.relationship_with(a.id).clash()
@@ -352,6 +367,12 @@ class SimulationEngine:
                     f"{a.name} y {b.name} chocan de opiniones; ninguna cede terreno.",
                     f"{a.name} pone en duda algo que dice {b.name}, y la cosa no sienta bien.",
                 ])
+                if prev_rivalry >= 0.4:
+                    reasoning = f"Ya había rivalidad previa entre ambas ({prev_rivalry:.0%}); no hacía falta mucho para que saltara chispa."
+                elif prev_trust <= 0.35:
+                    reasoning = f"Apenas se tenían confianza de antes ({prev_trust:.0%}), terreno abonado para el roce."
+                else:
+                    reasoning = "No había motivo de fondo: ha sido un choque puntual, no algo que vinieran arrastrando."
             else:
                 a.relationship_with(b.id).reinforce()
                 b.relationship_with(a.id).reinforce()
@@ -360,9 +381,13 @@ class SimulationEngine:
                     f"{a.name} y {b.name} conectan enseguida, se nota buena sintonía.",
                     f"{a.name} y {b.name} se ríen juntas de algo, ambiente distendido.",
                 ])
+                if prev_trust >= 0.65:
+                    reasoning = f"Ya se tenían confianza de antes ({prev_trust:.0%}); la conversación ha ido rodada."
+                else:
+                    reasoning = f"Todavía no se conocían mucho (confianza {prev_trust:.0%} antes de esto), pero ha salido mejor de lo esperado."
             event = CityEvent.create(
                 EventType.RELACION, self.world.sim_day, self.world.sim_hour, text,
-                citizen_ids=[a.id, b.id], building_id=building_id,
+                citizen_ids=[a.id, b.id], building_id=building_id, reasoning=reasoning,
             )
             self._record_event(event)
             await self._emit("city_event", self._event_payload(event))

@@ -152,6 +152,11 @@
   .card.relacion { border-left-color:var(--a5); }
   .card.conversacion { border-left-color:var(--a3); }
   .card.sugerencia { border-left-color:var(--a5); }
+  .card .why { margin-top:6px; font-size:11.5px; }
+  .card .why summary { cursor:pointer; color:var(--muted); list-style:none; }
+  .card .why summary::-webkit-details-marker { display:none; }
+  .card .why summary:hover { color:var(--a5); }
+  .card .why[open] summary { color:var(--a5); margin-bottom:3px; }
   .idea {
     display:flex; gap:11px; align-items:flex-start;
     background: linear-gradient(135deg, rgba(255,203,71,.12), var(--glass));
@@ -213,6 +218,18 @@
   .seg button { flex:1; padding:8px; border-radius:12px; border:1px solid var(--border); background:#ffffff0a;
     color:var(--muted); font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; }
   .seg button.active { color:var(--text); border-color:var(--border-lit); background:rgba(124,92,255,.2); }
+
+  /* Linea temporal: selector de dia + flechas */
+  #timelineNav { display:flex; align-items:center; gap:8px; padding:0 14px 10px; }
+  #timelineNav button {
+    width:36px; height:36px; flex-shrink:0; border-radius:12px; border:1px solid var(--border);
+    background:#ffffff0a; color:var(--text); font-size:14px; cursor:pointer;
+  }
+  #timelineNav button:disabled { opacity:.35; cursor:default; }
+  #timelineNav select {
+    flex:1; padding:9px 10px; border-radius:12px; border:1px solid var(--border-lit);
+    background:rgba(124,92,255,.15); color:var(--text); font-size:13px;
+  }
   .seg button .n { background:var(--a3); color:#fff; font-size:9.5px; min-width:15px; height:15px; border-radius:8px;
     display:none; place-items:center; padding:0 4px; }
   .seg button .n.show { display:grid; }
@@ -363,6 +380,19 @@
       <div id="newsList"></div>
     </div>
   </div>
+
+  <!-- LINEA TEMPORAL -->
+  <div class="view" id="timelineView">
+    <div id="timelineNav">
+      <button id="tlPrev" onclick="shiftTimelineDay(-1)">◀</button>
+      <select id="tlDaySelect" onchange="onTimelineDaySelect()"></select>
+      <button id="tlNext" onclick="shiftTimelineDay(1)">▶</button>
+    </div>
+    <div class="feed">
+      <h2>🕰️ Lo que pasó ese día</h2>
+      <div id="timelineList"></div>
+    </div>
+  </div>
 </div>
 
 <button id="installBtn">⬇️ Instalar app</button>
@@ -373,6 +403,7 @@
   <button data-view="thoughtsView"><span class="badge"><span class="ic">💭</span><b id="thoughtsBadge" style="display:none">0</b></span>Pensar</button>
   <button data-view="ideasView"><span class="badge"><span class="ic">💡</span><b id="ideasBadge" style="display:none">0</b></span>Ideas</button>
   <button data-view="newsView"><span class="badge"><span class="ic">🗞️</span><b id="newsBadge" style="display:none">0</b></span>Prensa</button>
+  <button data-view="timelineView"><span class="ic">🕰️</span>Historial</button>
   <button onclick="location.href='index.html'"><span class="ic">💬</span>Chat</button>
   <button onclick="location.href='debate.html'"><span class="ic">🗳️</span>Debate</button>
 </div>
@@ -428,7 +459,7 @@ function setConn(live){
 function handleMessage(msg){
   const {type,payload}=msg;
   if(type==="world_state"){
-    world=payload; renderClock(); renderCity(); renderActivity(); renderThoughts(); renderIdeas(); renderAula(); renderNews();
+    world=payload; renderClock(); renderCity(); renderActivity(); renderThoughts(); renderIdeas(); renderAula(); renderNews(); renderTimeline();
     if(selectedId) renderSheet(selectedId);
   } else if(type==="news_edition"){
     if(world){ world.news=world.news||[]; world.news.push(payload); }
@@ -450,6 +481,7 @@ function handleMessage(msg){
       }
     }
     renderCity();
+    renderTimeline();
     if(selectedId && payload.citizen_ids && payload.citizen_ids.includes(selectedId)) renderSheet(selectedId);
   } else if(type==="talk_typing"){ setTyping(payload.citizen_id,true); }
   else if(type==="talk_reply"){ setTyping(payload.citizen_id,false); addMsg(payload.citizen_id,"cit",payload.content); }
@@ -576,9 +608,12 @@ window.addEventListener("resize",()=>{ if(world) renderCity(); });
 const ICON={ llegada:"📍", pensamiento:"💭", proyecto_iniciado:"🚀", proyecto_avance:"🔧",
   proyecto_completado:"✅", reunion:"🗓️", conversacion:"💬", relacion:"🤝", sugerencia:"💡", sistema:"⚙️" };
 function evCard(ev){
+  const why=ev.reasoning
+    ? `<details class="why"><summary>💡 por qué</summary>${ev.reasoning}</details>`
+    : "";
   return `<div class="card ${ev.type}">
     <span class="when">${ICON[ev.type]||"•"} Día ${ev.sim_day} · ${String(ev.sim_hour).padStart(2,"0")}:00</span>
-    ${ev.description}</div>`;
+    ${ev.description}${why}</div>`;
 }
 function renderActivity(){
   const l=document.getElementById("activityList");
@@ -657,6 +692,46 @@ function prependNews(ed){
   const d=document.createElement("div"); d.innerHTML=newsCard(ed);
   if(l.firstChild && l.firstChild.className!=="empty") l.insertBefore(d.firstElementChild,l.firstChild);
   else l.innerHTML="", l.appendChild(d.firstElementChild);
+}
+
+/* ---------------- Linea temporal navegable ---------------- */
+// null = sigue el dia mas reciente automaticamente; un numero = el usuario
+// ha elegido un dia concreto y nos quedamos ahi aunque la ciudad avance.
+let timelineDay=null;
+function timelineDays(){
+  const days=new Set((world&&world.events||[]).map(e=>e.sim_day));
+  return Array.from(days).sort((a,b)=>a-b);
+}
+function renderTimeline(){
+  const days=timelineDays();
+  const sel=document.getElementById("tlDaySelect");
+  sel.innerHTML=days.map(d=>`<option value="${d}">Día ${d}</option>`).join("");
+  let day=timelineDay;
+  if(day===null || !days.includes(day)) day=days.length?days[days.length-1]:null;
+  if(day!==null) sel.value=String(day);
+  document.getElementById("tlPrev").disabled=!days.length||day===days[0];
+  document.getElementById("tlNext").disabled=!days.length||day===days[days.length-1];
+  const list=document.getElementById("timelineList");
+  if(day===null){
+    list.innerHTML='<div class="empty">🕰️ Aún no hay historial que recorrer.<br>Vuelve cuando la ciudad lleve un rato viva.</div>';
+    return;
+  }
+  const evs=(world.events||[]).filter(e=>e.sim_day===day).sort((a,b)=>a.sim_hour-b.sim_hour);
+  list.innerHTML=evs.length?evs.map(evCard).join(""):
+    '<div class="empty">Ese día no quedó registrado ningún evento.</div>';
+}
+function onTimelineDaySelect(){
+  timelineDay=parseInt(document.getElementById("tlDaySelect").value,10);
+  renderTimeline();
+}
+function shiftTimelineDay(delta){
+  const days=timelineDays();
+  if(!days.length) return;
+  let day=timelineDay;
+  if(day===null||!days.includes(day)) day=days[days.length-1];
+  const idx=days.indexOf(day);
+  timelineDay=days[Math.min(days.length-1,Math.max(0,idx+delta))];
+  renderTimeline();
 }
 async function generateNewsNow(){
   const btn=document.getElementById("newsGenBtn");

@@ -95,6 +95,7 @@ def world_to_dict(world: WorldState) -> dict:
                 "id": e.id, "type": e.type.value, "sim_day": e.sim_day, "sim_hour": e.sim_hour,
                 "citizen_ids": e.citizen_ids, "building_id": e.building_id,
                 "description": e.description, "created_at": _dt_to_str(e.created_at),
+                "reasoning": e.reasoning,
             }
             for e in world.events
         ],
@@ -163,6 +164,7 @@ def world_from_dict(data: dict) -> WorldState:
             citizen_ids=e.get("citizen_ids", []), building_id=e.get("building_id"),
             description=e["description"],
             created_at=_str_to_dt(e.get("created_at")) or datetime.now(timezone.utc),
+            reasoning=e.get("reasoning"),
         )
         for e in data.get("events", [])
     ]

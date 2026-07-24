@@ -220,13 +220,19 @@ class CityEvent:
     building_id: str | None
     description: str
     created_at: datetime = field(default_factory=_now)
+    # Por que ha pasado esto, cuando se puede explicar con datos que el
+    # motor ya calcula (confianza, rivalidad...), no una llamada a IA mas:
+    # es "razonamiento visible" barato, no otro texto generado. None cuando
+    # el evento no tiene una causa mecanica que merezca la pena mostrar.
+    reasoning: str | None = None
 
     @staticmethod
     def create(type_: EventType, sim_day: int, sim_hour: int, description: str,
-               citizen_ids: list[str] | None = None, building_id: str | None = None) -> "CityEvent":
+               citizen_ids: list[str] | None = None, building_id: str | None = None,
+               reasoning: str | None = None) -> "CityEvent":
         return CityEvent(id=_new_id(), type=type_, sim_day=sim_day, sim_hour=sim_hour,
                           citizen_ids=citizen_ids or [], building_id=building_id,
-                          description=description)
+                          description=description, reasoning=reasoning)
 
 
 @dataclass
