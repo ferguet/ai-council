@@ -20,6 +20,14 @@ from app.providers.base import AIProvider, ChatMessage, ProviderError
 from app.providers.http_retry import post_with_retry
 
 _URL = "https://openrouter.ai/api/v1/chat/completions"
+# Sin "max_tokens" explicito, OpenRouter usa el techo teorico maximo de
+# salida del modelo (p.ej. 65536 en Kimi K2), y para modelos que cobran por
+# credito exige tener saldo para cubrir TODO ese techo de golpe aunque la
+# respuesta real vaya a ser de dos frases -> 402 "requires more credits".
+# Diagnostico real de Gemini en el Chat Grupal viendo los fallos de Kimi y
+# Qwen; las respuestas de un ciudadano son mensajes cortos de chat, 3000
+# tokens de margen de sobra.
+_MAX_TOKENS = 3000
 
 
 class OpenRouterProvider(AIProvider):
@@ -52,6 +60,7 @@ class OpenRouterProvider(AIProvider):
             "model": model,
             "messages": self._to_openai_messages(messages),
             "temperature": temperature,
+            "max_tokens": _MAX_TOKENS,
         }
         resp = await post_with_retry(_URL, headers=self._headers(), json=payload)
         if resp.status_code != 200:
@@ -68,6 +77,7 @@ class OpenRouterProvider(AIProvider):
             "model": model,
             "messages": self._to_openai_messages(messages),
             "temperature": temperature,
+            "max_tokens": _MAX_TOKENS,
             "stream": True,
         }
         async with httpx.AsyncClient(timeout=60) as client:
