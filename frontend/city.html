@@ -276,15 +276,23 @@
   }
 
   /* ---------- Citizen sheet ---------- */
+  /* BUG real encontrado en movil: antes "bottom:0" hacia que la ficha
+     (z-index 40) tapara por completo la barra de navegacion inferior
+     (z-index 20, pegada tambien al fondo). No es solo que se viera mal:
+     como la ficha esta POR ENCIMA, los toques ni siquiera llegaban a los
+     botones del nav que quedaban debajo — habia que acordarse de cerrar
+     la ficha a mano (la X o tocar fuera) para poder cambiar de pantalla.
+     Ahora "bottom" usa la altura real del nav (--nav-h, medida por JS) asi
+     que la ficha siempre para justo por encima y el nav queda siempre
+     visible y pulsable, se pueda cerrar sola o no. */
   #sheet {
-    position:fixed; left:0; right:0; bottom:0; z-index:40;
+    position:fixed; left:0; right:0; bottom:var(--nav-h,70px); z-index:40;
     background: linear-gradient(180deg, rgba(24,26,50,0.96), rgba(14,15,32,0.98));
     border-top-left-radius:24px; border-top-right-radius:24px;
     border:1px solid var(--border); border-bottom:none;
     box-shadow: 0 -20px 60px rgba(0,0,0,.6);
     transform: translateY(110%); transition: transform .32s cubic-bezier(.2,.8,.2,1);
-    max-height: 88vh; max-height: 88dvh; max-height: calc(var(--vh, 1vh) * 88); display:flex; flex-direction:column;
-    padding-bottom: env(safe-area-inset-bottom);
+    max-height: 80vh; max-height: 80dvh; max-height: calc(var(--vh, 1vh) * 80); display:flex; flex-direction:column;
   }
   #sheet.open { transform: translateY(0); }
   #sheet .grip { width:42px;height:5px;border-radius:3px;background:#fff3; margin:10px auto 4px; }
@@ -329,7 +337,11 @@
   #composer input:focus { border-color:var(--border-lit); }
   #composer button { width:44px;height:44px;border-radius:50%; border:none; cursor:pointer; font-size:17px; color:#fff;
     background:linear-gradient(135deg,var(--a1),var(--a3)); box-shadow:0 6px 16px rgba(124,92,255,.5); }
-  #backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); backdrop-filter:blur(2px);
+  /* bottom:var(--nav-h) en vez de inset:0: si el fondo oscuro tapase toda
+     la pantalla (z-index 35, por encima del nav en 20) volveria a bloquear
+     los toques sobre la barra de navegacion mientras la ficha esta
+     abierta, el mismo problema que se arreglo en #sheet. */
+  #backdrop { position:fixed; left:0; right:0; top:0; bottom:var(--nav-h,70px); background:rgba(0,0,0,.5); backdrop-filter:blur(2px);
     opacity:0; pointer-events:none; transition:.3s; z-index:35; }
   #backdrop.show { opacity:1; pointer-events:auto; }
 
@@ -473,6 +485,19 @@ function setVhUnit(){ document.documentElement.style.setProperty("--vh",(window.
 setVhUnit();
 window.addEventListener("resize",setVhUnit);
 window.addEventListener("orientationchange",()=>setTimeout(setVhUnit,120));
+
+/* Altura real de la barra de navegacion inferior, para que la ficha del
+   ciudadano (#sheet) sepa exactamente donde parar y nunca la tape (ver
+   comentario junto a la regla #sheet en el CSS). Se mide de verdad en vez
+   de asumir un numero fijo porque cambia con env(safe-area-inset-bottom)
+   segun el movil (los que tienen barra de gestos añaden mas relleno ahi). */
+function setNavHeightVar(){
+  const nav=document.getElementById("nav");
+  if(nav) document.documentElement.style.setProperty("--nav-h", nav.offsetHeight+"px");
+}
+setNavHeightVar();
+window.addEventListener("resize",setNavHeightVar);
+window.addEventListener("orientationchange",()=>setTimeout(setNavHeightVar,120));
 
 let ws=null, world=null, selectedId=null;
 let chatHistory={};
