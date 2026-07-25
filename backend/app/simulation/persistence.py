@@ -121,6 +121,13 @@ def world_to_dict(world: WorldState) -> dict:
             }
             for n in world.news
         ],
+        "direct_messages": [
+            {
+                "id": m.id, "sender_id": m.sender_id, "recipient_id": m.recipient_id,
+                "content": m.content, "created_at": _dt_to_str(m.created_at),
+            }
+            for m in world.direct_messages
+        ],
         "last_news_at": _dt_to_str(world.last_news_at),
     }
 
@@ -192,9 +199,18 @@ def world_from_dict(data: dict) -> WorldState:
         )
         for n in data.get("news", [])
     ]
+    from app.domain.city_models import DirectMessage
+    direct_messages = [
+        DirectMessage(
+            id=m["id"], sender_id=m["sender_id"], recipient_id=m["recipient_id"],
+            content=m["content"],
+            created_at=_str_to_dt(m.get("created_at")) or datetime.now(timezone.utc),
+        )
+        for m in data.get("direct_messages", [])
+    ]
     return WorldState(
         citizens=citizens, buildings=buildings, projects=projects, events=events,
-        news=news, last_news_at=_str_to_dt(data.get("last_news_at")),
+        news=news, direct_messages=direct_messages, last_news_at=_str_to_dt(data.get("last_news_at")),
         sim_day=data.get("sim_day", 1), sim_hour=data.get("sim_hour", 8),
         tick_count=data.get("tick_count", 0),
     )

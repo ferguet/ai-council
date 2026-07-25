@@ -103,6 +103,57 @@ def incur_debt(citizen_id: str, creditor_id: str, amount: int, request: Request,
     }
 
 
+@router.post("/city/citizens/{sender_id}/send-message/{recipient_id}")
+def send_direct_message(sender_id: str, recipient_id: str, content: str, request: Request,
+                        visitor: str = Depends(require_visitor)) -> dict:
+    """Envía un mensaje privado entre dos ciudadanos."""
+    from app.domain.city_models import DirectMessage
+
+    engine = _engine(request)
+    world = engine.world
+
+    if sender_id not in world.citizens:
+        raise HTTPException(status_code=404, detail="Remitente no encontrado")
+    if recipient_id not in world.citizens:
+        raise HTTPException(status_code=404, detail="Destinatario no encontrado")
+
+    msg = DirectMessage.create(sender_id, recipient_id, content)
+    world.add_direct_message(msg)
+
+    return {
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "recipient_id": msg.recipient_id,
+        "content": msg.content,
+        "created_at": msg.created_at.isoformat(),
+    }
+
+
+@router.get("/city/citizens/{citizen_id}/messages/{other_id}")
+def get_direct_messages(citizen_id: str, other_id: str, limit: int = 50, request: Request = None,
+                        visitor: str = Depends(require_visitor)) -> list[dict]:
+    """Obtiene el historial de mensajes privados entre dos ciudadanos."""
+    engine = _engine(request)
+    world = engine.world
+
+    if citizen_id not in world.citizens:
+        raise HTTPException(status_code=404, detail="Ciudadano no encontrado")
+    if other_id not in world.citizens:
+        raise HTTPException(status_code=404, detail="Otro ciudadano no encontrado")
+
+    messages = world.get_direct_messages(citizen_id, other_id, limit)
+    return [
+        {
+            "id": m.id,
+            "sender_id": m.sender_id,
+            "recipient_id": m.recipient_id,
+            "content": m.content,
+            "created_at": m.created_at.isoformat(),
+        }
+        for m in messages
+    ]
+
+
 @router.get("/city/news")
 def get_news(request: Request, limit: int = 20, visitor: str = Depends(require_visitor)) -> list[dict]:
     """Ediciones del periodico de la ciudad, mas reciente primero."""

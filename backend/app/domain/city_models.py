@@ -249,6 +249,20 @@ class Project:
 
 
 @dataclass
+class DirectMessage:
+    """Mensaje privado entre dos ciudadanos."""
+    id: str
+    sender_id: str
+    recipient_id: str
+    content: str
+    created_at: datetime = field(default_factory=_now)
+
+    @staticmethod
+    def create(sender_id: str, recipient_id: str, content: str) -> "DirectMessage":
+        return DirectMessage(id=_new_id(), sender_id=sender_id, recipient_id=recipient_id, content=content)
+
+
+@dataclass
 class CityEvent:
     id: str
     type: EventType
@@ -302,6 +316,7 @@ class WorldState:
     projects: dict[str, Project] = field(default_factory=dict)
     events: list[CityEvent] = field(default_factory=list)   # mas reciente al final, capado
     news: list[NewsEdition] = field(default_factory=list)   # mas reciente al final, capado
+    direct_messages: list[DirectMessage] = field(default_factory=list)  # historial de mensajes privados, capado
     last_news_at: datetime | None = None                     # hora real (UTC) de la ultima edicion
 
     sim_day: int = 1
@@ -323,3 +338,17 @@ class WorldState:
 
     def sim_time_label(self) -> str:
         return f"Dia {self.sim_day}, {self.sim_hour:02d}:00"
+
+    def add_direct_message(self, msg: DirectMessage, cap: int = 1000) -> None:
+        """Agrega un mensaje privado al historial."""
+        self.direct_messages.append(msg)
+        if len(self.direct_messages) > cap:
+            self.direct_messages = self.direct_messages[-cap:]
+
+    def get_direct_messages(self, citizen_a: str, citizen_b: str, limit: int = 50) -> list[DirectMessage]:
+        """Obtiene mensajes entre dos ciudadanos (en cualquier dirección)."""
+        return [
+            m for m in self.direct_messages[-limit*2:]
+            if (m.sender_id == citizen_a and m.recipient_id == citizen_b) or
+               (m.sender_id == citizen_b and m.recipient_id == citizen_a)
+        ][-limit:]
