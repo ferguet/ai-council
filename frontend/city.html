@@ -930,16 +930,32 @@ function renderSheet(id){
   const happ=c.happiness??55, ang=c.anger??8;
   const p0=c.current_project_id?world.projects[c.current_project_id]:null;
   const lastThought=lastThoughtOf(id);
-  document.getElementById("shResumen").innerHTML=`
-    <div class="resumen">
-      <div class="r-mood">${c.mood_label||"😐 Neutral"}</div>
-      <div class="moodbars">
-        <div class="moodbar joy"><span class="lab">Alegría</span><span class="track"><div style="width:${happ}%"></div></span><span class="val">${happ}</span></div>
-        <div class="moodbar anger"><span class="lab">Enfado</span><span class="track"><div style="width:${ang}%"></div></span><span class="val">${ang}</span></div>
+  const debts = c.debts || {};
+  const debtsList = Object.entries(debts).filter(([_, amt]) => amt > 0);
+  const totalDebt = Object.values(debts).reduce((sum, amt) => sum + (amt > 0 ? amt : 0), 0);
+
+  let debtDisplay = '';
+  if(debtsList.length > 0){
+    debtDisplay = `<div style=”margin-top:10px; padding:8px; border-radius:8px; background:rgba(255,92,168,.1); border:1px solid rgba(255,92,168,.3)”>
+      <div style=”font-size:11px; color:var(--a3); font-weight:600; margin-bottom:4px;”>💳 Deudas (${totalDebt} favor${totalDebt>1?”es”:””})</div>
+      ${debtsList.map(([cid, amt]) => {
+        const creditor = world.citizens[cid];
+        return `<div style=”font-size:11px; color:var(--muted); margin:3px 0;”>Debe ${amt} a ${creditor?creditor.name:”?”}</div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  document.getElementById(“shResumen”).innerHTML=`
+    <div class=”resumen”>
+      <div class=”r-mood”>${c.mood_label||”😐 Neutral”}</div>
+      <div class=”moodbars”>
+        <div class=”moodbar joy”><span class=”lab”>Alegría</span><span class=”track”><div style=”width:${happ}%”></div></span><span class=”val”>${happ}</span></div>
+        <div class=”moodbar anger”><span class=”lab”>Enfado</span><span class=”track”><div style=”width:${ang}%”></div></span><span class=”val”>${ang}</span></div>
       </div>
-      <div class="r-line" style="margin-top:10px"><b>Ahora:</b> ${c.current_activity_label||"—"}${b?` · ${b.name}`:""}</div>
-      <div class="r-line"><b>Proyecto:</b> ${p0?`${p0.title} (${p0.progress}%)`:"ninguno activo"}</div>
-      <div class="r-line"><b>Lo último que dijo:</b> ${lastThought?`“${lastThought}”`:"nada aún"}</div>
+      <div class=”r-line” style=”margin-top:10px”><b>Ahora:</b> ${c.current_activity_label||”—“}${b?` · ${b.name}`:””}</div>
+      <div class=”r-line”><b>Proyecto:</b> ${p0?`${p0.title} (${p0.progress}%)`:”ninguno activo”}</div>
+      <div class=”r-line”><b>Lo último que dijo:</b> ${lastThought?`”${lastThought}”`:”nada aún”}</div>
+      ${debtDisplay}
     </div>`;
 
   const pe=document.getElementById("shProject");

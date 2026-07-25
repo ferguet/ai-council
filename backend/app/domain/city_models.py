@@ -138,6 +138,7 @@ class Citizen:
 
     memory: list[str] = field(default_factory=list)   # diario personal, texto libre, capado
     relationships: dict[str, Relationship] = field(default_factory=dict)
+    debts: dict[str, int] = field(default_factory=dict)  # citizen_id -> cantidad (positivo = debe, negativo = le deben)
 
     last_real_ai_call: datetime | None = None
     energy: float = 1.0
@@ -163,6 +164,31 @@ class Citizen:
         if other_id not in self.relationships:
             self.relationships[other_id] = Relationship()
         return self.relationships[other_id]
+
+    def incur_debt(self, creditor_id: str, amount: int) -> None:
+        """Incurre en una deuda con otro ciudadano."""
+        if creditor_id not in self.debts:
+            self.debts[creditor_id] = 0
+        self.debts[creditor_id] += amount
+
+    def payoff_debt(self, creditor_id: str, amount: int) -> int:
+        """Paga una deuda. Devuelve el monto realmente pagado (puede ser menos si la deuda es menor)."""
+        if creditor_id not in self.debts:
+            return 0
+        debt = self.debts[creditor_id]
+        paid = min(amount, debt)
+        self.debts[creditor_id] -= paid
+        if self.debts[creditor_id] == 0:
+            del self.debts[creditor_id]
+        return paid
+
+    def debt_to(self, creditor_id: str) -> int:
+        """¿Cuánto debe a alguien?"""
+        return self.debts.get(creditor_id, 0)
+
+    def total_debt(self) -> int:
+        """Suma de todas las deudas."""
+        return sum(d for d in self.debts.values() if d > 0)
 
     def schedule_for_hour(self, hour: int) -> ScheduleBlock | None:
         for block in self.schedule:

@@ -84,6 +84,7 @@ def world_to_dict(world: WorldState) -> dict:
                     }
                     for other_id, r in c.relationships.items()
                 },
+                "debts": c.debts,
                 "last_real_ai_call": _dt_to_str(c.last_real_ai_call),
                 "energy": c.energy,
                 "happiness": c.happiness,
@@ -156,6 +157,7 @@ def world_from_dict(data: dict) -> WorldState:
             current_activity_label=c.get("current_activity_label", ""),
             current_project_id=c.get("current_project_id"),
             memory=c.get("memory", []), relationships=relationships,
+            debts={k: int(v) for k, v in c.get("debts", {}).items()},
             last_real_ai_call=_str_to_dt(c.get("last_real_ai_call")),
             energy=c.get("energy", 1.0),
             happiness=c.get("happiness", 55),

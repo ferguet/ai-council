@@ -79,6 +79,30 @@ def vote_project(project_id: str, support: bool, request: Request, visitor: str 
     }
 
 
+@router.post("/city/citizens/{citizen_id}/incur-debt")
+def incur_debt(citizen_id: str, creditor_id: str, amount: int, request: Request,
+               visitor: str = Depends(require_visitor)) -> dict:
+    """Registra una deuda de un ciudadano hacia otro (solo para simulación interna)."""
+    engine = _engine(request)
+    world = engine.world
+
+    if citizen_id not in world.citizens:
+        raise HTTPException(status_code=404, detail="Ciudadano no encontrado")
+    if creditor_id not in world.citizens:
+        raise HTTPException(status_code=404, detail="Acreedor no encontrado")
+
+    citizen = world.citizens[citizen_id]
+    citizen.incur_debt(creditor_id, amount)
+    total = citizen.total_debt()
+
+    return {
+        "citizen_id": citizen_id,
+        "creditor_id": creditor_id,
+        "amount": amount,
+        "total_debt": total,
+    }
+
+
 @router.get("/city/news")
 def get_news(request: Request, limit: int = 20, visitor: str = Depends(require_visitor)) -> list[dict]:
     """Ediciones del periodico de la ciudad, mas reciente primero."""
