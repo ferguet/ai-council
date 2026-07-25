@@ -196,6 +196,7 @@ class Project:
     progress: int = 0            # 0-100
     log: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=_now)
+    votes: dict[str, bool] = field(default_factory=dict)  # citizen_id -> bool (True = a favor)
 
     @staticmethod
     def create(title: str, description: str, owner_ids: list[str], building_id: str | None) -> "Project":
@@ -208,6 +209,17 @@ class Project:
             self.log.append(log_entry)
         if self.progress >= 100:
             self.status = ProjectStatus.COMPLETADO
+
+    def vote(self, citizen_id: str, support: bool) -> None:
+        """Registra o actualiza el voto de un ciudadano sobre este proyecto.
+        support=True es voto a favor, False es en contra."""
+        self.votes[citizen_id] = support
+
+    def vote_count(self) -> tuple[int, int]:
+        """Devuelve (votos_a_favor, votos_en_contra)."""
+        favor = sum(1 for v in self.votes.values() if v)
+        contra = len(self.votes) - favor
+        return favor, contra
 
 
 @dataclass

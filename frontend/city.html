@@ -679,10 +679,34 @@ function evCard(ev){
     <span class="when">${ICON[ev.type]||"•"} Día ${ev.sim_day} · ${String(ev.sim_hour).padStart(2,"0")}:00</span>
     ${ev.description}${why}</div>`;
 }
+function projectCard(p){
+  const favor = p.vote_favor || 0, contra = p.vote_contra || 0;
+  const total = favor + contra;
+  const pct = total > 0 ? Math.round(favor / total * 100) : 0;
+  return `<div class="card proyecto">
+    <div class="when">🗳️ ${favor}👍 ${contra}👎 (${pct}%)</div>
+    <b style="font-size:13px; margin-bottom:4px; display:block;">${p.title}</b>
+    ${p.description}
+    <div style="margin-top:6px; display:flex; gap:6px; font-size:12px;">
+      <button onclick="voteProject('${p.id}', true)" style="flex:1; padding:6px; border:1px solid var(--a4); background:transparent; color:var(--a4); border-radius:8px; cursor:pointer; font-weight:600;">👍 A favor</button>
+      <button onclick="voteProject('${p.id}', false)" style="flex:1; padding:6px; border:1px solid var(--a3); background:transparent; color:var(--a3); border-radius:8px; cursor:pointer; font-weight:600;">👎 En contra</button>
+    </div>
+  </div>`;
+}
+async function voteProject(projectId, support){
+  try {
+    const r=await AIAccess.fetch(`/city/projects/${projectId}/vote?support=${support}`, {method:"POST"});
+    if(r.ok) console.log("Voto registrado"); else console.warn("Error al votar");
+  } catch(e){ console.error("Error de voto:", e); }
+}
 function renderActivity(){
   const l=document.getElementById("activityList");
-  const evs=(world.events||[]).slice().reverse();
-  l.innerHTML=evs.length?evs.map(evCard).join(""):'<div class="empty">Aún no ha pasado nada.<br>La ciudad está arrancando…</div>';
+  const evs=(world.events||[]).slice().reverse().slice(0,50); // Mostrar solo los últimos 50 eventos
+  const projects = (Object.values(world.projects||{})||[]).filter(p=>p.status==="activo").slice(0,5); // Top 5 proyectos activos
+  let html = '';
+  if(projects.length) html += '<h3 style="font-size:12px; text-transform:uppercase; color:var(--muted); margin:8px 0 4px; letter-spacing:.08em;">🗳️ Proyectos prioritarios</h3>' + projects.map(projectCard).join('');
+  html += '<h3 style="font-size:12px; text-transform:uppercase; color:var(--muted); margin:8px 0 4px; letter-spacing:.08em;">⚡ Actividad reciente</h3>' + (evs.length?evs.map(evCard).join(""):'<div class="empty">Aún no ha pasado nada.<br>La ciudad está arrancando…</div>');
+  l.innerHTML = html;
 }
 function prependActivity(ev){
   const l=document.getElementById("activityList");

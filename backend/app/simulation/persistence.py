@@ -98,6 +98,9 @@ def world_to_dict(world: WorldState) -> dict:
                 "owner_ids": p.owner_ids, "building_id": p.building_id,
                 "status": p.status.value, "progress": p.progress, "log": p.log,
                 "created_at": _dt_to_str(p.created_at),
+                "votes": p.votes,
+                "vote_favor": sum(1 for v in p.votes.values() if v),
+                "vote_contra": len(p.votes) - sum(1 for v in p.votes.values() if v),
             }
             for pid, p in world.projects.items()
         },
@@ -166,6 +169,7 @@ def world_from_dict(data: dict) -> WorldState:
             status=ProjectStatus(p.get("status", "activo")), progress=p.get("progress", 0),
             log=p.get("log", []),
             created_at=_str_to_dt(p.get("created_at")) or datetime.now(timezone.utc),
+            votes=p.get("votes", {}),
         )
         for pid, p in data.get("projects", {}).items()
     }

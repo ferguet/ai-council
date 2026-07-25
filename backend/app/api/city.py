@@ -48,7 +48,35 @@ def get_events(request: Request, limit: int = 50, visitor: str = Depends(require
 @router.get("/city/projects")
 def get_projects(request: Request, visitor: str = Depends(require_visitor)) -> list[dict]:
     data = world_to_dict(_engine(request).world)
-    return list(data["projects"].values())
+    projects = list(data["projects"].values())
+    # Ordenar por votos a favor (descendente), luego por fecha de creación
+    return sorted(projects, key=lambda p: (-p.get("vote_favor", 0), p.get("created_at", "")), reverse=True)
+
+
+@router.post("/city/projects/{project_id}/vote")
+def vote_project(project_id: str, support: bool, request: Request, visitor: str = Depends(require_visitor)) -> dict:
+    """Ciudadano vota sobre un proyecto. support=True es a favor, False es en contra."""
+    engine = _engine(request)
+    world = engine.world
+
+    if project_id not in world.projects:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    project = world.projects[project_id]
+    # Por ahora, cualquier ciudadano puede votar. En futuro se podría restringir.
+    # Para esta demo, usamos visitor_id como citizen_id (con un prefijo para distinguir).
+    citizen_id = f"visitor_{visitor}"
+
+    project.vote(citizen_id, support)
+    favor, contra = project.vote_count()
+
+    return {
+        "project_id": project_id,
+        "citizen_id": citizen_id,
+        "support": support,
+        "vote_favor": favor,
+        "vote_contra": contra,
+    }
 
 
 @router.get("/city/news")
