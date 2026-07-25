@@ -980,6 +980,46 @@ function bondLabelFor(trust,respect,rivalry){
   if(trust<=0.3) return "🤨 Distante, desconfía";
   return "😐 Neutral";
 }
+let dmThread=null; // ciudadano con quien se está chateando en privado
+async function loadDirectMessages(from_id, to_id){
+  try{
+    const r=await AIAccess.fetch(`/city/citizens/${from_id}/messages/${to_id}`);
+    if(r.ok) return await r.json();
+  }catch(e){ console.error("Error loading DMs:", e); }
+  return [];
+}
+async function sendDirectMessage(from_id, to_id, content){
+  try{
+    const r=await AIAccess.fetch(`/city/citizens/${from_id}/send-message/${to_id}?content=${encodeURIComponent(content)}`, {method:"POST"});
+    if(r.ok) return await r.json();
+  }catch(e){ console.error("Error sending DM:", e); }
+  return null;
+}
+function renderDirectMessageThread(from_id, to_id){
+  const other=world.citizens[to_id];
+  if(!other) return "";
+  return `<div style="margin-top:12px; padding:10px; background:rgba(124,92,255,.08); border:1px solid rgba(124,92,255,.2); border-radius:12px;">
+    <div style="font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; letter-spacing:.06em;">💬 Chat privado con ${other.name}</div>
+    <div id="dmLog" style="font-size:12px; max-height:120px; overflow-y:auto; margin-bottom:6px; display:flex; flex-direction:column; gap:4px;"></div>
+    <div style="display:flex; gap:6px;">
+      <input id="dmInput" placeholder="Mensaje privado..." style="flex:1; padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.1); background:#ffffff0a; color:var(--text); font-size:11px; outline:none;">
+      <button onclick="submitDM('${from_id}','${to_id}')" style="width:28px; height:28px; border-radius:50%; border:none; background:linear-gradient(135deg,var(--a1),var(--a3)); color:#fff; cursor:pointer; font-size:12px;">→</button>
+    </div>
+  </div>`;
+}
+async function submitDM(from_id, to_id){
+  const inp=document.getElementById("dmInput");
+  if(!inp || !inp.value.trim()) return;
+  const content=inp.value;
+  inp.value="";
+  await sendDirectMessage(from_id, to_id, content);
+  updateDMThread(from_id, to_id);
+}
+async function updateDMThread(from_id, to_id){
+  const msgs=await loadDirectMessages(from_id, to_id);
+  const log=document.getElementById("dmLog");
+  if(log) log.innerHTML=msgs.map(m=>`<div style="text-align:${m.sender_id===from_id?'right':'left'};"><span style="display:inline-block; max-width:80%; padding:4px 6px; border-radius:6px; background:${m.sender_id===from_id?'linear-gradient(135deg,var(--a1),var(--a3))':'#ffffff0d'}; color:var(--text); word-wrap:break-word; font-size:11px;">${m.content}</span></div>`).join("");
+}
 function renderRelations(c){
   const el=document.getElementById("shRelations");
   const rels=c.relationships||{};
@@ -991,15 +1031,27 @@ function renderRelations(c){
     const r=rels[oid];
     const trust=r?Math.round(r.trust*100):50, rivalry=r?Math.round(r.rivalry*100):0, respect=r?r.respect:0.5;
     const label=r?bondLabelFor(r.trust,respect,r.rivalry):"😐 Neutral (aún no se conocen)";
-    return `<div class="rel">
-      <div class="av" style="background:${o.color}22;border:1.5px solid ${o.color}55">${o.avatar}</div>
-      <div class="info"><b>${o.name}</b><span class="lbl">${label}</span></div>
-      <div class="bars">
+    const isOpen=dmThread===oid;
+    return `<div class="rel" style="flex-direction:column; align-items:stretch;">
+      <div style="display:flex; align-items:center; gap:9px;">
+        <div class="av" style="background:${o.color}22;border:1.5px solid ${o.color}55">${o.avatar}</div>
+        <div class="info" style="flex:1; min-width:0;">
+          <b>${o.name}</b><span class="lbl">${label}</span>
+        </div>
+        <button onclick="toggleDMThread('${c.id}','${o.id}')" style="flex-shrink:0; width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:#ffffff0a; color:var(--text); cursor:pointer; font-size:13px; font-weight:600;">💬</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:6px;">
         <span class="t trust"><div style="width:${trust}%"></div></span>
         <span class="t rivalry"><div style="width:${rivalry}%"></div></span>
       </div>
+      ${isOpen?renderDirectMessageThread(c.id, o.id):""}
     </div>`;
   }).join("");
+}
+function toggleDMThread(from_id, to_id){
+  if(dmThread===to_id) dmThread=null;
+  else dmThread=to_id, updateDMThread(from_id, to_id);
+  renderSheet(from_id);
 }
 const CITY_RATE_LIMIT_RE = /^\[.+? no puede responder ahora mismo: ([\s\S]+)\]$/;
 function renderChat(id){
