@@ -71,6 +71,13 @@ services:
       - key: PROVIDER_DAILY_SOFT_CAP
         value: "150"
 
+      # Busqueda web real para Gemini y Kimi en el Chat Grupal (las unicas
+      # con esta capacidad de momento). Sin esto, siguen funcionando igual
+      # que hasta ahora, solo que sin poder buscar de verdad. Clave gratis
+      # (sin tarjeta) en https://tavily.com -> API Keys.
+      - key: TAVILY_API_KEY
+        sync: false
+
       # Director del debate
       - key: DIRECTOR_PROVIDER
         value: mock

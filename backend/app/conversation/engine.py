@@ -26,8 +26,23 @@ from app.providers.base import ChatMessage, ProviderError
 from app.providers.circuit_breaker import ProviderCircuitBreaker
 from app.providers.registry import ProviderRegistry
 from app.providers.usage_tracker import ProviderUsageTracker
+from app.tools.web_search import WebSearchClient, WebSearchError
 
 DEFAULT_CONVERSATION_ID = "general"
+
+# Que IA pueden buscar de verdad en internet (ver app/tools/web_search.py).
+# Empezamos con solo dos, a proposito: Gemini (cientifica, tiene sentido que
+# contraste datos reales) y Kimi (arquitecta tecnica, que consulte practicas
+# reales en vez de improvisar). Si funciona bien, es una linea mas por cada
+# IA nueva que se quiera sumar -no hace falta tocar nada mas.
+_SEARCH_ENABLED_CITIZENS = {"gemini", "kimi"}
+
+# Si una IA con busqueda habilitada de verdad no sabe un dato, en vez de
+# inventarselo (lo que paso el 25/07 con Nvidia y las redes sociales) puede
+# responder EXACTAMENTE con esto para pedir una busqueda real antes de
+# contestar de verdad. Nunca se le ensena al usuario tal cual: se resuelve
+# por dentro en el mismo turno (ver _search_and_answer).
+_SEARCH_TOKEN_RE = re.compile(r"^\s*\[BUSCAR:\s*(.+?)\]\s*$", re.IGNORECASE)
 
 # Proveedor + modelo de respaldo por proveedor principal: si el proveedor de
 # un ciudadano falla de verdad (excepcion) o tiene el circuito abierto (ver
@@ -81,6 +96,7 @@ class ConversationEngine:
         world=None,
         breaker: ProviderCircuitBreaker | None = None,
         usage: ProviderUsageTracker | None = None,
+        web_search: WebSearchClient | None = None,
     ) -> None:
         self.conversations = conversations
         self.roster = roster
@@ -96,6 +112,10 @@ class ConversationEngine:
         # compartido por proveedor (no por ciudadano). Inyectable para
         # tests; en produccion usa el tope de settings.provider_daily_soft_cap.
         self._usage = usage or ProviderUsageTracker()
+        # Busqueda web real (ver _SEARCH_ENABLED_CITIZENS). Sin clave
+        # configurada, is_configured() da False y nadie intenta buscar -la
+        # app entera sigue funcionando exactamente igual que antes.
+        self._web_search = web_search or WebSearchClient(None)
         # Referencia de solo lectura al WorldState de la Ciudad (mismo objeto,
         # no una copia): asi el chat grupal puede leer relaciones reales
         # (confianza/rivalidad) entre las IA sin duplicar ese estado. Puede
@@ -259,6 +279,16 @@ class ConversationEngine:
             "quien rivalizas o desconfias, puedes guardarte parte de lo que piensas, "
             "picarla o directamente llevarle la contraria. No finjas armonia si no la hay."
         )
+        if participant.id in _SEARCH_ENABLED_CITIZENS and self._web_search.is_configured():
+            system += (
+                "\n\nTienes acceso real a buscar en internet cuando de verdad haga falta "
+                "(un dato concreto y actual que no sabes con certeza). NO te lo inventes: "
+                "si lo necesitas, responde EXACTAMENTE con "
+                "'[BUSCAR: consulta corta]' y nada mas, ni una palabra de mas -te "
+                "traeremos el resultado real y respondes de verdad justo despues, en el "
+                "mismo turno. No abuses de esto para cosas que ya sabes o que no hace "
+                "falta comprobar."
+            )
         if participant.id == MODERATOR_ID:
             system += (
                 "\n\nAdemas, aqui tienes un papel distinto al de las demas: eres la "
@@ -407,6 +437,15 @@ class ConversationEngine:
                 raw = (await provider.chat(prompt, participant.model, temperature=0.9)).strip()
                 self._breaker.record_success(provider_name)
                 text = _PREFIX_RE.sub("", raw).strip()
+                search_match = (
+                    _SEARCH_TOKEN_RE.match(text)
+                    if participant.id in _SEARCH_ENABLED_CITIZENS and self._web_search.is_configured()
+                    else None
+                )
+                if search_match:
+                    text = await self._search_and_answer(
+                        prompt, search_match.group(1).strip(), provider, provider_name, participant.model,
+                    )
             except ProviderError as exc:
                 primary_error = str(exc)
                 if not breaker_already_open and not rationed:
@@ -418,6 +457,42 @@ class ConversationEngine:
             conv.add_message(reply)
             await self._emit(conv.id, "message", self._message_payload(reply))
             await self._store_save()
+
+    async def _search_and_answer(
+        self, prompt: list[ChatMessage], query: str, provider, provider_name: str, model: str,
+    ) -> str:
+        """La IA ha pedido buscar un dato real en internet (ver
+        _SEARCH_TOKEN_RE): se ejecuta la busqueda de verdad y se le da una
+        segunda oportunidad de responder ya con el resultado delante, en el
+        mismo turno -el usuario nunca ve el token '[BUSCAR: ...]' crudo, solo
+        la respuesta final. Si algo falla (sin red, sin resultados, el
+        proveedor vuelve a fallar), se devuelve una frase corta en vez de
+        dejar el turno colgado o mostrar el token tal cual."""
+        try:
+            results = await self._web_search.search(query)
+        except WebSearchError:
+            return f"(Quise buscar «{query}» en internet pero no he podido ahora mismo.)"
+        followup = [
+            *prompt,
+            ChatMessage(role="assistant", content=f"[BUSCAR: {query}]"),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"Resultados reales de buscar «{query}» en internet:\n\n{results}\n\n"
+                    "Ahora responde de verdad con esto delante, en tu tono habitual, breve "
+                    "(1-4 frases) como en un chat. No menciones el proceso de busqueda ni "
+                    "cites la fuente literalmente, solo usa lo que has aprendido."
+                ),
+            ),
+        ]
+        try:
+            self._usage.record_call(provider_name)
+            raw = (await provider.chat(followup, model, temperature=0.9)).strip()
+        except ProviderError:
+            self._breaker.record_failure(provider_name)
+            return f"(Encontré algo sobre «{query}» pero no pude terminar de redactarlo.)"
+        self._breaker.record_success(provider_name)
+        return _PREFIX_RE.sub("", raw).strip()
 
     async def _try_fallback(
         self, participant: Participant, prompt: list[ChatMessage], primary_error: str,

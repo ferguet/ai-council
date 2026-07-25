@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.core.event_bus import event_bus
 from app.providers.registry import ProviderRegistry
 from app.providers.usage_tracker import ProviderUsageTracker
+from app.tools.web_search import WebSearchClient
 from app.simulation.engine import SimulationEngine
 from app.simulation.persistence import WorldStore
 from app.simulation.scheduler import SimulationScheduler
@@ -188,6 +189,7 @@ async def start_city() -> None:
         store=conv_store,
         world=world,
         usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
+        web_search=WebSearchClient(settings.tavily_api_key),
     )
     # La sala 'General' ya no se crea aqui: ahora es por visitante (ver
     # app/core/access.py) y se crea sola la primera vez que cada uno entra

@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     # codigo si se ve que se queda corto o largo en la practica.
     provider_daily_soft_cap: int = 150
 
+    # Busqueda web real para las IA del Chat Grupal (ver
+    # app/tools/web_search.py y _SEARCH_ENABLED_CITIZENS en
+    # conversation/engine.py). Sin esto configurado, ninguna IA puede
+    # buscar de verdad -sigue funcionando la app entera igual, solo que sin
+    # esta capacidad extra. Clave gratis en https://tavily.com.
+    tavily_api_key: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
