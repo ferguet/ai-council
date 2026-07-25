@@ -576,7 +576,8 @@ function applyDayNight(){
   if(!world) return;
   const s=skyFor(world.sim_hour);
   document.getElementById("skyIcon").textContent=s.icon;
-  document.getElementById("skyText").textContent=s.text;
+  const moodDisplay = world.collective_mood ? ` · ${world.collective_mood}` : "";
+  document.getElementById("skyText").textContent=s.text + moodDisplay;
   const dn=document.getElementById("dayNight");
   if(dn) dn.style.background=s.tint;
 }
