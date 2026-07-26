@@ -41,7 +41,7 @@ class _FailingProvider(AIProvider):
     def is_configured(self) -> bool:
         return self._configured
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7, max_tokens=None) -> str:
         raise ProviderError("proveedor sin cuota (simulado)")
 
     async def stream_chat(self, messages, model, temperature=0.7):

@@ -24,7 +24,9 @@ from app.core.event_bus import Event, EventBus
 from app.domain.city_enums import ActivityType, EventType, ProjectStatus
 from app.domain.city_models import Citizen, CityEvent, NewsEdition, Project, WorldState
 from app.providers.base import ChatMessage, ProviderError
+from app.providers.circuit_breaker import ProviderCircuitBreaker
 from app.providers.registry import ProviderRegistry
+from app.providers.usage_tracker import ProviderUsageTracker
 from app.simulation.activities import (
     arrival_text,
     blend_mood,
@@ -81,11 +83,24 @@ class SimulationEngine:
         news_interval_hours: int = 24,
         news_fallback_provider: str | None = "cerebras",
         news_fallback_model: str = "gpt-oss-120b",
+        breaker: ProviderCircuitBreaker | None = None,
+        usage: ProviderUsageTracker | None = None,
     ) -> None:
         self.world = world
         self._registry = registry
         self._event_bus = event_bus
         self._store = store
+        # IMPORTANTE: estas dos instancias deben ser las MISMAS que usan
+        # ConversationEngine/GuardianService/Interprete (se pasan desde
+        # main.py). Antes cada uno tenia su propio contador y su propio
+        # circuito, todos mirando las MISMAS claves de proveedor sin
+        # enterarse del gasto real de los demas -la Ciudad podia agotar la
+        # cuota real de un proveedor en segundo plano mientras el contador
+        # del Chat Grupal seguia marcando "0 usadas hoy", y el chat se
+        # quedaba mudo al chocar con un 429 real. Con instancias compartidas,
+        # todos ven el mismo consumo y el mismo circuito.
+        self._breaker = breaker or ProviderCircuitBreaker()
+        self._usage = usage or ProviderUsageTracker()
         self._hours_per_tick = hours_per_tick
         self._real_ai_interval = timedelta(minutes=real_ai_interval_minutes)
         # Ahorro de cuota: si nadie se ha asomado a la ciudad en este rato, los
@@ -128,6 +143,29 @@ class SimulationEngine:
         if self.last_viewer_at is None:
             return True
         return (datetime.now(timezone.utc) - self.last_viewer_at) > self._idle_pause
+
+    async def _guarded_chat(
+        self, provider, provider_name: str, prompt, model: str, temperature: float,
+    ) -> str:
+        """Igual que llamar a provider.chat(...) pero pasando por el mismo
+        control de cuota/circuito que el resto de la app (ver comentario en
+        __init__). Si el proveedor esta racionado o con el circuito abierto,
+        lanza ProviderError sin gastar ni un intento real -asi la Ciudad deja
+        de consumir en silencio la cuota que necesita el Chat Grupal."""
+        if self._breaker.is_open(provider_name):
+            raise ProviderError(f"circuito abierto para '{provider_name}'")
+        if self._usage.is_near_limit(provider_name):
+            raise ProviderError(f"'{provider_name}' racionado por hoy")
+        self._usage.record_call(provider_name)
+        try:
+            text = await provider.chat(
+                prompt, model, temperature=temperature, max_tokens=180,
+            )
+        except ProviderError:
+            self._breaker.record_failure(provider_name)
+            raise
+        self._breaker.record_success(provider_name)
+        return text
 
     async def _emit(self, type_: str, payload: dict) -> None:
         await self._event_bus.publish(Event(type=type_, session_id=CITY_SESSION_ID, payload=payload))
@@ -310,7 +348,9 @@ class SimulationEngine:
                 prompt = build_curiosity_prompt(citizen, self.world)
             else:
                 prompt = build_thought_prompt(citizen, self.world)
-            text = (await provider.chat(prompt, citizen.model, temperature=0.9)).strip()
+            text = (
+                await self._guarded_chat(provider, citizen.provider, prompt, citizen.model, 0.9)
+            ).strip()
         except ProviderError:
             return
         if not text:
@@ -364,7 +404,9 @@ class SimulationEngine:
             return
         try:
             prompt = build_teacher_answer_prompt(teacher, asker, question, self.world)
-            text = (await provider.chat(prompt, teacher.model, temperature=0.6)).strip()
+            text = (
+                await self._guarded_chat(provider, teacher.provider, prompt, teacher.model, 0.6)
+            ).strip()
         except ProviderError:
             return
         if not text:
@@ -465,7 +507,9 @@ class SimulationEngine:
             return None
         prompt = build_newspaper_prompt(self.world, events)
         try:
-            text = (await provider.chat(prompt, model, temperature=0.7)).strip()
+            text = (
+                await self._guarded_chat(provider, self._news_provider, prompt, model, 0.7)
+            ).strip()
         except ProviderError as exc:
             primary_error = str(exc)
             fallback = self._news_fallback_provider
@@ -482,7 +526,9 @@ class SimulationEngine:
                 return None
             try:
                 text = (
-                    await fallback_provider.chat(prompt, self._news_fallback_model, temperature=0.7)
+                    await self._guarded_chat(
+                        fallback_provider, fallback, prompt, self._news_fallback_model, 0.7,
+                    )
                 ).strip()
             except ProviderError:
                 # El error que interesa reportar es el del proveedor
@@ -515,7 +561,9 @@ class SimulationEngine:
         provider = self._registry.get(citizen.provider)
         prompt = build_talk_prompt(citizen, self.world, history or [], user_message)
         try:
-            text = (await provider.chat(prompt, citizen.model, temperature=0.8)).strip()
+            text = (
+                await self._guarded_chat(provider, citizen.provider, prompt, citizen.model, 0.8)
+            ).strip()
         except ProviderError as exc:
             text = f"[{citizen.name} no puede responder ahora mismo: {exc}]"
         if not text:

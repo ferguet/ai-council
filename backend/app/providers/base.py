@@ -45,9 +45,17 @@ class AIProvider(ABC):
 
     @abstractmethod
     async def chat(
-        self, messages: list[ChatMessage], model: str, temperature: float = 0.7
+        self, messages: list[ChatMessage], model: str, temperature: float = 0.7,
+        max_tokens: int | None = None,
     ) -> str:
-        """Devuelve la respuesta completa de una vez (la usa el Director para decidir)."""
+        """Devuelve la respuesta completa de una vez (la usa el Director para decidir).
+
+        max_tokens es opcional: si no se indica, cada proveedor usa su techo
+        por defecto (pensado para respuestas largas: noticias, dudas de la
+        Profesora...). El Chat Grupal lo usa para pedir respuestas cortas de
+        verdad (en vez de solo pedirlo por texto en el prompt, que los
+        modelos a veces ignoran) y así gastar menos cuota por turno.
+        """
         raise NotImplementedError
 
     def is_configured(self) -> bool:

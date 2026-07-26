@@ -84,6 +84,13 @@ _SILENCE_TOKEN = "[SIN INTERVENIR]"
 # ronda. Se limpia aqui, a la salida del modelo, antes de guardarlo.
 _PREFIX_RE = re.compile(r"^(\[[^\[\]]{1,40}\]:\s*)+")
 
+# Tope de tokens de salida para los turnos del Chat Grupal: son mensajes de
+# chat de verdad (1-4 frases), no ensayos. Antes solo se lo pedíamos en el
+# prompt, pero varios modelos lo ignoraban y soltaban párrafos largos; con
+# esto se corta la respuesta de raíz (más barato en cuota Y más corto de leer).
+# 220 tokens da margen de sobra para 4 frases largas sin cortar a media frase.
+_CHAT_MAX_TOKENS = 220
+
 
 class ConversationEngine:
     def __init__(
@@ -434,7 +441,9 @@ class ConversationEngine:
                         f"peticiones de {self._usage.daily_soft_cap} del tope diario"
                     )
                 self._usage.record_call(provider_name)
-                raw = (await provider.chat(prompt, participant.model, temperature=0.9)).strip()
+                raw = (await provider.chat(
+                    prompt, participant.model, temperature=0.9, max_tokens=_CHAT_MAX_TOKENS,
+                )).strip()
                 self._breaker.record_success(provider_name)
                 text = _PREFIX_RE.sub("", raw).strip()
                 search_match = (
@@ -487,7 +496,9 @@ class ConversationEngine:
         ]
         try:
             self._usage.record_call(provider_name)
-            raw = (await provider.chat(followup, model, temperature=0.9)).strip()
+            raw = (await provider.chat(
+                followup, model, temperature=0.9, max_tokens=_CHAT_MAX_TOKENS,
+            )).strip()
         except ProviderError:
             self._breaker.record_failure(provider_name)
             return f"(Encontré algo sobre «{query}» pero no pude terminar de redactarlo.)"
@@ -520,7 +531,9 @@ class ConversationEngine:
             return unavailable
         try:
             self._usage.record_call(fb_name)
-            raw = (await fb_provider.chat(prompt, fb_model, temperature=0.9)).strip()
+            raw = (await fb_provider.chat(
+                prompt, fb_model, temperature=0.9, max_tokens=_CHAT_MAX_TOKENS,
+            )).strip()
         except ProviderError:
             self._breaker.record_failure(fb_name)
             return unavailable

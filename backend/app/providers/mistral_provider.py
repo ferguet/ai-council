@@ -36,7 +36,10 @@ class MistralProvider(AIProvider):
     def _to_openai_messages(messages: list[ChatMessage]) -> list[dict]:
         return [{"role": m.role, "content": m.content} for m in messages]
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(
+        self, messages: list[ChatMessage], model: str, temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> str:
         if not self._api_key:
             raise ProviderError("MISTRAL_API_KEY no configurada")
         payload = {
@@ -44,6 +47,8 @@ class MistralProvider(AIProvider):
             "messages": self._to_openai_messages(messages),
             "temperature": temperature,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
         resp = await post_with_retry(_URL, headers=self._headers(), json=payload)
         if resp.status_code != 200:
             raise ProviderError(f"Mistral error {resp.status_code}: {resp.text[:300]}")

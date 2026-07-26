@@ -64,12 +64,17 @@ class GeminiProvider(AIProvider):
             }
         return payload
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(
+        self, messages: list[ChatMessage], model: str, temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> str:
         if not self._api_key:
             raise ProviderError("GEMINI_API_KEY no configurada")
         url = f"{_BASE_URL}/{model}:generateContent"
         payload = self._to_gemini_payload(messages)
         payload["generationConfig"] = {"temperature": temperature}
+        if max_tokens is not None:
+            payload["generationConfig"]["maxOutputTokens"] = max_tokens
         headers = {"x-goog-api-key": self._api_key}
         resp = await post_with_retry(url, headers=headers, json=payload)
         if resp.status_code != 200:

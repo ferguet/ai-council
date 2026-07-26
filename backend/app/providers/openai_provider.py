@@ -23,7 +23,10 @@ class OpenAIProvider(AIProvider):
     def is_configured(self) -> bool:
         return bool(self._api_key)
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(
+        self, messages: list[ChatMessage], model: str, temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> str:
         raise ProviderError(
             "OpenAIProvider es un stub. Implementa este metodo igual que "
             "GroqProvider.chat (la API es compatible) cuando tengas la key."

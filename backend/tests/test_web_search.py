@@ -44,7 +44,7 @@ class _ScriptedProvider(AIProvider):
     def is_configured(self) -> bool:
         return True
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7, max_tokens=None) -> str:
         self.calls += 1
         if not self._responses:
             raise ProviderError("sin mas respuestas guionizadas para este test")

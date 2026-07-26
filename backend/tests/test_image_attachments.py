@@ -71,7 +71,7 @@ class _RecordingProvider:
     def __init__(self) -> None:
         self.seen_images: list[tuple[str | None, str | None]] = []
 
-    async def chat(self, messages, model, temperature=0.9) -> str:
+    async def chat(self, messages, model, temperature=0.9, max_tokens=None) -> str:
         last = messages[-1]
         self.seen_images.append((last.image_base64, last.image_mime))
         return "veo una grafica de barras"

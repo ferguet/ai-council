@@ -50,13 +50,16 @@ class AnthropicProvider(AIProvider):
             rest = [{"role": "user", "content": "(sin mensaje)"}]
         return "\n\n".join(system_parts), rest
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(
+        self, messages: list[ChatMessage], model: str, temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> str:
         if not self._api_key:
             raise ProviderError("ANTHROPIC_API_KEY no configurada")
         system, rest = self._split_system(messages)
         payload = {
             "model": model,
-            "max_tokens": _MAX_TOKENS,
+            "max_tokens": max_tokens if max_tokens is not None else _MAX_TOKENS,
             "temperature": temperature,
             "messages": rest,
         }

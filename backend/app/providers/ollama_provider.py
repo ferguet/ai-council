@@ -29,12 +29,18 @@ class OllamaProvider(AIProvider):
     def _to_ollama_messages(messages: list[ChatMessage]) -> list[dict]:
         return [{"role": m.role, "content": m.content} for m in messages]
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(
+        self, messages: list[ChatMessage], model: str, temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> str:
+        options = {"temperature": temperature}
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
         payload = {
             "model": model,
             "messages": self._to_ollama_messages(messages),
             "stream": False,
-            "options": {"temperature": temperature},
+            "options": options,
         }
         try:
             async with httpx.AsyncClient(timeout=120) as client:

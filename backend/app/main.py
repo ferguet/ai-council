@@ -12,6 +12,7 @@ from app.agents.presets import ROLE_PRESETS
 from app.api.city import router as city_router
 from app.api.conversation import router as conversation_router
 from app.api.guardian import router as guardian_router
+from app.api.uso import router as uso_router
 from app.api.websocket import router as websocket_router
 from app.guardian.intencion import Interprete
 from app.guardian.servicio import GuardianService
@@ -21,6 +22,7 @@ from app.conversation.roster import build_active_roster
 from app.core.access import check_code, gate_enabled, issue_token, new_visitor_id, require_visitor
 from app.core.config import get_settings
 from app.core.event_bus import event_bus
+from app.providers.circuit_breaker import ProviderCircuitBreaker
 from app.providers.registry import ProviderRegistry
 from app.providers.usage_tracker import ProviderUsageTracker
 from app.tools.web_search import WebSearchClient
@@ -49,6 +51,7 @@ app.include_router(websocket_router)
 app.include_router(city_router)
 app.include_router(conversation_router)
 app.include_router(guardian_router)
+app.include_router(uso_router)
 
 
 def _refresh_personalities(world) -> None:
@@ -152,6 +155,20 @@ async def start_city() -> None:
     la primera vez) y pone el motor de simulacion a correr en segundo
     plano, exista o no alguien conectado viendola."""
     registry = ProviderRegistry(settings)
+    # Una SOLA instancia de cuota y de circuito compartida por toda la app
+    # (Ciudad, Chat Grupal, Guardian, Interprete). Antes cada subsistema
+    # llevaba su propio contador, y como todos llaman a las MISMAS claves de
+    # proveedor, la Ciudad podia agotar la cuota real en segundo plano sin
+    # que el Chat Grupal se enterase -su contador seguia en 0, intentaba
+    # llamar, chocaba con un 429 real, y el circuito se abria en cascada
+    # hacia proveedores de respaldo que la Ciudad ya habia agotado tambien:
+    # resultado, el chat se quedaba completamente mudo. Con una sola
+    # instancia compartida todos ven el mismo consumo real.
+    shared_breaker = ProviderCircuitBreaker()
+    shared_usage = ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap)
+    app.state.provider_breaker = shared_breaker
+    app.state.provider_usage = shared_usage
+    app.state.provider_registry = registry
     store = _build_store()
     world = await store.load() if await store.exists() else build_default_world()
     _prune_removed_roster(world)
@@ -172,6 +189,8 @@ async def start_city() -> None:
         news_interval_hours=settings.news_interval_hours,
         news_fallback_provider=settings.news_fallback_provider,
         news_fallback_model=settings.news_fallback_model,
+        breaker=shared_breaker,
+        usage=shared_usage,
     )
     scheduler = SimulationScheduler(engine, tick_seconds=settings.sim_tick_seconds)
 
@@ -193,7 +212,8 @@ async def start_city() -> None:
         event_bus=event_bus,
         store=conv_store,
         world=world,
-        usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
+        breaker=shared_breaker,
+        usage=shared_usage,
         web_search=WebSearchClient(settings.tavily_api_key),
     )
     # La sala 'General' ya no se crea aqui: ahora es por visitante (ver
@@ -207,14 +227,16 @@ async def start_city() -> None:
     # asi que no anade ninguna clave ni ninguna configuracion nueva.
     app.state.guardian = GuardianService(
         registry=registry,
-        usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
+        breaker=shared_breaker,
+        usage=shared_usage,
     )
 
     # Interprete: la persona dice con sus palabras que necesita ("quiero
     # quitar el coche de en medio") y esto decide de que tramite habla.
     app.state.interprete = Interprete(
         registry=registry,
-        usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
+        breaker=shared_breaker,
+        usage=shared_usage,
     )
 
 

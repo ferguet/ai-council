@@ -35,7 +35,7 @@ class _ScriptedProvider:
     def __init__(self, replies: list[str]) -> None:
         self._replies = list(replies)
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.9) -> str:
+    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.9, max_tokens=None) -> str:
         return self._replies.pop(0)
 
 

@@ -55,7 +55,10 @@ class MockProvider(AIProvider):
         template = rng.choice(_STANCES)
         return template.format(topic=topic_hint[:60])
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(
+        self, messages: list[ChatMessage], model: str, temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> str:
         await asyncio.sleep(0.2)
         return self._pick_response(messages)
 

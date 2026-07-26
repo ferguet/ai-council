@@ -29,7 +29,7 @@ class _IAFalsa(AIProvider):
     def is_configured(self) -> bool:
         return True
 
-    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7) -> str:
+    async def chat(self, messages: list[ChatMessage], model: str, temperature: float = 0.7, max_tokens=None) -> str:
         self.llamadas += 1
         self.recibido.append("\n".join(m.content for m in messages))
         if not self._respuestas:
