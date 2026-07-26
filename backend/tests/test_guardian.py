@@ -327,3 +327,71 @@ async def test_un_aviso_normal_no_se_toca() -> None:
 
     assert "quitele la marca" in aviso.voz
     assert "CORREGIDO" not in aviso.motivo
+
+
+# =====================================================================
+# 6. "DIGAME QUE NECESITA"
+#
+# La regla que manda aqui: la IA NO escribe direcciones web, ELIGE de una
+# lista verificada. Si se equivocara en una letra, mandariamos a una
+# persona mayor a una web inventada -y copiar webs oficiales cambiando un
+# caracter es literalmente el negocio de los estafadores que atacan justo
+# a esta gente-.
+# =====================================================================
+from app.guardian.intencion import Interprete, adivinar_sin_ia
+from app.guardian.tramites import CATALOGO
+
+
+def test_entiende_como_habla_la_gente_sin_gastar_ia() -> None:
+    """Nadie dice "baja temporal por voluntad del titular"."""
+    casos = {
+        "quiero dar de baja el coche": "dgt_baja_temporal",
+        "se me caduca el dni": "dni_cita",
+        "necesito la vida laboral": "ss_vida_laboral",
+        "pedir hora en el ambulatorio": "salud_cita",
+    }
+    for frase, esperado in casos.items():
+        t = adivinar_sin_ia(frase)
+        assert t is not None and t.id == esperado, f"con '{frase}' salio {t}"
+
+
+def test_lo_que_no_es_un_tramite_no_se_inventa() -> None:
+    assert adivinar_sin_ia("quiero comprar unas zapatillas") is None
+
+
+def test_todas_las_direcciones_son_oficiales() -> None:
+    """Si alguien mete aqui un dominio raro, salta. Es la lista por la
+    que se guia a personas mayores: no puede colarse nada dudoso."""
+    permitidos = (".gob.es", ".seg-social.es", ".sanidad.gob.es",
+                  ".sepe.es", ".citapreviadnie.es", "administracion.gob.es")
+    for t in CATALOGO:
+        assert t.url.startswith("https://"), f"{t.id} no usa https"
+        assert any(p in t.url for p in permitidos), f"{t.id} apunta a un sitio raro: {t.url}"
+
+
+@pytest.mark.asyncio
+async def test_si_la_ia_se_inventa_un_tramite_no_se_le_hace_caso() -> None:
+    ia = _IAFalsa([json.dumps({"id": "tramite_que_no_existe", "seguro": True,
+                               "duda": "", "resumen": "x"})])
+    i = Interprete(registry=_Registro(ia))
+
+    r = await i.entender("una cosa muy rara que no esta en la lista")
+
+    assert r.encontrado is False
+    assert r.url == ""
+    assert "no sé hacerlo" in r.voz
+
+
+@pytest.mark.asyncio
+async def test_avisa_de_lo_que_huele_a_estafa() -> None:
+    ia = _IAFalsa([json.dumps({
+        "id": None, "seguro": False,
+        "duda": "Eso suena a un timo: ningún banco pide los datos por mensaje.",
+        "resumen": "le han escrito diciendo que su cuenta esta bloqueada",
+    })])
+    i = Interprete(registry=_Registro(ia))
+
+    r = await i.entender("me han mandado un mensaje de que mi cuenta esta bloqueada")
+
+    assert r.encontrado is False
+    assert "timo" in r.voz.lower()

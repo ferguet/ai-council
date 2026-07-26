@@ -13,6 +13,7 @@ from app.api.city import router as city_router
 from app.api.conversation import router as conversation_router
 from app.api.guardian import router as guardian_router
 from app.api.websocket import router as websocket_router
+from app.guardian.intencion import Interprete
 from app.guardian.servicio import GuardianService
 from app.conversation.engine import ConversationEngine
 from app.conversation.persistence import ConversationStore
@@ -205,6 +206,13 @@ async def start_city() -> None:
     # registro de proveedores y el mismo control de cuota que la Ciudad,
     # asi que no anade ninguna clave ni ninguna configuracion nueva.
     app.state.guardian = GuardianService(
+        registry=registry,
+        usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
+    )
+
+    # Interprete: la persona dice con sus palabras que necesita ("quiero
+    # quitar el coche de en medio") y esto decide de que tramite habla.
+    app.state.interprete = Interprete(
         registry=registry,
         usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
     )

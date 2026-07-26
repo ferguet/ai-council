@@ -14,7 +14,10 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel
 
+from app.guardian.intencion import NO_LO_TENGO
+from app.guardian.intencion import Respuesta as RespuestaIntencion
 from app.guardian.models import Aviso, Pantalla
 
 router = APIRouter(tags=["guardian"])
@@ -209,6 +212,44 @@ def borrar_pruebas() -> dict:
     _RESULTADOS.clear()
     _EN_MARCHA.clear()
     return {"hecho": True}
+
+
+class LoQueQuiero(BaseModel):
+    texto: str
+
+
+@router.post("/guardian/quiero", response_model=RespuestaIntencion)
+async def quiero(peticion: LoQueQuiero, request: Request,
+                 x_movil: str = Header(default="anonimo")) -> RespuestaIntencion:
+    """La persona dice con sus palabras qué necesita y esto decide a qué
+    trámite se refiere.
+
+    Nunca inventa una dirección: elige de la lista verificada. Si no lo
+    tiene, lo dice. Mandar a una persona mayor a una web equivocada es
+    exactamente el negocio de los que copian webs oficiales.
+    """
+    if not _permitido(x_movil[:64]):
+        return NO_LO_TENGO
+
+    interprete = getattr(request.app.state, "interprete", None)
+    if interprete is None:
+        return NO_LO_TENGO
+    try:
+        return await interprete.entender(peticion.texto)
+    except Exception:
+        return NO_LO_TENGO
+
+
+@router.get("/guardian/probar-quiero")
+async def probar_quiero(request: Request, texto: str = "quiero dar de baja el coche") -> dict:
+    """Para poder probarlo yo sin depender de un movil."""
+    interprete = getattr(request.app.state, "interprete", None)
+    if interprete is None:
+        return {"error": "no arrancado"}
+    interprete.diario.clear()
+    r = await interprete.entender(texto)
+    return {"le_he_dicho": texto, "ha_entendido": r.model_dump(),
+            "por_dentro": list(interprete.diario)}
 
 
 @router.get("/guardian/salud")
