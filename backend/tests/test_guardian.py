@@ -208,16 +208,40 @@ async def test_una_pantalla_distinta_si_se_pregunta() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sin_cuota_se_devuelve_silencio_no_un_error() -> None:
+async def test_sin_cuota_en_ninguno_se_devuelve_silencio_no_un_error() -> None:
+    from app.guardian.servicio import _CADENA
     from app.providers.usage_tracker import ProviderUsageTracker
 
     uso = ProviderUsageTracker(daily_soft_cap=1)
-    uso.record_call("cerebras")
-    uso.record_call("groq")
+    for proveedor, _ in _CADENA:
+        uso.record_call(proveedor)
     ia = _IAFalsa()
     g = GuardianService(registry=_Registro(ia), usage=uso)
 
     aviso = await g.analizar(_pantalla_compra())
 
     assert aviso.hay_aviso is False
-    assert ia.llamadas == 0          # ni se ha intentado
+    assert ia.llamadas == 0          # ni se ha intentado con ninguno
+
+
+@pytest.mark.asyncio
+async def test_si_el_primero_falla_lo_intenta_con_el_siguiente() -> None:
+    """Lo que fallaba de verdad: Cerebras se quedo sin credito y, con un
+    solo suplente, bastaba con que ese tambien cayera para que la persona
+    se quedara sin proteccion creyendo que la tenia."""
+    from app.providers.usage_tracker import ProviderUsageTracker
+
+    uso = ProviderUsageTracker(daily_soft_cap=1)
+    uso.record_call("groq")          # el primero de la cadena, agotado
+    uso.record_call("glm")           # el segundo, tambien
+    ia = _IAFalsa([json.dumps({
+        "hay_aviso": True, "gravedad": 3, "corto": "Le cobran cada mes",
+        "voz": "Cuidado, esto se lo van a cobrar todos los meses.",
+        "senalar": None, "motivo": "suscripcion",
+    })])
+    g = GuardianService(registry=_Registro(ia), usage=uso)
+
+    aviso = await g.analizar(_pantalla_compra())
+
+    assert aviso.hay_aviso is True   # ha tirado del tercero de la cadena
+    assert ia.llamadas == 1

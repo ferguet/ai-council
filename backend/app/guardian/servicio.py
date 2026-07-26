@@ -30,12 +30,24 @@ from app.providers.base import ChatMessage, ProviderError
 from app.providers.circuit_breaker import ProviderCircuitBreaker
 from app.providers.usage_tracker import ProviderUsageTracker
 
-# Modelo barato y rapido a proposito: aqui no hace falta un genio, hace
-# falta alguien espabilado que conteste en un segundo. Y como el volumen
-# puede ser alto, el precio manda.
-_PROVEEDOR = "cerebras"
-_MODELO = "gpt-oss-120b"
-_RESPALDO = ("groq", "llama-3.3-70b-versatile")
+# CADENA DE PROVEEDORES, no uno con un respaldo.
+#
+# Se probo con uno principal y un suplente, y no basta: los niveles
+# gratuitos se agotan a lo largo del dia y en cuanto caen los dos, el
+# Guardian se queda mudo y la persona cree que esta protegida cuando no
+# lo esta. Eso es peor que no tener nada.
+#
+# Se recorren en orden hasta que uno conteste. Ninguno es imprescindible.
+# Modelos baratos y rapidos a proposito: aqui no hace falta un genio,
+# hace falta alguien espabilado que conteste en un segundo.
+_CADENA = [
+    ("groq", "llama-3.3-70b-versatile"),
+    ("glm", "glm-4.7-flash"),
+    ("cerebras", "gpt-oss-120b"),
+    ("mistral", "mistral-small-latest"),
+    ("gemini", "gemini-3.6-flash"),
+    ("nvidia", "meta/llama-3.3-70b-instruct"),
+]
 
 _MAX_MEMORIA = 400
 
@@ -46,14 +58,12 @@ class GuardianService:
         registry,
         breaker: ProviderCircuitBreaker | None = None,
         usage: ProviderUsageTracker | None = None,
-        proveedor: str = _PROVEEDOR,
-        modelo: str = _MODELO,
+        cadena: list[tuple[str, str]] | None = None,
     ) -> None:
         self._registry = registry
         self._breaker = breaker or ProviderCircuitBreaker()
         self._usage = usage or ProviderUsageTracker()
-        self._proveedor = proveedor
-        self._modelo = modelo
+        self._cadena = cadena or _CADENA
         # Memoria de pantallas ya vistas. Es lo que hace esto viable:
         # las pantallas de las tiendas se repiten muchisimo entre
         # personas distintas, asi que la mayoria de las consultas ni
@@ -95,12 +105,18 @@ class GuardianService:
             self._memoria.move_to_end(huella)
             return self._memoria[huella]
 
-        aviso = await self._preguntar(self._proveedor, self._modelo, p)
+        # Se recorre la cadena hasta que uno conteste. En un dia normal
+        # el primero basta; cuando se van agotando los niveles gratuitos,
+        # los de mas abajo sostienen el servicio en vez de dejar a la
+        # persona sin proteccion creyendo que la tiene.
+        aviso = None
+        for proveedor, modelo in self._cadena:
+            aviso = await self._preguntar(proveedor, modelo, p)
+            if aviso is not None:
+                break
         if aviso is None:
-            aviso = await self._preguntar(_RESPALDO[0], _RESPALDO[1], p)
-        if aviso is None:
-            # Sin cuota o sin respuesta: la app se queda con sus reglas.
-            return Aviso(motivo="no se pudo consultar")
+            self._apuntar("NINGUN proveedor ha podido contestar")
+            return Aviso(motivo="no se pudo consultar a ninguna IA")
 
         self._memoria[huella] = aviso
         while len(self._memoria) > _MAX_MEMORIA:
