@@ -46,13 +46,19 @@ CATALOGO: list[Tramite] = [
         id="dgt_baja_temporal",
         nombre="Dar de baja temporal un coche",
         organismo="Dirección General de Tráfico",
-        url="https://sede.dgt.gob.es/es/vehiculos/",
+        url="https://sede.dgt.gob.es/es/vehiculos/altas-bajas-y-rehabilitacion/baja-temporal/",
         tambien=["baja temporal", "dar de baja el coche", "quitar el coche de circulacion",
                  "no voy a usar el coche", "guardar el coche", "baja del vehiculo",
                  "dejar de pagar el seguro del coche"],
-        lleva=["Su DNI", "El permiso de circulación del coche", "La ficha técnica"],
+        lleva=["Su DNI", "El permiso de circulación del coche", "La ficha técnica",
+               "Cl@ve, certificado digital o DNI electrónico (es obligatorio, sin eso no se puede entrar)"],
         ojo="Baja TEMPORAL no es lo mismo que baja definitiva. La temporal se puede "
-            "deshacer cuando quiera; la definitiva es para siempre y ahí ya no hay vuelta atrás.",
+            "deshacer cuando quiera; la definitiva es para siempre y ahí ya no hay vuelta atrás. "
+            "Y una cosa importante: para entrar hace falta identificarse con Cl@ve, certificado "
+            "digital o DNI electrónico. Si no tiene nada de eso, dígamelo y le ayudo a sacarse "
+            "el Cl@ve PIN, que es lo más sencillo; si no, puede ir en persona a la Jefatura de "
+            "Tráfico pidiendo cita antes. Al final del trámite hay que pagar una tasa oficial de "
+            "8 euros con 67 céntimos: es obligatoria y legítima, no es ningún cobro sospechoso.",
     ),
     Tramite(
         id="dgt_informe_vehiculo",
