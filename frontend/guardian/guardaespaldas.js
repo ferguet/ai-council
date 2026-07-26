@@ -207,17 +207,47 @@
     }
     if (!aTienda) aTienda = botonCon2(['descargar la app', 'instalar la aplicaci', 'abrir en la app', 'continuar en la app']);
     if (aTienda) {
-      // Solo si te lo estan poniendo delante: grande y en pantalla.
+      // Solo si te lo estan METIENDO POR LOS OJOS: un cartel flotante o
+      // pegado, no un enlace del pie de pagina. Un aviso que salta en
+      // todas las webs no es un aviso, es ruido -y cansa hasta que la
+      // persona deja de hacer caso justo el dia que importa-.
       var rT = aTienda.getBoundingClientRect();
-      var teLoMeten = rT.top < window.innerHeight && rT.bottom > 0 &&
-                      rT.width > 90 && rT.height > 28;
-      if (!teLoMeten) aTienda = null;
+      var n = aTienda, flotante = false;
+      for (var ff = 0; ff < 5 && n; ff++) {
+        var po = getComputedStyle(n).position;
+        if (po === 'fixed' || po === 'sticky') { flotante = true; break; }
+        n = n.parentElement;
+      }
+      var esCartel = flotante || rT.width > window.innerWidth * 0.6;
+      var seVe = rT.top < window.innerHeight && rT.bottom > 0 && rT.height > 26;
+      if (!(esCartel && seVe)) aTienda = null;
     }
     if (aTienda) {
       lista.push({
         el: aTienda, gravedad: 3, corto: 'No hace falta la app',
         voz: 'Le estan empujando a instalar su aplicacion. No le hace ninguna falta: todo lo que quiere hacer se puede hacer aqui mismo. ' +
              'Y ojo, que dentro de su aplicacion yo ya no puedo avisarle de nada. Aqui estamos mejor.'
+      });
+    }
+
+    /* 0.septies CONTRATAR UNA TARIFA O UN SERVICIO.
+     * Movil, internet, luz, gas, television. Aqui no hay boton de
+     * "comprar" en ninguna parte, asi que todo lo de arriba se lo perdia,
+     * y sin embargo es de lo mas caro que firma una persona mayor: una
+     * cuota de por vida, permanencia de dos años y un precio que sube
+     * calladamente a los seis meses. */
+    var hablaDeTarifa = /permanencia|cuota mensual|al mes durante|primeros \d+ meses|tarifa|contrataci[oó]n|alta de l[ií]nea|fibra|portabilidad/i.test(textoPago);
+    var botonContratar = botonCon2(['contratar', 'lo quiero', 'quiero esta tarifa',
+      'contratar ahora', 'darme de alta', 'solicitar alta']);
+    if (hablaDeTarifa && botonContratar) {
+      var conPermanencia = /permanencia|compromiso de \d+ meses/i.test(textoPago);
+      lista.push({
+        el: null, gravedad: 4, corto: 'Es un contrato',
+        voz: 'Pare aqui, que esto es importante. No esta comprando una cosa: esta firmando un contrato ' +
+             'que le van a cobrar todos los meses, y de estos es dificil salirse. ' +
+             (conPermanencia ? 'Ademas hay permanencia: si se arrepiente antes de tiempo, le cobran una penalizacion. ' : '') +
+             'Y mire la letra pequeña del precio, porque en estas cosas suele subir a los seis meses sin avisar. ' +
+             'Si no lo tiene clarisimo, mejor que lo consulte con alguien de confianza antes de firmar.'
       });
     }
 
@@ -776,10 +806,12 @@
   }
 
   crear();
-  setTimeout(latido, 900);
+  latido();                          // al instante, sin esperar nada
+  setTimeout(latido, 250);           // y otra vez en cuanto pinte la pagina
+  setTimeout(latido, 700);
   setInterval(latido, 900);          // mas seguido: los avisos de cookies
                                      // se mueven y aparecen tarde
-  setTimeout(preguntarIA, 1800);     // la IA llega despues, sin frenar nada
+  setTimeout(preguntarIA, 900);     // la IA llega despues, sin frenar nada
   setInterval(preguntarIA, 4000);
 
   function recolocar() {

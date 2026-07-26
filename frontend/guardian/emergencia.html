@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Ayuda</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<style>
+  /* =====================================================================
+     PANTALLA DE AYUDA
+     =====================================================================
+     Decisiones tomadas a proposito, porque aqui equivocarse tiene
+     consecuencias de verdad:
+
+     1. NO llama sola. Ni al 112 ni a nadie. Un boton que marca solo se
+        pulsa sin querer en el bolsillo, y una llamada falsa al 112 ocupa
+        una linea que otra persona puede necesitar de verdad. Siempre
+        hace falta un segundo toque, consciente.
+
+     2. Primero la familia, luego el 112. La mayoria de los sustos no son
+        emergencias medicas: son "no se donde estoy" o "me he asustado".
+        Poner el 112 el primero llenaria emergencias de llamadas que
+        resuelve un hijo en dos minutos.
+
+     3. La ubicacion se pide SOLO al entrar aqui. El resto del tiempo la
+        app no sabe -ni quiere saber- donde esta nadie.
+     ===================================================================== */
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; min-height:100%;}
+  body{
+    font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;
+    background:#2b0b36; color:#fff; padding:22px 18px 40px;
+  }
+  h1{font-size:31px; line-height:1.2; margin:6px 0 8px;}
+  .sub{font-size:18px; opacity:.9; line-height:1.4; margin-bottom:26px;}
+
+  .b{
+    display:flex; align-items:center; gap:15px; width:100%; text-align:left;
+    margin-bottom:15px; padding:22px 20px; border:none; border-radius:20px;
+    color:#fff; font-family:inherit;
+  }
+  .b .ic{font-size:36px; flex-shrink:0;}
+  .b .tx b{font-size:23px; display:block; line-height:1.2;}
+  .b .tx span{font-size:16px; opacity:.93; display:block; margin-top:4px; line-height:1.35;}
+  .familia{background:#0b7a3b; box-shadow:0 5px 0 #065c2c;}
+  .emerg{background:#b3261e; box-shadow:0 5px 0 #7d1a15;}
+  .volver{background:transparent; border:3px solid #ffffff66; box-shadow:none;}
+  .b:active{transform:translateY(4px);}
+
+  .sitio{
+    background:#ffffff1a; border:2px solid #ffffff33; border-radius:16px;
+    padding:16px; margin-bottom:20px; font-size:16.5px; line-height:1.45;
+  }
+  .sitio b{display:block; font-size:14px; opacity:.8; text-transform:uppercase;
+           letter-spacing:.06em; margin-bottom:6px;}
+  .aviso{font-size:14.5px; opacity:.75; line-height:1.5; margin-top:26px;
+         border-top:1px solid #ffffff33; padding-top:16px;}
+</style>
+</head>
+<body>
+
+<h1>¿Qué le pasa?</h1>
+<div class="sub">Tranquilo. Elija una de las dos.</div>
+
+<div class="sitio" id="sitio">
+  <b>Dónde está usted</b>
+  <span id="donde">Buscando su ubicación…</span>
+</div>
+
+<button class="b familia" onclick="avisarFamilia()">
+  <span class="ic">👨‍👩‍👧</span>
+  <span class="tx"><b>Avisar a mi familia</b>
+  <span id="txtFamilia">Les llamo y les digo dónde está</span></span>
+</button>
+
+<button class="b emerg" onclick="llamar112()">
+  <span class="ic">🚑</span>
+  <span class="tx"><b>Llamar al 112</b>
+  <span>Solo si hay una urgencia de verdad</span></span>
+</button>
+
+<button class="b volver" onclick="location.href='inicio.html'">
+  <span class="ic">↩</span>
+  <span class="tx"><b>No pasa nada, volver</b></span>
+</button>
+
+<div class="aviso">
+  Esta pantalla no llama sola: siempre le pregunta antes.<br><br>
+  <b>Importante:</b> esto es una ayuda, no un aparato de emergencias.
+  Si el móvil está sin batería o sin cobertura, no funciona. Para una
+  persona que viva sola conviene tener además un servicio de
+  teleasistencia de verdad.
+</div>
+
+<script>
+var CLAVE_FAM = 'familia_contacto_v1';
+var ubicacion = null;
+
+/* ---------- Contacto de familia ---------- */
+function familia(){
+  try{ return JSON.parse(localStorage.getItem(CLAVE_FAM) || 'null'); }catch(e){ return null; }
+}
+function pintarFamilia(){
+  var f = familia();
+  document.getElementById('txtFamilia').textContent =
+    f ? ('Llamar a ' + f.nombre) : 'Todavía no hay nadie guardado. Toque para poner a alguien.';
+}
+
+function avisarFamilia(){
+  var f = familia();
+  if(!f){
+    var nom = prompt('¿A quién hay que avisar?\n(por ejemplo: Mi hija María)');
+    if(!nom) return;
+    var tel = prompt('¿Cuál es su teléfono?');
+    if(!tel) return;
+    f = { nombre: nom.trim(), tel: tel.replace(/\s/g,'') };
+    try{ localStorage.setItem(CLAVE_FAM, JSON.stringify(f)); }catch(e){}
+    pintarFamilia();
+  }
+  // Se abre el marcador con el numero puesto. La llamada la da la
+  // persona: la app no marca sola, nunca.
+  puente('llamar', f.tel);
+}
+
+function llamar112(){
+  if(confirm('Va a llamar al 112, el teléfono de emergencias.\n\n¿Es una urgencia de verdad?')){
+    puente('llamar', '112');
+  }
+}
+
+function puente(que, dato){
+  try{
+    if(window.Android && window.Android[que]) { window.Android[que](dato); return; }
+  }catch(e){}
+  location.href = 'tel:' + dato;
+}
+
+/* ---------- Dónde está ---------- */
+function pintarSitio(txt){ document.getElementById('donde').textContent = txt; }
+
+if(navigator.geolocation){
+  navigator.geolocation.getCurrentPosition(function(p){
+    ubicacion = p.coords;
+    var la = p.coords.latitude.toFixed(5), lo = p.coords.longitude.toFixed(5);
+    pintarSitio('Ya sé dónde está. Cuando llame, puede leer estos números:\n' + la + ', ' + lo);
+    try{ if(window.Android && window.Android.guardarUbicacion)
+      window.Android.guardarUbicacion(la + ', ' + lo); }catch(e){}
+  }, function(){
+    pintarSitio('No he podido saber dónde está. No importa: llame igualmente y dígalo usted.');
+  }, { enableHighAccuracy:true, timeout:12000 });
+} else {
+  pintarSitio('Este móvil no me deja saber dónde está. Llame igualmente.');
+}
+
+pintarFamilia();
+</script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>¿Qué necesita?</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<style>
+  /* =====================================================================
+     "DIGAME QUE NECESITA"
+     =====================================================================
+     La vuelta de tortilla del proyecto. Hasta ahora la app miraba la
+     pantalla y avisaba: util, pero pasiva. No resolvia el problema de
+     verdad, que no es equivocarse de boton: es NO SABER POR DONDE
+     EMPEZAR.
+
+     Nadie sabe que "quitar el coche de en medio" se llama oficialmente
+     "baja temporal por voluntad del titular", ni en que web se hace.
+     Aqui lo dicen con sus palabras y ya nos apañamos nosotros.
+
+     Se puede hablar o escribir, las dos cosas. Hablar es mas facil para
+     quien no ve bien el teclado; escribir es mas facil para quien es
+     duro de oido o esta en un sitio con ruido. No sobra ninguna.
+     ===================================================================== */
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; min-height:100%;}
+  body{
+    font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;
+    background:#eef1f4; color:#141414; padding:20px 16px 40px;
+  }
+  h1{font-size:28px; line-height:1.25; margin:6px 0 6px;}
+  .sub{font-size:17px; color:#5f5f5f; margin-bottom:24px; line-height:1.4;}
+
+  /* El microfono: lo mas grande de la pantalla, imposible no verlo */
+  #hablar{
+    width:100%; padding:26px; border:none; border-radius:22px;
+    background:#0b7a3b; color:#fff; box-shadow:0 6px 0 #065c2c;
+    font-size:25px; font-weight:800; display:flex; align-items:center;
+    justify-content:center; gap:14px; margin-bottom:18px;
+  }
+  #hablar:active{transform:translateY(5px); box-shadow:0 1px 0 #065c2c;}
+  #hablar.escuchando{background:#b3261e; box-shadow:0 6px 0 #7d1a15; animation:lat 1.1s infinite;}
+  @keyframes lat{0%,100%{opacity:1}50%{opacity:.6}}
+  #hablar .ic{font-size:34px;}
+
+  .o{text-align:center; color:#8a9099; font-size:16px; margin:4px 0 14px;}
+
+  textarea{
+    width:100%; min-height:96px; padding:16px; font-size:19px;
+    border:3px solid #c3c9d0; border-radius:14px; background:#fff;
+    color:#141414; font-family:inherit; resize:none;
+  }
+  textarea:focus{border-color:#0b7a3b; outline:none;}
+
+  .btn{
+    display:block; width:100%; margin-top:14px; padding:19px;
+    border:none; border-radius:16px; font-size:21px; font-weight:800;
+    background:#0a5fa8; color:#fff; box-shadow:0 5px 0 #083f70;
+  }
+  .btn.gris{background:#fff; color:#5f5f5f; border:3px solid #cfd4da; box-shadow:none; font-size:18px;}
+  .btn:active{transform:translateY(4px); box-shadow:0 1px 0 #083f70;}
+
+  .ejemplos{margin-top:26px; padding-top:18px; border-top:2px solid #d6dbe1;}
+  .ejemplos p{font-size:15px; color:#5f5f5f; margin:0 0 10px;}
+  .ej{
+    display:block; width:100%; text-align:left; margin-bottom:8px;
+    padding:13px 15px; border:2px solid #d6dbe1; border-radius:13px;
+    background:#fff; font-size:16.5px; color:#141414; font-family:inherit;
+  }
+
+  /* Respuesta */
+  #resp{display:none; margin-top:8px;}
+  .tarjeta{
+    background:#fff; border-radius:20px; padding:22px; margin-bottom:16px;
+    border-left:10px solid #0b7a3b; box-shadow:0 3px 12px rgba(0,0,0,.1);
+  }
+  .tarjeta.no{border-left-color:#b3261e;}
+  .tarjeta .q{font-size:24px; font-weight:800; line-height:1.3; margin-bottom:6px;}
+  .tarjeta .d{font-size:16px; color:#5f5f5f; margin-bottom:14px;}
+  .lleva{background:#fff8e6; border:2px solid #f0b400; border-radius:14px;
+         padding:15px; margin-bottom:14px;}
+  .lleva b{display:block; font-size:16px; margin-bottom:8px; color:#7a5b00;}
+  .lleva li{font-size:17px; line-height:1.6; color:#3d2f00;}
+  .lleva ul{margin:0; padding-left:22px;}
+  .ojo{background:#fff4e5; border:3px solid #c85000; border-radius:14px;
+       padding:15px; margin-bottom:14px; font-size:16.5px; line-height:1.5; color:#5c3000;}
+  .ojo b{display:block; margin-bottom:6px;}
+  #pensando{display:none; text-align:center; padding:34px 10px; font-size:19px; color:#5f5f5f;}
+</style>
+</head>
+<body>
+
+<div id="preguntar">
+  <h1>¿Qué necesita hacer?</h1>
+  <div class="sub">Dígamelo como quiera, con sus palabras. Yo me encargo de buscarlo.</div>
+
+  <button id="hablar" onclick="alternarVoz()">
+    <span class="ic">🎤</span><span id="txtHablar">Hablar</span>
+  </button>
+
+  <div class="o">— o si prefiere, escríbalo —</div>
+  <textarea id="texto" placeholder="Por ejemplo: quiero quitar el coche de en medio"></textarea>
+  <button class="btn" onclick="enviar()">Buscarlo</button>
+  <button class="btn gris" onclick="location.href='inicio.html'">Volver</button>
+
+  <div class="ejemplos">
+    <p>Si no sabe cómo decirlo, toque uno de estos:</p>
+    <button class="ej" onclick="usarEjemplo(this)">Dar de baja temporal el coche</button>
+    <button class="ej" onclick="usarEjemplo(this)">Se me caduca el DNI</button>
+    <button class="ej" onclick="usarEjemplo(this)">Quiero la vida laboral</button>
+    <button class="ej" onclick="usarEjemplo(this)">Pedir hora en el médico</button>
+    <button class="ej" onclick="usarEjemplo(this)">Cuánto voy a cobrar de pensión</button>
+  </div>
+</div>
+
+<div id="pensando">Un momento, que lo busco…</div>
+<div id="resp"></div>
+
+<script>
+var SERVIDOR = 'https://ai-council-ekax.onrender.com/guardian/quiero';
+
+function decir(f){
+  try{ if(window.Android && window.Android.decir){ window.Android.decir(f, true); return; } }catch(e){}
+  if('speechSynthesis' in window){
+    speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(f); u.lang='es-ES'; u.rate=0.88;
+    speechSynthesis.speak(u);
+  }
+}
+
+function usarEjemplo(b){
+  document.getElementById('texto').value = b.textContent;
+  enviar();
+}
+
+/* ---------------- Hablar ----------------
+   Se usa el reconocimiento del propio navegador. Si el movil no lo
+   tiene, no pasa nada: queda la casilla de escribir, que funciona
+   siempre. Nunca se deja a nadie sin una de las dos vias. */
+var rec = null, escuchando = false;
+
+function alternarVoz(){
+  var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!Rec){
+    decir('Este móvil no me deja escucharle. Escríbamelo en el recuadro de abajo, por favor.');
+    document.getElementById('texto').focus();
+    return;
+  }
+  if(escuchando){ try{ rec.stop(); }catch(e){} return; }
+
+  rec = new Rec();
+  rec.lang = 'es-ES';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+
+  rec.onstart = function(){
+    escuchando = true;
+    document.getElementById('hablar').classList.add('escuchando');
+    document.getElementById('txtHablar').textContent = 'Le escucho… hable';
+  };
+  rec.onresult = function(ev){
+    var dicho = ev.results[0][0].transcript;
+    document.getElementById('texto').value = dicho;
+    enviar();
+  };
+  rec.onerror = function(ev){
+    parar();
+    if(ev.error === 'not-allowed'){
+      decir('No tengo permiso para escucharle. Puede escribírmelo en el recuadro de abajo.');
+    }else{
+      decir('No le he entendido bien. Inténtelo otra vez o escríbamelo.');
+    }
+  };
+  rec.onend = parar;
+
+  try{ rec.start(); decir('Dígame qué necesita.'); }
+  catch(e){ parar(); }
+}
+
+function parar(){
+  escuchando = false;
+  document.getElementById('hablar').classList.remove('escuchando');
+  document.getElementById('txtHablar').textContent = 'Hablar';
+}
+
+/* ---------------- Preguntar ---------------- */
+function enviar(){
+  var t = document.getElementById('texto').value.trim();
+  if(!t){ decir('Dígame qué necesita, o escríbalo en el recuadro.'); return; }
+
+  document.getElementById('preguntar').style.display = 'none';
+  document.getElementById('pensando').style.display = 'block';
+  document.getElementById('resp').style.display = 'none';
+
+  fetch(SERVIDOR, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Movil': window.__idMovil || 'app'},
+    body: JSON.stringify({ texto: t })
+  })
+  .then(function(r){ return r.json(); })
+  .then(pintar)
+  .catch(function(){
+    pintar({ encontrado:false,
+      voz:'No he podido conectarme. Mire si tiene internet e inténtelo otra vez.' });
+  });
+}
+
+function pintar(r){
+  document.getElementById('pensando').style.display = 'none';
+  var d = document.getElementById('resp');
+  d.style.display = 'block';
+
+  if(!r.encontrado){
+    d.innerHTML =
+      '<div class="tarjeta no"><div class="q">Eso no sé hacerlo todavía</div>' +
+      '<div class="d">' + (r.voz || '') + '</div></div>' +
+      '<button class="btn" onclick="location.reload()">Probar a decirlo de otra forma</button>' +
+      '<button class="btn gris" onclick="location.href=\'inicio.html\'">Volver</button>';
+    decir(r.voz || 'Eso no sé hacerlo todavía.');
+    return;
+  }
+
+  var h = '<div class="tarjeta"><div class="q">' + r.nombre + '</div>' +
+          '<div class="d">Se hace en: ' + r.organismo + '</div></div>';
+
+  if(r.lleva && r.lleva.length){
+    h += '<div class="lleva"><b>📋 Tenga esto a mano antes de empezar</b><ul>' +
+         r.lleva.map(function(x){ return '<li>' + x + '</li>'; }).join('') + '</ul></div>';
+  }
+  if(r.ojo){
+    h += '<div class="ojo"><b>⚠️ Ojo con esto</b>' + r.ojo + '</div>';
+  }
+  h += '<button class="btn" onclick="irAlla(\'' + r.url + '\')">Vamos allá</button>' +
+       '<button class="btn gris" onclick="location.reload()">No era eso</button>';
+
+  d.innerHTML = h;
+  decir(r.voz);
+  window.__url = r.url;
+}
+
+function irAlla(u){ location.href = u || window.__url; }
+</script>
+</body>
+</html>
