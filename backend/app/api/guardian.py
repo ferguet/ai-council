@@ -64,6 +64,47 @@ async def mirar(
         return Aviso(motivo="fallo al analizar")
 
 
+@router.get("/guardian/probar")
+async def probar(request: Request) -> dict:
+    """Prueba el Guardian de punta a punta con una pantalla peligrosa
+    inventada, y cuenta TODO lo que ha pasado.
+
+    Existe porque no se puede estar dependiendo de que alguien instale
+    la app en un movil y cuente por escrito lo que ve: asi se tarda una
+    hora en descubrir algo que aqui se ve en diez segundos.
+    """
+    servicio = getattr(request.app.state, "guardian", None)
+    if servicio is None:
+        return {"error": "el servicio no ha arrancado"}
+
+    pantalla = Pantalla(
+        dominio="tienda-de-prueba.es",
+        titulo="Finalizar compra",
+        encabezados=["Resumen de su pedido"],
+        botones=["Seguir comprando", "Comprar ahora"],
+        campos=[{
+            "etiqueta": "Contratar seguro de envío por 4,99 € al mes",
+            "tipo": "checkbox", "marcada": True, "vacia": True,
+        }],
+        textos=["Al continuar acepta la renovación automática de su suscripción mensual."],
+        importes=["49,90 €"],
+    )
+
+    # Sin memoria: si no, la segunda prueba contestaria de carrerilla
+    servicio._memoria.clear()
+    servicio.diario.clear()
+
+    aviso = await servicio.analizar(pantalla)
+    return {
+        "lo_que_ha_pasado": servicio.diario,
+        "resultado": aviso.model_dump(),
+        "veredicto": (
+            "LA IA FUNCIONA" if aviso.hay_aviso
+            else "LA IA NO ESTA CONTESTANDO (mira lo_que_ha_pasado)"
+        ),
+    }
+
+
 @router.get("/guardian/salud")
 def salud(request: Request) -> dict:
     """Para saber si esto esta vivo y cuanto se esta ahorrando con la
@@ -77,4 +118,5 @@ def salud(request: Request) -> dict:
         "consultas": s.consultas,
         "servidas_de_memoria": s.aciertos_memoria,
         "ahorro": f"{round(s.aciertos_memoria / total * 100)}%",
+        "lo_ultimo_que_ha_pasado": s.diario[-8:],
     }

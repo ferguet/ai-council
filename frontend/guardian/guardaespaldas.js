@@ -144,10 +144,15 @@
     // aviso no saltaba nunca. Ahora basta con que se hable de elegir
     // pago, o que aparezcan dos formas de pago juntas.
     var textoPago = limpio(document.body.textContent).slice(0, 9000);
-    var hablaDePagar = /forma de pago|m[eé]todo de pago|formas de pago|elige c[oó]mo pagar|c[oó]mo quieres pagar|datos de pago/i.test(textoPago);
-    var dosFormas = (/bizum/i.test(textoPago) ? 1 : 0) + (/tarjeta/i.test(textoPago) ? 1 : 0) +
-                    (/paypal/i.test(textoPago) ? 1 : 0) + (/contrarreembolso/i.test(textoPago) ? 1 : 0);
-    if (hablaDePagar || dosFormas >= 2) {
+    // Me pase de listo al aflojar esto: con que en la pagina saliera
+    // "tarjeta" y "paypal" en cualquier sitio ya avisaba, y en una
+    // tienda esas palabras salen en TODAS las pantallas. Resultado: el
+    // aviso permanente que has visto. Ahora hace falta que la pantalla
+    // este pidiendo elegir pago de verdad, no que la palabra aparezca.
+    var hablaDePagar = /forma de pago|m[eé]todo de pago|formas de pago|elige c[oó]mo pagar|c[oó]mo quieres pagar|selecciona.{0,20}pago/i.test(textoPago);
+    var opcionDePago = !!botonCon2(['pagar con tarjeta', 'pagar con bizum', 'pagar con paypal',
+                                    'contrarreembolso', 'a plazos', 'financiar']);
+    if (hablaDePagar && opcionDePago) {
       var aPlazos = botonCon2(['a plazos', 'financiar', 'paga en 3', 'paga en 4', 'aplazar', 'financiaci']);
       lista.push({
         el: aPlazos, gravedad: 3, corto: 'Cómo va a pagar',
@@ -422,15 +427,22 @@
     /* La barra era demasiado gruesa y tapaba media pantalla. Se reduce
        la letra y el relleno: sigue viendose perfectamente, pero deja
        leer la pagina que hay detras. */
+    /* SIEMPRE FINA.
+     *
+     * Lo de crecer y encogerse era un invento malo: con varios avisos
+     * compitiendo, la barra volvia a estirarse cada dos por tres y se
+     * quedaba gorda tapando la compra entera. Ahora es una tira fina y
+     * punto. Lo que hay que entender va por la voz, que para eso esta;
+     * la barra solo tiene que recordar que hay algo, no explicarlo. */
     barra = document.createElement('div');
     barra.setAttribute('style',
       'position:fixed;left:0;right:0;bottom:0;background:#b3261e;color:#fff;' +
-      'padding:12px 14px calc(12px + env(safe-area-inset-bottom));z-index:2147483647;' +
+      'padding:7px 12px calc(7px + env(safe-area-inset-bottom));z-index:2147483647;' +
       'font-family:system-ui,-apple-system,sans-serif;' +
-      'box-shadow:0 -6px 22px rgba(0,0,0,.45);display:none;align-items:center;gap:10px');
+      'box-shadow:0 -4px 16px rgba(0,0,0,.4);display:none;align-items:center;gap:8px');
 
     corto = document.createElement('div');
-    corto.setAttribute('style', 'flex:1;font-size:21px;font-weight:800;line-height:1.2');
+    corto.setAttribute('style', 'flex:1;font-size:16px;font-weight:700;line-height:1.2');
 
     var rep = document.createElement('button');
     rep.textContent = '\u{1F50A}';
@@ -600,14 +612,6 @@
       corto.textContent = p.corto;
       window.__ultimaVoz = p.voz;
       decir(p.voz, false);
-      // Se dice UNA vez y la barra se encoge sola a los 9 segundos.
-      // Antes se repetia cada 20 segundos y ademas se quedaba gorda
-      // tapando media pantalla: acababa siendo un estorbo y la persona
-      // dejaba de hacerle caso justo el dia que importaba.
-      clearTimeout(window.__gEncoger);
-      barra.style.padding = '12px 14px calc(12px + env(safe-area-inset-bottom))';
-      corto.style.fontSize = '21px';
-      window.__gEncoger = setTimeout(encoger, 9000);
     }
   }
 

@@ -61,6 +61,16 @@ class GuardianService:
         self._memoria: OrderedDict[str, Aviso] = OrderedDict()
         self.consultas = 0
         self.aciertos_memoria = 0
+        # Diario de lo ultimo que ha pasado. Sin esto era imposible
+        # distinguir "he preguntado y no hay peligro" de "no he podido
+        # preguntar": las dos cosas acababan en un silencio identico, y
+        # se arreglan de forma muy distinta.
+        self.diario: list[str] = []
+
+    def _apuntar(self, texto: str) -> None:
+        self.diario.append(texto)
+        if len(self.diario) > 20:
+            self.diario = self.diario[-20:]
 
     @staticmethod
     def _huella(p: Pantalla) -> str:
@@ -98,13 +108,19 @@ class GuardianService:
         return aviso
 
     async def _preguntar(self, proveedor: str, modelo: str, p: Pantalla) -> Aviso | None:
-        if self._breaker.is_open(proveedor) or self._usage.is_near_limit(proveedor):
+        if self._breaker.is_open(proveedor):
+            self._apuntar(f"{proveedor}: en pausa por fallos anteriores")
+            return None
+        if self._usage.is_near_limit(proveedor):
+            self._apuntar(f"{proveedor}: cuota diaria agotada")
             return None
         try:
             cliente = self._registry.get(proveedor)
-        except Exception:
+        except Exception as e:
+            self._apuntar(f"{proveedor}: no existe ese proveedor ({e})")
             return None
         if not cliente.is_configured():
+            self._apuntar(f"{proveedor}: SIN CLAVE configurada en el servidor")
             return None
 
         mensajes = [
@@ -115,14 +131,21 @@ class GuardianService:
         try:
             crudo = await cliente.chat(mensajes, model=modelo, temperature=0.2)
             self._breaker.record_success(proveedor)
-        except ProviderError:
+        except ProviderError as e:
             self._breaker.record_failure(proveedor)
+            self._apuntar(f"{proveedor}: error del proveedor -> {str(e)[:180]}")
             return None
-        except Exception:
+        except Exception as e:
             self._breaker.record_failure(proveedor)
+            self._apuntar(f"{proveedor}: fallo inesperado -> {type(e).__name__}: {str(e)[:150]}")
             return None
 
-        return self._interpretar(crudo, p)
+        aviso = self._interpretar(crudo, p)
+        if aviso is None:
+            self._apuntar(f"{proveedor}: contesto algo que no entiendo -> {(crudo or '')[:180]}")
+        else:
+            self._apuntar(f"{proveedor}: OK, aviso={aviso.hay_aviso} ({aviso.corto or aviso.motivo})")
+        return aviso
 
     @staticmethod
     def _interpretar(crudo: str, p: Pantalla) -> Aviso | None:
