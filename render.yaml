@@ -93,6 +93,12 @@ services:
       - key: SIM_HOURS_PER_TICK
         value: "1"
       - key: SIM_REAL_AI_INTERVAL_MINUTES
-        value: "15"
+        value: "45"
+      # Si nadie abre la Ciudad en estos minutos, los ciudadanos dejan de
+      # pensar con IA real (el reloj y sus rutinas siguen: eso es gratis).
+      # Era la mayor fuga de cuota: pensaban las 24 horas mirase alguien o
+      # no. Con "0" se desactiva y vuelven a pensar siempre.
+      - key: SIM_IDLE_PAUSE_MINUTES
+        value: "30"
       - key: SIM_AUTOSTART
         value: "true"

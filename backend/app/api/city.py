@@ -28,7 +28,9 @@ def _engine(request: Request) -> SimulationEngine:
 
 @router.get("/city/state")
 def get_state(request: Request, visitor: str = Depends(require_visitor)) -> dict:
-    return _engine(request).snapshot()
+    engine = _engine(request)
+    engine.note_viewer()  # alguien esta mirando: reactiva los pensamientos con IA
+    return engine.snapshot()
 
 
 @router.get("/city/citizens/{citizen_id}")
@@ -186,6 +188,7 @@ async def city_socket(websocket: WebSocket) -> None:
         await websocket.close(code=4401)
         return
     engine: SimulationEngine = websocket.app.state.city_engine
+    engine.viewer_connected()  # hay alguien viendo la ciudad en vivo
 
     await websocket.send_json({"type": "world_state", "payload": engine.snapshot()})
 
@@ -226,4 +229,5 @@ async def city_socket(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        engine.viewer_disconnected()
         event_bus.unsubscribe(CITY_SESSION_ID, forward)

@@ -75,6 +75,7 @@ class SimulationEngine:
         store: WorldStore,
         hours_per_tick: int = 1,
         real_ai_interval_minutes: int = 15,
+        idle_pause_minutes: int = 30,
         news_provider: str = "glm",
         news_model: str = "glm-4.7-flash",
         news_interval_hours: int = 24,
@@ -87,12 +88,46 @@ class SimulationEngine:
         self._store = store
         self._hours_per_tick = hours_per_tick
         self._real_ai_interval = timedelta(minutes=real_ai_interval_minutes)
+        # Ahorro de cuota: si nadie se ha asomado a la ciudad en este rato, los
+        # ciudadanos dejan de "pensar" con IA real. La ciudad NO se congela: el
+        # reloj sigue, se mueven por sus horarios y el humor evoluciona -todo eso
+        # es gratis. Lo unico que se pausa son las llamadas de pago, que es donde
+        # se iba la cuota corriendo 24/7 sin que nadie mirase. En cuanto alguien
+        # abre la app vuelven a pensar en el siguiente tick (~1 min).
+        # Con 0 se desactiva la pausa y la ciudad piensa siempre, como antes.
+        self._idle_pause = timedelta(minutes=idle_pause_minutes) if idle_pause_minutes > 0 else None
+        self.last_viewer_at: datetime | None = None
+        self.live_viewers = 0  # WebSockets abiertos ahora mismo sobre /ws/city
         self._news_provider = news_provider
         self._news_model = news_model
         self._news_interval = timedelta(hours=news_interval_hours)
         self._news_fallback_provider = news_fallback_provider
         self._news_fallback_model = news_fallback_model
         self.last_news_error: str | None = None  # motivo de la ultima generacion fallida/omitida
+
+    def note_viewer(self) -> None:
+        """Alguien esta mirando la ciudad ahora mismo (abrio la pagina o se
+        conecto por WebSocket). Reactiva los pensamientos con IA real si
+        estaban pausados por inactividad."""
+        self.last_viewer_at = datetime.now(timezone.utc)
+
+    def viewer_connected(self) -> None:
+        self.live_viewers += 1
+        self.note_viewer()
+
+    def viewer_disconnected(self) -> None:
+        self.live_viewers = max(0, self.live_viewers - 1)
+        self.note_viewer()  # cuenta como visita reciente: da margen antes de pausar
+
+    def is_idle(self) -> bool:
+        """True si no hay nadie mirando y toca ahorrar cuota."""
+        if self._idle_pause is None:
+            return False
+        if self.live_viewers > 0:
+            return False  # hay alguien con la ciudad abierta en vivo
+        if self.last_viewer_at is None:
+            return True
+        return (datetime.now(timezone.utc) - self.last_viewer_at) > self._idle_pause
 
     async def _emit(self, type_: str, payload: dict) -> None:
         await self._event_bus.publish(Event(type=type_, session_id=CITY_SESSION_ID, payload=payload))
@@ -247,6 +282,8 @@ class SimulationEngine:
         await self._emit("city_event", self._event_payload(event))
 
     async def _maybe_real_thought(self, citizen: Citizen) -> None:
+        if self.is_idle():
+            return  # nadie mirando: se pausan las llamadas de pago (ver note_viewer)
         if citizen.current_activity == ActivityType.DESCANSAR:
             relax_mood(citizen)  # mientras duerme se le va pasando el humor del dia
             return  # no gastamos llamadas reales mientras duermen
@@ -411,6 +448,9 @@ class SimulationEngine:
         edicion nueva, o None si no se genero nada (ni tocaba, ni habia
         proveedor listo, ni hubo respuesta)."""
         now = datetime.now(timezone.utc)
+        # Nota: el periodico NO se pausa por inactividad, a proposito. Es una
+        # sola llamada cada 24h, no es donde se iba la cuota, y asi al volver
+        # a abrir la app te encuentras la prensa al dia.
         if not force and self.world.last_news_at and (now - self.world.last_news_at) < self._news_interval:
             self.last_news_error = "Todavía no toca (no ha pasado el intervalo configurado)."
             return None
@@ -471,6 +511,7 @@ class SimulationEngine:
         citizen = self.world.citizens.get(citizen_id)
         if citizen is None:
             raise KeyError(f"Ciudadano '{citizen_id}' no existe")
+        self.note_viewer()  # hablar con un ciudadano cuenta como estar mirando
         provider = self._registry.get(citizen.provider)
         prompt = build_talk_prompt(citizen, self.world, history or [], user_message)
         try:

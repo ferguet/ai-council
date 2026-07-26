@@ -11,7 +11,9 @@ from pydantic import BaseModel
 from app.agents.presets import ROLE_PRESETS
 from app.api.city import router as city_router
 from app.api.conversation import router as conversation_router
+from app.api.guardian import router as guardian_router
 from app.api.websocket import router as websocket_router
+from app.guardian.servicio import GuardianService
 from app.conversation.engine import ConversationEngine
 from app.conversation.persistence import ConversationStore
 from app.conversation.roster import build_active_roster
@@ -45,6 +47,7 @@ app.add_middleware(
 app.include_router(websocket_router)
 app.include_router(city_router)
 app.include_router(conversation_router)
+app.include_router(guardian_router)
 
 
 def _refresh_personalities(world) -> None:
@@ -162,6 +165,7 @@ async def start_city() -> None:
         store=store,
         hours_per_tick=settings.sim_hours_per_tick,
         real_ai_interval_minutes=settings.sim_real_ai_interval_minutes,
+        idle_pause_minutes=settings.sim_idle_pause_minutes,
         news_provider=settings.news_provider,
         news_model=settings.news_model,
         news_interval_hours=settings.news_interval_hours,
@@ -195,6 +199,15 @@ async def start_city() -> None:
     # app/core/access.py) y se crea sola la primera vez que cada uno entra
     # (GET /conversations, mas abajo en api/conversation.py).
     app.state.conversation_engine = conv_engine
+
+    # Guardian: el que mira las pantallas de la app de personas mayores y
+    # avisa de cobros escondidos, suscripciones y enganos. Reusa el mismo
+    # registro de proveedores y el mismo control de cuota que la Ciudad,
+    # asi que no anade ninguna clave ni ninguna configuracion nueva.
+    app.state.guardian = GuardianService(
+        registry=registry,
+        usage=ProviderUsageTracker(daily_soft_cap=settings.provider_daily_soft_cap),
+    )
 
 
 @app.on_event("shutdown")

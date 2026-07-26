@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     sim_tick_seconds: int = 60          # cuanto tiempo real dura 1 tick del motor
     sim_hours_per_tick: int = 1          # cuantas horas simuladas avanza cada tick
     sim_real_ai_interval_minutes: int = 15  # minimo tiempo real entre llamadas reales de "pensamiento" por ciudadano
+    # Si nadie abre la Ciudad en estos minutos, los ciudadanos dejan de pensar
+    # con IA real (el reloj y sus rutinas siguen: eso no cuesta nada). Era la
+    # mayor fuga de cuota del proyecto: ~11 ciudadanos pensando cada 15 min las
+    # 24 horas, mirase alguien o no. Con 0 se desactiva y piensan siempre.
+    sim_idle_pause_minutes: int = 30
     sim_data_path: str = "data/city_state.json"
 
     # Periodico diario: resumen periodistico de la ciudad, escrito por una
