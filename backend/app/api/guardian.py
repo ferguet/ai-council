@@ -9,6 +9,7 @@ limite de peticiones por movil y racionamiento de cuota.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import defaultdict, deque
 
@@ -123,47 +124,91 @@ _CASOS: dict[str, Pantalla] = {
 }
 
 
+# Resultados de las pruebas, para poder consultarlos luego.
+#
+# Pasar los cinco casos lleva su tiempo (cada uno es una llamada real a
+# una IA, y si el primer proveedor esta caido hay que esperar a que falle
+# antes de ir al siguiente). Mas de lo que aguanta una peticion normal
+# sin cortarse. Por eso las pruebas se lanzan por detras y el resultado
+# se recoge despues.
+_RESULTADOS: dict[str, dict] = {}
+_EN_MARCHA: set[str] = set()
+
+
+def _revisar(caso: str, aviso: Aviso) -> list[str]:
+    """Comprueba sola las cosas que NUNCA pueden pasar."""
+    alarmas = []
+    if aviso.senalar:
+        peligrosas = ("suscrib", "pagar", "premium", "verificar", "comprar", "vip")
+        if any(x in aviso.senalar.lower() for x in peligrosas):
+            alarmas.append(f"GRAVE: señala un boton que cuesta dinero -> {aviso.senalar}")
+    if caso == "inofensiva" and aviso.hay_aviso:
+        alarmas.append("Avisa en una pagina inofensiva (falso positivo)")
+    if caso != "inofensiva" and not aviso.hay_aviso:
+        alarmas.append("NO avisa en una pantalla peligrosa")
+    if aviso.hay_aviso and len(aviso.voz) < 40:
+        alarmas.append("El aviso es demasiado escueto para entenderlo")
+    return alarmas
+
+
+async def _lanzar(servicio, caso: str) -> None:
+    pantalla = _CASOS[caso]
+    servicio._memoria.clear()
+    servicio.diario.clear()
+    try:
+        aviso = await servicio.analizar(pantalla)
+        _RESULTADOS[caso] = {
+            "caso": caso,
+            "lo_que_ha_pasado": list(servicio.diario),
+            "resultado": aviso.model_dump(),
+            "alarmas": _revisar(caso, aviso) or ["ninguna"],
+        }
+    except Exception as e:
+        _RESULTADOS[caso] = {"caso": caso, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        _EN_MARCHA.discard(caso)
+
+
 @router.get("/guardian/probar")
-async def probar(request: Request, caso: str = "compra") -> dict:
-    """Prueba el Guardian de punta a punta y cuenta TODO lo que pasa.
+async def probar(request: Request, caso: str = "todos") -> dict:
+    """Pasa las pantallas de prueba y cuenta TODO lo que ocurre.
 
     Existe porque no se puede depender de que alguien instale la app en
-    un movil y escriba lo que ve: asi se tarda una hora en descubrir
-    algo que aqui se ve en diez segundos.
+    un movil y escriba lo que ve: asi se tarda una hora en descubrir algo
+    que aqui se ve en diez segundos.
 
-    Casos: compra, muro_pago, adultos, phishing, inofensiva
+    Se pide una vez para que empiece, y otra vez para leer el resultado.
+    Casos: compra, muro_pago, adultos, phishing, inofensiva, todos
     """
     servicio = getattr(request.app.state, "guardian", None)
     if servicio is None:
         return {"error": "el servicio no ha arrancado"}
 
-    pantalla = _CASOS.get(caso)
-    if pantalla is None:
+    casos = list(_CASOS) if caso == "todos" else [caso]
+    if any(c not in _CASOS for c in casos):
         return {"error": f"no existe el caso '{caso}'", "casos": list(_CASOS)}
 
-    # Sin memoria: si no, la segunda prueba contestaria de carrerilla
-    servicio._memoria.clear()
-    servicio.diario.clear()
+    for c in casos:
+        if c not in _RESULTADOS and c not in _EN_MARCHA:
+            _EN_MARCHA.add(c)
+            asyncio.create_task(_lanzar(servicio, c))
 
-    aviso = await servicio.analizar(pantalla)
-
-    # Comprobacion automatica de lo que NUNCA puede pasar
-    alarmas = []
-    if aviso.senalar:
-        peligrosas = ("suscrib", "pagar", "premium", "verificar", "comprar")
-        if any(x in aviso.senalar.lower() for x in peligrosas):
-            alarmas.append(f"GRAVE: esta señalando un boton peligroso -> {aviso.senalar}")
-    if caso == "inofensiva" and aviso.hay_aviso:
-        alarmas.append("Avisa en una pagina inofensiva (falso positivo)")
-    if caso in ("compra", "muro_pago", "adultos", "phishing") and not aviso.hay_aviso:
-        alarmas.append("NO avisa en una pantalla que si es peligrosa")
+    listos = {c: _RESULTADOS[c] for c in casos if c in _RESULTADOS}
+    faltan = [c for c in casos if c not in _RESULTADOS]
 
     return {
-        "caso": caso,
-        "lo_que_ha_pasado": servicio.diario,
-        "resultado": aviso.model_dump(),
-        "alarmas": alarmas or ["ninguna"],
+        "listos": listos,
+        "todavia_calculando": faltan,
+        "aviso": "vuelve a pedir esta pagina en unos segundos" if faltan else "todo listo",
     }
+
+
+@router.get("/guardian/borrar-pruebas")
+def borrar_pruebas() -> dict:
+    """Para volver a pasarlas desde cero tras un cambio."""
+    _RESULTADOS.clear()
+    _EN_MARCHA.clear()
+    return {"hecho": True}
 
 
 @router.get("/guardian/salud")
