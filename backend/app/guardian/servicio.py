@@ -157,10 +157,70 @@ class GuardianService:
             return None
 
         aviso = self._interpretar(crudo, p)
+        if aviso is not None:
+            aviso = self._proteger(aviso, p)
         if aviso is None:
             self._apuntar(f"{proveedor}: contesto algo que no entiendo -> {(crudo or '')[:180]}")
         else:
             self._apuntar(f"{proveedor}: OK, aviso={aviso.hay_aviso} ({aviso.corto or aviso.motivo})")
+        return aviso
+
+    # Palabras que delatan que una accion cuesta dinero
+    _CUESTA = re.compile(
+        r"suscr[ií]b|suscripci[oó]n|hazte (premium|socio)|premium|pagar|abonar|"
+        r"comprar ahora|financiar|a plazos|contratar",
+        re.I,
+    )
+
+    @staticmethod
+    def _proteger(aviso: Aviso, p: Pantalla) -> Aviso:
+        """La red de seguridad que NO depende de la IA.
+
+        Aqui se corrige el unico fallo que no nos podemos permitir:
+        recomendarle a una persona mayor que pulse algo que le va a
+        cobrar. Ya paso una vez con las reglas escritas a mano (en El
+        Pais, donde "rechazar" lleva derecho a suscribirse) y volvio a
+        pasar con la IA, que llego a decir literalmente "elija Rechazar
+        y suscribirse".
+
+        Una IA acierta casi siempre; aqui "casi" no vale, porque el
+        precio de fallar lo paga otro de su bolsillo. Por eso esta
+        comprobacion es codigo tonto y deterministico: no opina, mira si
+        huele a dinero y lo corta.
+        """
+        if not aviso.hay_aviso:
+            return aviso
+
+        # 1. Nunca se señala un boton que cueste dinero
+        if aviso.senalar and GuardianService._CUESTA.search(aviso.senalar):
+            aviso.senalar = None
+            aviso.motivo = (aviso.motivo + " | se quito el boton: costaba dinero")[:200]
+
+        # 2. Y tampoco se le puede DECIR que lo pulse, que es lo que de
+        #    verdad oye. Si la voz recomienda algo que cuesta dinero, se
+        #    sustituye por el mensaje seguro.
+        recomienda_pagar = bool(
+            re.search(r"\b(elija|pulse|toque|dele a|seleccione|marque)\b", aviso.voz, re.I)
+            and GuardianService._CUESTA.search(aviso.voz)
+        )
+        botones_de_pago = [b for b in p.botones if GuardianService._CUESTA.search(b)]
+
+        if recomienda_pagar:
+            aviso.senalar = None
+            aviso.voz = (
+                "Cuidado con esta pagina. Le esta poniendo entre la espada y la pared: "
+                "todas las salidas que le ofrece acaban costandole dinero o dandole sus datos. "
+                "No le voy a decir que pulse nada. Lo mas facil, y lo que no le cuesta nada, "
+                "es salir de aqui y buscar lo mismo en otro sitio."
+            )
+            aviso.corto = "Aquí no toque nada"
+            aviso.motivo = (aviso.motivo + " | CORREGIDO: recomendaba pagar")[:200]
+        elif botones_de_pago and aviso.senalar is None and aviso.gravedad >= 3:
+            # Hay opciones de pago y no señalamos nada: se le recuerda
+            # que puede irse, que es la salida que nadie le ofrece.
+            if "salir" not in aviso.voz.lower():
+                aviso.voz = (aviso.voz.rstrip(". ") +
+                             ". Y recuerde que siempre puede salir de aqui sin hacer nada.")[:700]
         return aviso
 
     @staticmethod

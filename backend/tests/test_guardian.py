@@ -110,9 +110,22 @@ def test_no_se_manda_la_direccion_entera_solo_el_dominio() -> None:
 
 @pytest.mark.asyncio
 async def test_avisa_de_una_compra_con_seguro_colado() -> None:
+    """Avisa, si. Pero NO rodea el boton de comprar, y esto es a proposito.
+
+    Salio escribiendo la red de seguridad, y es un choque de lenguaje
+    visual que se nos habia pasado: en el modo guia (sacar la cita del
+    DNI) el circulo significa "pulse aqui". En el guardaespaldas el
+    recuadro significa "desconfie de esto". El mismo dibujo con el
+    significado contrario.
+
+    Una persona mayor va a pulsar lo que este resaltado, porque es lo que
+    le hemos enseñado a hacer. Asi que nada que cueste dinero se resalta,
+    ni siquiera para avisar. La voz si puede nombrarlo: las palabras no
+    son ambiguas, un recuadro si.
+    """
     ia = _IAFalsa([json.dumps({
         "hay_aviso": True, "gravedad": 4, "corto": "Esto ya es pagar",
-        "voz": "Pare un momento. Este botón cobra de verdad, y además le han dejado marcado un seguro de casi cinco euros al mes que usted no ha pedido.",
+        "voz": "Pare un momento. El botón grande que dice comprar ahora cobra de verdad, y además le han dejado marcado un seguro de casi cinco euros al mes que usted no ha pedido.",
         "senalar": "Comprar ahora", "motivo": "compra final + casilla marcada",
     })])
     g = GuardianService(registry=_Registro(ia))
@@ -121,7 +134,8 @@ async def test_avisa_de_una_compra_con_seguro_colado() -> None:
 
     assert aviso.hay_aviso is True
     assert aviso.gravedad == 4
-    assert aviso.senalar == "Comprar ahora"
+    assert aviso.senalar is None            # no se resalta lo que cobra
+    assert "comprar ahora" in aviso.voz.lower()   # pero se le dice cual es
     assert "seguro" in aviso.voz
 
 
@@ -245,3 +259,71 @@ async def test_si_el_primero_falla_lo_intenta_con_el_siguiente() -> None:
 
     assert aviso.hay_aviso is True   # ha tirado del tercero de la cadena
     assert ia.llamadas == 1
+
+
+# =====================================================================
+# 5. LA RED DE SEGURIDAD QUE NO DEPENDE DE LA IA
+#
+# Caso real: en el muro de "consiente o paga" de un periodico, la IA
+# llego a decir literalmente "elija Rechazar y suscribirse". Es el peor
+# fallo posible: la app que existe para que no le cuelen cobros
+# mandandola a suscribirse. Una IA acierta casi siempre, y aqui "casi"
+# no vale porque el precio de fallar lo paga otro de su bolsillo.
+# =====================================================================
+
+def _pantalla_muro() -> Pantalla:
+    return Pantalla(
+        dominio="periodico.es",
+        titulo="Su privacidad",
+        botones=["Aceptar y continuar", "Suscribirse por 1 € al mes", "Rechazar y suscribirse"],
+        textos=["Si no acepta las cookies puede acceder suscribiéndose."],
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_puede_mandarla_a_suscribirse_aunque_lo_diga_la_ia() -> None:
+    ia = _IAFalsa([json.dumps({
+        "hay_aviso": True, "gravedad": 4, "corto": "Le cobran cada mes",
+        "voz": "Ojo, que le van a cobrar un euro al mes. Usted elija 'Rechazar y suscribirse' para salir de aquí.",
+        "senalar": "Rechazar y suscribirse", "motivo": "muro de pago",
+    })])
+    g = GuardianService(registry=_Registro(ia))
+
+    aviso = await g.analizar(_pantalla_muro())
+
+    assert aviso.hay_aviso is True
+    assert aviso.senalar is None                      # no se señala nada
+    assert "suscrib" not in aviso.voz.lower()          # ni se dice
+    assert "salir de aqui" in aviso.voz.lower()        # se le da la salida buena
+    assert "CORREGIDO" in aviso.motivo
+
+
+@pytest.mark.asyncio
+async def test_no_señala_un_boton_de_pago_aunque_la_ia_insista() -> None:
+    ia = _IAFalsa([json.dumps({
+        "hay_aviso": True, "gravedad": 2, "corto": "Mire esto",
+        "voz": "Aqui hay algo que conviene mirar con calma antes de seguir adelante.",
+        "senalar": "Suscribirse por 1 € al mes", "motivo": "x",
+    })])
+    g = GuardianService(registry=_Registro(ia))
+
+    aviso = await g.analizar(_pantalla_muro())
+
+    assert aviso.senalar is None
+    assert "costaba dinero" in aviso.motivo
+
+
+@pytest.mark.asyncio
+async def test_un_aviso_normal_no_se_toca() -> None:
+    """La red de seguridad no puede estropear los avisos que estan bien."""
+    ia = _IAFalsa([json.dumps({
+        "hay_aviso": True, "gravedad": 3, "corto": "Casilla marcada",
+        "voz": "Le han dejado marcado un seguro que cuesta casi cinco euros al mes. Si no lo quiere, quitele la marca usted misma.",
+        "senalar": None, "motivo": "seguro colado",
+    })])
+    g = GuardianService(registry=_Registro(ia))
+
+    aviso = await g.analizar(_pantalla_compra())
+
+    assert "quitele la marca" in aviso.voz
+    assert "CORREGIDO" not in aviso.motivo
