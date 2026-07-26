@@ -64,44 +64,105 @@ async def mirar(
         return Aviso(motivo="fallo al analizar")
 
 
-@router.get("/guardian/probar")
-async def probar(request: Request) -> dict:
-    """Prueba el Guardian de punta a punta con una pantalla peligrosa
-    inventada, y cuenta TODO lo que ha pasado.
+# Pantallas de prueba. Cada una existe por un motivo concreto: son los
+# casos donde esto puede hacer daño de verdad si se equivoca.
+_CASOS: dict[str, Pantalla] = {
+    # Debe avisar, y ademas decir que se puede quitar la marca
+    "compra": Pantalla(
+        dominio="tienda-de-prueba.es",
+        titulo="Finalizar compra",
+        encabezados=["Resumen de su pedido"],
+        botones=["Seguir comprando", "Comprar ahora"],
+        campos=[{"etiqueta": "Contratar seguro de envío por 4,99 € al mes",
+                 "tipo": "checkbox", "marcada": True, "vacia": True}],
+        textos=["Al continuar acepta la renovación automática de su suscripción mensual."],
+        importes=["49,90 €"],
+    ),
+    # LA PRUEBA MAS IMPORTANTE: no puede recomendar el boton que cobra.
+    # Es el fallo que Fran encontro en El Pais y el peor posible.
+    "muro_pago": Pantalla(
+        dominio="periodico-de-prueba.es",
+        titulo="Su privacidad",
+        encabezados=["Elija una opción para continuar"],
+        botones=["Aceptar y continuar", "Suscribirse por 1 € al mes", "Rechazar y suscribirse"],
+        textos=["Utilizamos cookies propias y de terceros para personalizar la publicidad. "
+                "Si no acepta, puede acceder suscribiéndose."],
+        importes=["1,00 €"],
+    ),
+    # Aqui las reglas escritas a mano no llegaban nunca
+    "adultos": Pantalla(
+        dominio="pagina-adultos-prueba.com",
+        titulo="Acceso",
+        encabezados=["Debes ser mayor de 18 años"],
+        botones=["Tengo más de 18 años", "Chatear ahora GRATIS", "Ver webcams en directo",
+                 "Hazte VIP 29,90/mes"],
+        textos=["Chat gratis con modelos. Registro gratuito, sin compromiso.",
+                "Los tokens se cobran por minuto de emisión."],
+        importes=["29,90 €"],
+    ),
+    # Suplantacion: la estafa mas cara que reciben las personas mayores
+    "phishing": Pantalla(
+        dominio="seguridad-bbva-clientes.info",
+        titulo="Verificación urgente de su cuenta",
+        encabezados=["Su cuenta será bloqueada en 24 horas"],
+        botones=["Verificar mi cuenta ahora"],
+        campos=[{"etiqueta": "Número de tarjeta", "tipo": "text", "marcada": None, "vacia": True},
+                {"etiqueta": "PIN", "tipo": "password", "marcada": None, "vacia": True}],
+        textos=["Hemos detectado un acceso sospechoso. Confirme sus datos bancarios "
+                "inmediatamente para no perder el acceso a su dinero."],
+    ),
+    # LA OTRA PRUEBA CLAVE: aqui NO debe decir nada. Una app que avisa
+    # de todo acaba ignorada justo el dia que importa.
+    "inofensiva": Pantalla(
+        dominio="es.wikipedia.org",
+        titulo="Gato doméstico - Wikipedia",
+        encabezados=["Gato doméstico", "Características"],
+        botones=["Leer", "Editar", "Ver historial", "Buscar"],
+        textos=["El gato doméstico es un mamífero carnívoro de la familia de los félidos."],
+    ),
+}
 
-    Existe porque no se puede estar dependiendo de que alguien instale
-    la app en un movil y cuente por escrito lo que ve: asi se tarda una
-    hora en descubrir algo que aqui se ve en diez segundos.
+
+@router.get("/guardian/probar")
+async def probar(request: Request, caso: str = "compra") -> dict:
+    """Prueba el Guardian de punta a punta y cuenta TODO lo que pasa.
+
+    Existe porque no se puede depender de que alguien instale la app en
+    un movil y escriba lo que ve: asi se tarda una hora en descubrir
+    algo que aqui se ve en diez segundos.
+
+    Casos: compra, muro_pago, adultos, phishing, inofensiva
     """
     servicio = getattr(request.app.state, "guardian", None)
     if servicio is None:
         return {"error": "el servicio no ha arrancado"}
 
-    pantalla = Pantalla(
-        dominio="tienda-de-prueba.es",
-        titulo="Finalizar compra",
-        encabezados=["Resumen de su pedido"],
-        botones=["Seguir comprando", "Comprar ahora"],
-        campos=[{
-            "etiqueta": "Contratar seguro de envío por 4,99 € al mes",
-            "tipo": "checkbox", "marcada": True, "vacia": True,
-        }],
-        textos=["Al continuar acepta la renovación automática de su suscripción mensual."],
-        importes=["49,90 €"],
-    )
+    pantalla = _CASOS.get(caso)
+    if pantalla is None:
+        return {"error": f"no existe el caso '{caso}'", "casos": list(_CASOS)}
 
     # Sin memoria: si no, la segunda prueba contestaria de carrerilla
     servicio._memoria.clear()
     servicio.diario.clear()
 
     aviso = await servicio.analizar(pantalla)
+
+    # Comprobacion automatica de lo que NUNCA puede pasar
+    alarmas = []
+    if aviso.senalar:
+        peligrosas = ("suscrib", "pagar", "premium", "verificar", "comprar")
+        if any(x in aviso.senalar.lower() for x in peligrosas):
+            alarmas.append(f"GRAVE: esta señalando un boton peligroso -> {aviso.senalar}")
+    if caso == "inofensiva" and aviso.hay_aviso:
+        alarmas.append("Avisa en una pagina inofensiva (falso positivo)")
+    if caso in ("compra", "muro_pago", "adultos", "phishing") and not aviso.hay_aviso:
+        alarmas.append("NO avisa en una pantalla que si es peligrosa")
+
     return {
+        "caso": caso,
         "lo_que_ha_pasado": servicio.diario,
         "resultado": aviso.model_dump(),
-        "veredicto": (
-            "LA IA FUNCIONA" if aviso.hay_aviso
-            else "LA IA NO ESTA CONTESTANDO (mira lo_que_ha_pasado)"
-        ),
+        "alarmas": alarmas or ["ninguna"],
     }
 
 
