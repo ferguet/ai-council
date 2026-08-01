@@ -172,14 +172,53 @@ async def leer(fichero: str):
     return {"texto": texto}
 
 
+# COMO VA EL RESUMEN DE CADA CLASE, PARA PODER ENSEÑARLO.
+#
+# Resumir una clase larga tarda minutos, y hasta ahora la persona se
+# quedaba mirando un boton sin saber si estaba trabajando, si se habia
+# colgado, o si no habia llegado a empezar. Un trabajo largo que no dice
+# como va es indistinguible de uno roto.
+#
+# Aqui se guarda por que parte va cada resumen en marcha. Es un diccionario
+# en memoria a proposito: si el servidor se reinicia, el resumen se ha
+# perdido de todas formas, asi que no tiene sentido guardarlo en disco.
+_PROGRESO: dict[str, dict] = {}
+
+# Trozos de texto para resumir por partes. Una clase de dos horas son
+# decenas de miles de palabras y NO caben en una sola peticion al modelo:
+# aunque cupieran, resumir tanto de golpe da resumenes pobres, porque el
+# modelo se queda con lo general y pierde el detalle.
+_LETRAS_POR_BLOQUE = 12000
+
+
+def _partir_texto(texto: str) -> list[str]:
+    """Corta por parrafos, nunca a mitad de frase."""
+    if len(texto) <= _LETRAS_POR_BLOQUE:
+        return [texto]
+    bloques, actual = [], ""
+    for parrafo in texto.split("\n"):
+        if len(actual) + len(parrafo) > _LETRAS_POR_BLOQUE and actual:
+            bloques.append(actual)
+            actual = ""
+        actual += parrafo + "\n"
+    if actual.strip():
+        bloques.append(actual)
+    return bloques
+
+
+@router.get("/progreso/{fichero}")
+async def progreso(fichero: str):
+    """Por que parte va el resumen de esa clase. La app lo consulta cada pocos segundos."""
+    return _PROGRESO.get(fichero, {"estado": "parado", "porcentaje": 0})
+
+
 @router.post("/resumir/{fichero}")
 async def resumir(fichero: str):
     """
-    Coge una transcripcion ya guardada y le pide a una IA que la convierta
-    en apuntes organizados. Se guarda junto al original, con el mismo
-    nombre y sufijo "_resumen", para no perder ni la transcripcion literal
-    ni el resumen si hay que volver a mirar el audio original de alguna
-    frase concreta.
+    Convierte una transcripcion en apuntes organizados.
+
+    Si la clase es larga se resume POR PARTES y se van uniendo, avisando
+    del avance en /progreso para que la app pueda enseñar por donde va.
     """
     if "/" in fichero or "\\" in fichero:
         raise HTTPException(404, "No existe esa clase")
@@ -195,19 +234,63 @@ async def resumir(fichero: str):
     if not proveedor.is_configured():
         raise HTTPException(500, f"El proveedor '{_PROVEEDOR_RESUMEN}' no está configurado")
 
-    mensajes = [
-        ChatMessage(role="system", content=_INSTRUCCION_RESUMEN),
-        ChatMessage(role="user", content=texto),
-    ]
-    try:
-        resumen = await proveedor.chat(mensajes, model=_MODELO_RESUMEN, temperature=0.3)
-    except ProviderError as e:
-        raise HTTPException(502, f"No se pudo generar el resumen: {e}")
+    bloques = _partir_texto(texto)
+    total = len(bloques)
+    _PROGRESO[fichero] = {"estado": "trabajando", "porcentaje": 0, "parte": 0, "total": total}
 
+    partes: list[str] = []
+    try:
+        for i, bloque in enumerate(bloques, start=1):
+            aviso = "" if total == 1 else (
+                f"\n\nEsto es la parte {i} de {total} de la clase. Resume SOLO "
+                f"esta parte, sin repetir lo de las otras y sin escribir "
+                f"conclusiones finales salvo que sea la última parte."
+            )
+            mensajes = [
+                ChatMessage(role="system", content=_INSTRUCCION_RESUMEN + aviso),
+                ChatMessage(role="user", content=bloque),
+            ]
+            trozo = await proveedor.chat(mensajes, model=_MODELO_RESUMEN, temperature=0.3)
+            partes.append(trozo.strip())
+            _PROGRESO[fichero] = {
+                "estado": "trabajando",
+                "porcentaje": int(i * 100 / total),
+                "parte": i, "total": total,
+            }
+    except ProviderError as e:
+        _PROGRESO[fichero] = {"estado": "error", "porcentaje": 0, "mensaje": str(e)}
+        # Si ya habia partes hechas se conservan: medio resumen de una clase
+        # larga vale mucho mas que ninguno, siempre que se diga que esta a
+        # medias.
+        if not partes:
+            raise HTTPException(502, f"No se pudo generar el resumen: {e}")
+        partes.append(
+            f"\n\n[AVISO: el resumen se cortó en la parte {len(partes)} de {total}. "
+            f"El resto de la clase no llegó a resumirse.]"
+        )
+
+    resumen = "\n\n".join(partes)
     nombre_resumen = fichero.rsplit(".", 1)[0] + "_resumen.txt"
     await clases_store.guardar(nombre_resumen, resumen)
+    _PROGRESO[fichero] = {"estado": "hecho", "porcentaje": 100, "parte": total, "total": total}
 
-    return {"resumen": resumen, "fichero": nombre_resumen}
+    return {"resumen": resumen, "fichero": nombre_resumen, "partes": total}
+
+
+@router.delete("/borrar/{fichero}")
+async def borrar(fichero: str):
+    """
+    Borra una clase concreta, solo la que se pida.
+
+    Existe porque acumular grabaciones de prueba junto a las de verdad
+    acaba haciendo la lista inservible, y no tener forma de limpiar
+    obliga a borrarlo todo o a no borrar nada.
+    """
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    if not await clases_store.borrar(fichero):
+        raise HTTPException(404, "No existe esa clase")
+    return {"borrado": fichero}
 
 
 def _sanear(texto: str) -> str:

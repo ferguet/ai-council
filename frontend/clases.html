@@ -84,7 +84,7 @@
   <div class="panel">
     <div class="et">Clases guardadas</div>
     <div class="lista" id="lista">—</div>
-    <button class="gris" onclick="cargarLista()">🔄 Actualizar</button>
+    <button class="gris" onclick="cargarLista(true)">🔄 Actualizar</button>
   </div>
 </div>
 
@@ -190,10 +190,27 @@ async function enviar(blob, nombre) {
   }
 }
 
+let vigilante = null;
+
 async function resumir() {
   if (!ficheroVisible) return;
+  const cual = ficheroVisible;
   btnResumir.disabled = true;
   di('⏳ Convirtiendo en apuntes…', '#FACC15');
+
+  // Se pregunta al servidor por donde va, cada 3 segundos. El porcentaje
+  // es real -partes resumidas de partes totales-, no una barra decorativa
+  // que avanza sola sin saber nada.
+  vigilante = setInterval(async () => {
+    try {
+      const p = await (await fetch(base() + '/clases/progreso/' + encodeURIComponent(cual))).json();
+      if (p.estado === 'trabajando') {
+        di('⏳ Resumiendo… ' + p.porcentaje + '%  (parte ' + p.parte + ' de ' + p.total + ')', '#FACC15');
+        btnResumir.textContent = '📝 Resumiendo… ' + p.porcentaje + '%';
+      }
+    } catch (e) {}
+  }, 3000);
+
   try {
     const r = await fetch(base() + '/clases/resumir/' + encodeURIComponent(ficheroVisible), { method: 'POST' });
     const d = await r.json();
@@ -201,11 +218,14 @@ async function resumir() {
     salida.textContent = d.resumen;
     document.getElementById('tituloImpreso').textContent = d.fichero;
     ficheroVisible = null;
-    di('✅ Apuntes listos (' + d.fichero + ')', '#4ADE80');
+    di('✅ Apuntes listos (' + d.fichero + ')' + (d.partes > 1 ? ' — resumido en ' + d.partes + ' partes' : ''), '#4ADE80');
     cargarLista();
   } catch (e) {
     di('❌ ' + e.message, '#F87171');
     btnResumir.disabled = false;
+  } finally {
+    clearInterval(vigilante);
+    btnResumir.textContent = '📝 Resumir en apuntes';
   }
 }
 
@@ -217,13 +237,19 @@ function descargar() {
   a.click();
 }
 
-async function cargarLista() {
+async function cargarLista(avisar) {
+  // Si no se dice nada al pulsar, el boton parece roto aunque funcione:
+  // la lista se repinta igual que estaba y no se ve ningun cambio.
+  if (avisar) di('⏳ Consultando la lista…', '#FACC15');
   try {
     const r = await fetch(base() + '/clases/listar');
+    if (!r.ok) throw new Error('el servidor respondió ' + r.status);
     const d = await r.json();
     pintarLista(d.clases);
+    if (avisar) di('✅ Lista actualizada: ' + d.clases.length + ' guardadas.', '#4ADE80');
   } catch (e) {
     document.getElementById('lista').textContent = 'No se pudo consultar la lista.';
+    if (avisar) di('❌ No se pudo consultar la lista.\n' + e.message, '#F87171');
   }
 }
 
@@ -249,7 +275,28 @@ function pintarLista(clases) {
         di('Mostrando: ' + n);
       } catch (e) { di('❌ ' + e.message, '#F87171'); }
     };
-    c.appendChild(b);
+    // Cada clase con su propia papelera: borrar la de prueba sin
+    // llevarse por delante las de verdad.
+    const fila = document.createElement('div');
+    fila.style.cssText = 'display:flex;gap:6px;align-items:stretch';
+    b.style.flex = '1';
+    const x = document.createElement('button');
+    x.className = 'gris';
+    x.textContent = '🗑️';
+    x.style.cssText = 'width:52px;flex:0 0 auto';
+    x.onclick = async (ev) => {
+      ev.stopPropagation();
+      if (!confirm('¿Borrar «' + n + '»?\n\nEsto no se puede deshacer.')) return;
+      try {
+        const r = await fetch(base() + '/clases/borrar/' + encodeURIComponent(n), { method: 'DELETE' });
+        if (!r.ok) throw new Error('el servidor respondió ' + r.status);
+        di('🗑️ Borrada: ' + n, '#9AA4B2');
+        cargarLista();
+      } catch (e) { di('❌ No se pudo borrar.\n' + e.message, '#F87171'); }
+    };
+    fila.appendChild(b);
+    fila.appendChild(x);
+    c.appendChild(fila);
   });
 }
 

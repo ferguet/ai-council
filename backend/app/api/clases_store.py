@@ -119,6 +119,27 @@ async def listar() -> list[str]:
     return [f.name for f in sorted(_CARPETA.glob("*.txt"), reverse=True)]
 
 
+async def borrar(fichero: str) -> bool:
+    """
+    Borra una clase. Devuelve si existia.
+
+    Borra tambien del disco si estuviera ahi: si no, una clase rescatada
+    del disco viejo volveria a aparecer en el siguiente listado, porque el
+    rescate la copiaria otra vez. Un borrado que no borra del todo es peor
+    que no tener borrado.
+    """
+    borrado = False
+    if _hay_base_de_datos():
+        pool = await _pool()
+        r = await pool.execute("DELETE FROM clases WHERE fichero = $1", fichero)
+        borrado = r.endswith("1")
+    ruta = _CARPETA / fichero
+    if ruta.is_file():
+        ruta.unlink()
+        borrado = True
+    return borrado
+
+
 async def donde_se_guarda() -> str:
     """
     Para poder decirlo en pantalla en vez de que la persona lo suponga.
