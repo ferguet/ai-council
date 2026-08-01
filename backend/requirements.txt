@@ -17,3 +17,7 @@ openpyxl==3.1.5
 # largas en trozos antes de transcribirlas: la API de Whisper no acepta
 # ficheros de mas de 25 MB, y una clase de dos horas los pasa de largo.
 imageio-ffmpeg==0.5.1
+# Lee un PDF con el FORMATO de cada palabra (negrita, tamaño, color), no
+# solo el texto plano como pypdf. Hace falta para saber que ha resaltado
+# el profesor en sus diapositivas.
+pdfplumber==0.11.4

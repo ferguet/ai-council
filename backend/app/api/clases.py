@@ -17,13 +17,14 @@ guardar nada, y no esta implementado aqui.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.api import clases_audio, clases_store
+from app.api import clases_audio, clases_diapositivas, clases_store
 from app.core.config import get_settings
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
@@ -275,6 +276,77 @@ async def resumir(fichero: str):
     _PROGRESO[fichero] = {"estado": "hecho", "porcentaje": 100, "parte": total, "total": total}
 
     return {"resumen": resumen, "fichero": nombre_resumen, "partes": total}
+
+
+@router.post("/diapositivas/{fichero}")
+async def diapositivas(fichero: str, pdf: UploadFile = File(...)):
+    """
+    Cruza las diapositivas del profesor con lo que dijo en clase.
+
+    Se queda con lo que aparece RESALTADO en el PDF (negrita, color o
+    letra mas grande de lo normal en esa pagina) y lo compara con la
+    transcripcion. Lo que coincide en las dos señales es lo que de verdad
+    merece estudiarse primero; lo que solo esta en una, baja de prioridad.
+    """
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    transcripcion = await clases_store.leer(fichero)
+    if transcripcion is None:
+        raise HTTPException(404, "No existe esa clase")
+
+    datos = await pdf.read()
+    if not datos:
+        raise HTTPException(400, "El PDF ha llegado vacío")
+
+    try:
+        extraido = await asyncio.to_thread(clases_diapositivas.extraer, datos)
+    except Exception as e:
+        raise HTTPException(400, f"No se pudo leer el PDF: {e}")
+
+    if not extraido["texto"].strip():
+        raise HTTPException(
+            400,
+            "Este PDF no tiene texto: probablemente sean diapositivas "
+            "escaneadas como imagen. De esas no se puede sacar el formato."
+        )
+
+    settings = get_settings()
+    proveedor = ProviderRegistry(settings).get(_PROVEEDOR_RESUMEN)
+    if not proveedor.is_configured():
+        raise HTTPException(500, f"El proveedor '{_PROVEEDOR_RESUMEN}' no está configurado")
+
+    resaltados = extraido["resaltados"]
+    entrada = (
+        "=== LO QUE EL PROFESOR RESALTA EN LAS DIAPOSITIVAS ===\n"
+        + ("\n".join(f"- {r}" for r in resaltados) if resaltados
+           else "(no se ha detectado nada resaltado en este PDF)")
+        + "\n\n=== TEXTO COMPLETO DE LAS DIAPOSITIVAS ===\n"
+        + extraido["texto"][:20000]
+        + "\n\n=== LO QUE DIJO EN CLASE ===\n"
+        + transcripcion[:30000]
+    )
+
+    try:
+        guia = await proveedor.chat(
+            [
+                ChatMessage(role="system", content=clases_diapositivas.INSTRUCCION_CRUCE),
+                ChatMessage(role="user", content=entrada),
+            ],
+            model=_MODELO_RESUMEN, temperature=0.3,
+        )
+    except ProviderError as e:
+        raise HTTPException(502, f"No se pudo cruzar: {e}")
+
+    nombre = fichero.rsplit(".", 1)[0] + "_prioridades.txt"
+    await clases_store.guardar(nombre, guia)
+
+    return {
+        "guia": guia,
+        "fichero": nombre,
+        "resaltados": len(resaltados),
+        "paginas": extraido["paginas"],
+        "recortado": extraido["recortado"],
+    }
 
 
 @router.delete("/borrar/{fichero}")

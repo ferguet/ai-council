@@ -79,6 +79,8 @@
     <button class="morado" id="btnResumir" onclick="resumir()" disabled>📝 Resumir en apuntes</button>
     <button class="gris" onclick="window.print()">🖨️ Imprimir o guardar en PDF</button>
     <button class="gris" onclick="descargar()">⬇️ Descargar como texto</button>
+    <button class="azul" id="btnDiapos" onclick="document.getElementById('pdf').click()" disabled>📊 Cruzar con las diapositivas (PDF)</button>
+    <input type="file" id="pdf" accept="application/pdf" style="display:none" onchange="cruzar(this.files[0])">
   </div>
 
   <div class="panel">
@@ -182,6 +184,7 @@ async function enviar(blob, nombre) {
     salida.textContent = d.texto;
     ficheroVisible = d.fichero;
     btnResumir.disabled = false;
+    document.getElementById('btnDiapos').disabled = false;
     document.getElementById('tituloImpreso').textContent = d.fichero;
     di('✅ Transcrito y guardado (' + d.fichero + ')', '#4ADE80');
     cargarLista();
@@ -229,6 +232,36 @@ async function resumir() {
   }
 }
 
+// CRUZAR LA CLASE CON LAS DIAPOSITIVAS DEL PROFESOR.
+//
+// Ninguna de las dos señales vale gran cosa por separado: que algo este
+// en negrita puede ser costumbre del profesor, y que lo mencione en clase
+// puede ser de pasada. Lo que dice algo es que COINCIDAN las dos.
+async function cruzar(f) {
+  if (!f || !ficheroVisible) return;
+  di('⏳ Leyendo las diapositivas y cruzándolas con la clase…\n' +
+     'Esto mira qué ha resaltado el profesor (negrita, color, letra grande) ' +
+     'y lo compara con lo que explicó en voz alta.', '#FACC15');
+  const fd = new FormData();
+  fd.append('pdf', f, f.name);
+  try {
+    const r = await fetch(base() + '/clases/diapositivas/' + encodeURIComponent(ficheroVisible),
+                          { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    salida.textContent = d.guia;
+    document.getElementById('tituloImpreso').textContent = d.fichero;
+    di('✅ Guía de prioridades lista.\n' +
+       d.resaltados + ' cosas resaltadas encontradas en ' + d.paginas + ' páginas' +
+       (d.recortado ? ' (el PDF era muy largo y solo se han mirado las primeras).' : '.'),
+       '#4ADE80');
+    cargarLista();
+  } catch (e) {
+    di('❌ ' + e.message, '#F87171');
+  }
+  document.getElementById('pdf').value = '';
+}
+
 function descargar() {
   const nombre = (document.getElementById('tituloImpreso').textContent || 'clase') .replace(/\.txt$/, '') + '.txt';
   const a = document.createElement('a');
@@ -262,7 +295,9 @@ function pintarLista(clases) {
     b.className = 'gris';
     b.textContent = n.endsWith('_resumen.txt')
       ? '📝  ' + n.replace('_resumen.txt', '') + '  (apuntes)'
-      : '🎙️  ' + n.replace(/\.txt$/, '');
+      : n.endsWith('_prioridades.txt')
+        ? '📊  ' + n.replace('_prioridades.txt', '') + '  (prioridades)'
+        : '🎙️  ' + n.replace(/\.txt$/, '');
     b.onclick = async () => {
       di('Cargando…');
       try {
@@ -270,8 +305,10 @@ function pintarLista(clases) {
         const d = await r.json();
         salida.textContent = d.texto;
         document.getElementById('tituloImpreso').textContent = n;
-        if (n.endsWith('_resumen.txt')) { btnResumir.disabled = true; ficheroVisible = null; }
-        else { btnResumir.disabled = false; ficheroVisible = n; }
+        const esDerivado = n.endsWith('_resumen.txt') || n.endsWith('_prioridades.txt');
+        btnResumir.disabled = esDerivado;
+        document.getElementById('btnDiapos').disabled = esDerivado;
+        ficheroVisible = esDerivado ? null : n;
         di('Mostrando: ' + n);
       } catch (e) { di('❌ ' + e.message, '#F87171'); }
     };
