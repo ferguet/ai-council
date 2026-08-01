@@ -94,6 +94,7 @@
     <button class="verde" id="btnExamen" onclick="preguntas(null)" disabled>❓ Proponer preguntas de examen</button>
     <button class="gris" id="btnExamenPdf" onclick="document.getElementById('pdfex').click()" disabled>📎 …usando exámenes que yo suba</button>
     <input type="file" id="pdfex" accept="application/pdf" style="display:none" onchange="preguntas(this.files[0])">
+    <div id="estado2" style="margin-top:12px;font-size:14px;white-space:pre-line;color:#9AA4B2"></div>
   </div>
 
   <div class="panel">
@@ -123,8 +124,13 @@ const btnResumir = document.getElementById('btnResumir');
 let ficheroVisible = null;
 
 function di(msg, color) {
+  // Se escribe en los DOS sitios: arriba y junto a los botones de abajo.
+  // La pagina es larga y el aviso quedaba fuera de la pantalla justo
+  // cuando mas falta hacia.
   estado.textContent = msg;
   estado.style.color = color || '#9AA4B2';
+  const e2 = document.getElementById('estado2');
+  if (e2) { e2.textContent = msg; e2.style.color = color || '#9AA4B2'; }
 }
 
 async function probar() {
@@ -307,12 +313,27 @@ async function preguntas(f) {
   if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
   const b1 = document.getElementById('btnExamen'), b2 = document.getElementById('btnExamenPdf');
   b1.disabled = b2.disabled = true;
+  // El aviso tiene que estar DONDE se ha pulsado. Estaba solo arriba del
+  // todo, asi que habia que subir la pagina para saber si estaba
+  // trabajando: un boton que no reacciona parece un boton roto.
+  const textoOriginal = f ? b2.textContent : b1.textContent;
+  (f ? b2 : b1).textContent = '⏳ Trabajando…';
+  let punto = 0;
+  const late = setInterval(() => {
+    punto = (punto + 1) % 4;
+    (f ? b2 : b1).textContent = '⏳ Trabajando' + '.'.repeat(punto);
+  }, 600);
   di(f ? '⏳ Leyendo sus exámenes y preparando preguntas…'
        : '⏳ Buscando preguntas del MIR sobre estos temas y preparando el test…\n' +
          'Puede tardar un minuto.', '#FACC15');
   try {
     const fd = new FormData();
     if (f) fd.append('pdf', f, f.name);
+    // Un formulario SIN NINGUN campo no es un cuerpo valido, y el
+    // servidor contestaba "error parsing the body" al pedir preguntas sin
+    // subir examenes -que es justo el caso normal-. Con un campo suelto
+    // el envio ya es valido; el servidor lo ignora.
+    fd.append('_', '1');
     const r = await fetch(base() + '/clases/examen/' + encodeURIComponent(cual),
                           { method: 'POST', body: fd });
     const d = await r.json();
@@ -328,6 +349,8 @@ async function preguntas(f) {
   } catch (e) {
     di('❌ ' + e.message, '#F87171');
   } finally {
+    clearInterval(late);
+    (f ? b2 : b1).textContent = textoOriginal;
     b1.disabled = b2.disabled = false;
     document.getElementById('pdfex').value = '';
   }

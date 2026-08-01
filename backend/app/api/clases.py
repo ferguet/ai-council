@@ -24,7 +24,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.api import clases_audio, clases_diapositivas, clases_store
+from app.api import clases_audio, clases_diapositivas, clases_ocr, clases_store
 from app.core.config import get_settings
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
@@ -44,6 +44,13 @@ _MODELO_RESUMEN = "llama-3.3-70b-versatile"
 # Se prueban de arriba abajo hasta que uno conteste de verdad. Groq va el
 # ultimo a proposito: su nivel gratuito solo admite 12.000 tokens por
 # minuto y es el que primero se queda corto con textos largos.
+# Para leer imagenes hace falta un proveedor con vision de verdad: no
+# todos la tienen implementada en este proyecto (ver gemini_provider.py).
+_PROVEEDORES_VISION = [
+    ("gemini2", "gemini-3.6-flash"),
+    ("gemini", "gemini-3.6-flash"),
+]
+
 _PROVEEDORES_CRUCE = [
     ("cerebras", "gpt-oss-120b"),
     ("glm", "glm-4.7-flash"),
@@ -118,6 +125,63 @@ async def _pedir_a_la_ia(registro, mensajes, temperatura: float = 0.3) -> str:
         "Ningún proveedor de IA ha podido con esto. "
         f"El último dijo: {ultimo or 'no hay ninguno configurado'}"
     )
+
+
+async def _leer_escaneado(registro, datos: bytes, nombre: str) -> dict:
+    """
+    Convierte un PDF escaneado en texto usando un modelo con vision.
+
+    Devuelve tambien cuantas paginas se han leido y cuantas han fallado,
+    porque "no salio texto" y "salieron 8 de 20 paginas" son cosas muy
+    distintas y la persona tiene que poder distinguirlas.
+    """
+    try:
+        imagenes = await clases_ocr.imagenes_en_hilo(datos)
+    except Exception as e:
+        return {"texto": "", "paginas_leidas": 0, "paginas_totales": 0, "fallos": 0, "error": str(e)}
+
+    # Cuantas paginas tiene de verdad, para poder decir si se han
+    # mirado todas o solo las primeras.
+    try:
+        import fitz
+        doc = fitz.open(stream=datos, filetype="pdf")
+        totales = doc.page_count
+        doc.close()
+    except Exception:
+        totales = len(imagenes)
+
+    partes, fallos = [], 0
+    for i, imagen in enumerate(imagenes, start=1):
+        leido = None
+        for nombre_prov, nombre_mod in _PROVEEDORES_VISION:
+            try:
+                proveedor = registro.get(nombre_prov)
+            except KeyError:
+                continue
+            if not proveedor.is_configured():
+                continue
+            try:
+                leido = await proveedor.chat(
+                    [ChatMessage(
+                        role="user", content=clases_ocr.INSTRUCCION_OCR,
+                        image_base64=imagen, image_mime="image/png",
+                    )],
+                    model=nombre_mod, temperature=0.0,
+                )
+                break
+            except Exception:
+                continue
+        if leido and leido.strip():
+            partes.append(f"--- Página {i} ---\n{leido.strip()}")
+        else:
+            fallos += 1
+
+    return {
+        "texto": "\n\n".join(partes),
+        "paginas_leidas": len(partes),
+        "paginas_totales": totales,
+        "fallos": fallos,
+    }
 
 
 @router.post("/transcribir")
@@ -503,10 +567,31 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
                         f"{len(material_examenes)}."
                     )
                 else:
+                    # ES UN ESCANEO. Se lee con vision en vez de rendirse:
+                    # los examenes de una asignatura casi siempre llegan
+                    # asi, y son justo los que mas valen.
                     diario.append(
-                        f"«{pdf.filename}» se abrió bien pero NO tiene texto: "
-                        f"probablemente sea un escaneo en imagen. No se ha podido usar."
+                        f"«{pdf.filename}» no tiene texto (es un escaneo). "
+                        f"Leyéndolo página a página con reconocimiento de imagen…"
                     )
+                    leido = await _leer_escaneado(registro, datos, pdf.filename or "examen.pdf")
+                    if leido["texto"].strip():
+                        material_examenes = leido["texto"][:18000]
+                        origen = f"los exámenes escaneados que ha subido ({pdf.filename})"
+                        diario.append(
+                            f"Leídas {leido['paginas_leidas']} páginas del escaneo"
+                            + (f" (de {leido['paginas_totales']} en total; "
+                               f"el resto no se ha mirado para no disparar el gasto)"
+                               if leido["paginas_totales"] > leido["paginas_leidas"] else "")
+                            + f": {len(leido['texto'])} caracteres."
+                        )
+                        if leido["fallos"]:
+                            diario.append(f"{leido['fallos']} páginas no se pudieron leer.")
+                    else:
+                        diario.append(
+                            "No se ha podido sacar texto del escaneo. "
+                            "Puede que la calidad sea muy baja."
+                        )
             except Exception as e:
                 diario.append(f"No se pudo leer «{pdf.filename}»: {e}")
 

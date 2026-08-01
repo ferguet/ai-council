@@ -21,3 +21,7 @@ imageio-ffmpeg==0.5.1
 # solo el texto plano como pypdf. Hace falta para saber que ha resaltado
 # el profesor en sus diapositivas.
 pdfplumber==0.11.4
+# Convierte paginas de PDF en imagenes sin depender de programas externos
+# (Render no tiene poppler ni ImageMagick). Hace falta para los examenes
+# escaneados: son fotos, no texto, y hay que leerlos con vision.
+pymupdf==1.24.10
