@@ -82,9 +82,36 @@ async def leer(fichero: str) -> str | None:
     return ruta.read_text(encoding="utf-8") if ruta.is_file() else None
 
 
+async def _rescatar_del_disco(pool) -> None:
+    """
+    RESCATE DE LAS CLASES QUE SE QUEDARON EN EL DISCO.
+
+    Al pasar de guardar en disco a guardar en base de datos, se me olvido
+    lo mas obvio: lo que YA estaba guardado en el disco seguia ahi, pero
+    el listado pasó a mirar solo la base de datos. Resultado: las clases
+    de antes desaparecieron de la vista de golpe, sin avisar, como si se
+    hubieran borrado.
+
+    Mudarse de casa y dejarse las cosas dentro es un fallo tan tonto como
+    grave. Esto las trae al sitio nuevo la primera vez que se mira.
+    """
+    if not _CARPETA.exists():
+        return
+    for f in _CARPETA.glob("*.txt"):
+        try:
+            ya = await pool.fetchrow("SELECT 1 FROM clases WHERE fichero = $1", f.name)
+            if ya is None:
+                await pool.execute(
+                    _UPSERT_SQL, f.name, f.read_text(encoding="utf-8")
+                )
+        except Exception:
+            pass
+
+
 async def listar() -> list[str]:
     if _hay_base_de_datos():
         pool = await _pool()
+        await _rescatar_del_disco(pool)
         filas = await pool.fetch("SELECT fichero FROM clases ORDER BY fichero DESC")
         return [f["fichero"] for f in filas]
     if not _CARPETA.exists():
