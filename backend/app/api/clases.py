@@ -23,6 +23,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from app.api import clases_store
 from app.core.config import get_settings
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
@@ -55,43 +56,6 @@ _INSTRUCCION_RESUMEN = (
     "importantes de toda la clase, una linea cada una."
 )
 
-
-@router.post("/resumir/{fichero}")
-async def resumir(fichero: str):
-    """
-    Coge una transcripcion ya guardada y le pide a una IA que la convierta
-    en apuntes organizados. Se guarda junto al original, con el mismo
-    nombre y sufijo "_resumen", para no perder ni la transcripcion literal
-    ni el resumen si hay que volver a mirar el audio original de alguna
-    frase concreta.
-    """
-    ruta = _CARPETA / fichero
-    if "/" in fichero or "\\" in fichero or not ruta.is_file():
-        raise HTTPException(404, "No existe esa clase")
-
-    texto = ruta.read_text(encoding="utf-8")
-    if len(texto.strip()) < 20:
-        raise HTTPException(400, "La transcripción está casi vacía, no hay nada que resumir")
-
-    settings = get_settings()
-    registro = ProviderRegistry(settings)
-    proveedor = registro.get(_PROVEEDOR_RESUMEN)
-    if not proveedor.is_configured():
-        raise HTTPException(500, f"El proveedor '{_PROVEEDOR_RESUMEN}' no está configurado")
-
-    mensajes = [
-        ChatMessage(role="system", content=_INSTRUCCION_RESUMEN),
-        ChatMessage(role="user", content=texto),
-    ]
-    try:
-        resumen = await proveedor.chat(mensajes, model=_MODELO_RESUMEN, temperature=0.3)
-    except ProviderError as e:
-        raise HTTPException(502, f"No se pudo generar el resumen: {e}")
-
-    nombre_resumen = fichero.rsplit(".", 1)[0] + "_resumen.txt"
-    (_CARPETA / nombre_resumen).write_text(resumen, encoding="utf-8")
-
-    return {"resumen": resumen, "fichero": nombre_resumen}
 
 _GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 # whisper-large-v3-turbo: la version rapida y barata de Whisper en Groq.
@@ -147,10 +111,8 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
     texto = resp.text
 
     ahora = datetime.now(timezone.utc)
-    _CARPETA.mkdir(parents=True, exist_ok=True)
     nombre = f"{ahora.strftime('%Y-%m-%d_%H%M')}_{_sanear(asignatura)}.txt"
-    ruta = _CARPETA / nombre
-    ruta.write_text(texto, encoding="utf-8")
+    await clases_store.guardar(nombre, texto)
 
     return {
         "texto": texto,
@@ -163,21 +125,61 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
 @router.get("/listar")
 async def listar():
     """Las clases ya transcritas, mas recientes primero."""
-    if not _CARPETA.exists():
-        return {"clases": []}
-    ficheros = sorted(_CARPETA.glob("*.txt"), reverse=True)
-    return {"clases": [f.name for f in ficheros]}
+    return {
+        "clases": await clases_store.listar(),
+        "guardado_en": await clases_store.donde_se_guarda(),
+    }
 
 
 @router.get("/leer/{fichero}")
 async def leer(fichero: str):
     """El texto de una clase concreta, para volver a consultarlo."""
-    ruta = _CARPETA / fichero
     # Evitar salir de la carpeta con "../algo": solo nombres de fichero
     # sueltos, nunca rutas.
-    if "/" in fichero or "\\" in fichero or not ruta.is_file():
+    if "/" in fichero or "\\" in fichero:
         raise HTTPException(404, "No existe esa clase")
-    return {"texto": ruta.read_text(encoding="utf-8")}
+    texto = await clases_store.leer(fichero)
+    if texto is None:
+        raise HTTPException(404, "No existe esa clase")
+    return {"texto": texto}
+
+
+@router.post("/resumir/{fichero}")
+async def resumir(fichero: str):
+    """
+    Coge una transcripcion ya guardada y le pide a una IA que la convierta
+    en apuntes organizados. Se guarda junto al original, con el mismo
+    nombre y sufijo "_resumen", para no perder ni la transcripcion literal
+    ni el resumen si hay que volver a mirar el audio original de alguna
+    frase concreta.
+    """
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    texto = await clases_store.leer(fichero)
+    if texto is None:
+        raise HTTPException(404, "No existe esa clase")
+    if len(texto.strip()) < 20:
+        raise HTTPException(400, "La transcripción está casi vacía, no hay nada que resumir")
+
+    settings = get_settings()
+    registro = ProviderRegistry(settings)
+    proveedor = registro.get(_PROVEEDOR_RESUMEN)
+    if not proveedor.is_configured():
+        raise HTTPException(500, f"El proveedor '{_PROVEEDOR_RESUMEN}' no está configurado")
+
+    mensajes = [
+        ChatMessage(role="system", content=_INSTRUCCION_RESUMEN),
+        ChatMessage(role="user", content=texto),
+    ]
+    try:
+        resumen = await proveedor.chat(mensajes, model=_MODELO_RESUMEN, temperature=0.3)
+    except ProviderError as e:
+        raise HTTPException(502, f"No se pudo generar el resumen: {e}")
+
+    nombre_resumen = fichero.rsplit(".", 1)[0] + "_resumen.txt"
+    await clases_store.guardar(nombre_resumen, resumen)
+
+    return {"resumen": resumen, "fichero": nombre_resumen}
 
 
 def _sanear(texto: str) -> str:
