@@ -28,6 +28,7 @@ from app.api import clases_audio, clases_diapositivas, clases_store
 from app.core.config import get_settings
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
+from app.tools.web_search import WebSearchClient
 
 router = APIRouter(prefix="/clases", tags=["clases"])
 
@@ -424,6 +425,110 @@ async def diapositivas(fichero: str, pdf: UploadFile = File(...)):
         "recortado": extraido["recortado"],
         "partes": len(bloques),
     }
+
+
+INSTRUCCION_EXAMEN = (
+    "Eres un profesor de medicina preparando preguntas de examen sobre una "
+    "clase concreta. Tienes lo que se explico en clase y, si se te da, "
+    "preguntas reales de examenes anteriores (MIR u otros) sobre esos temas.\n\n"
+    "Escribe entre 8 y 15 preguntas TIPO TEST con 4 opciones (a, b, c, d), "
+    "en el estilo del MIR: caso clinico corto cuando el tema lo permita, y "
+    "pregunta directa cuando sea puro conocimiento.\n\n"
+    "Para cada pregunta:\n"
+    "- Marca la respuesta correcta.\n"
+    "- Explica en dos lineas POR QUE es correcta y por que fallan las otras.\n"
+    "- Añade al final '[Motivo: ...]' diciendo por que crees que esto puede "
+    "caer: si es porque el profesor insistio, porque lo resalto en las "
+    "diapositivas, o porque ha caido en examenes anteriores.\n\n"
+    "REGLAS QUE NO PUEDES SALTARTE:\n"
+    "- Solo preguntas sobre lo que se explico en ESTA clase. Nada de temas "
+    "que el profesor no toco.\n"
+    "- No inventes datos clinicos ni cifras que no aparezcan en el material.\n"
+    "- Si tienes preguntas de examenes anteriores, usalas como modelo de "
+    "ESTILO y de que se suele preguntar, pero no las copies tal cual.\n"
+    "- Termina con una linea honesta: estas preguntas son un entrenamiento "
+    "basado en lo que el profesor enfatizo, NO una prediccion del examen."
+)
+
+
+@router.post("/examen/{fichero}")
+async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool = True):
+    """
+    Propone preguntas tipo examen sobre una clase.
+
+    DOS VIAS, PORQUE LA REALIDAD ES ASI.
+
+    A veces se tienen los examenes anteriores en PDF y se suben. Y muchas
+    otras veces no se tienen: los del MIR son publicos y estan en internet,
+    pero los de una asignatura concreta a menudo no estan en ningun sitio.
+
+    Si se sube un PDF, se usa. Si no, se busca en internet lo que haya
+    sobre esos temas. Y si tampoco hay nada, se generan preguntas solo con
+    la clase -que sigue siendo util para repasar- diciendo claramente que
+    van sin respaldo de examenes reales. Lo que no se hace nunca es
+    fingir que hay una fuente que no existe.
+    """
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    clase = await clases_store.leer(fichero)
+    if clase is None:
+        raise HTTPException(404, "No existe esa clase")
+
+    registro = ProviderRegistry(get_settings())
+    material_examenes = ""
+    origen = "solo la clase"
+
+    # 1. Examenes subidos a mano, si los hay.
+    if pdf is not None:
+        datos = await pdf.read()
+        if datos:
+            try:
+                extraido = await asyncio.to_thread(clases_diapositivas.extraer, datos)
+                if extraido["texto"].strip():
+                    material_examenes = extraido["texto"][:18000]
+                    origen = "exámenes que ha subido usted"
+            except Exception:
+                pass
+
+    # 2. Si no hay, se busca en internet.
+    if not material_examenes and buscar:
+        buscador = WebSearchClient(get_settings().tavily_api_key)
+        if buscador.is_configured():
+            temas = await _pedir_a_la_ia(registro, [
+                ChatMessage(role="system", content=(
+                    "Di en una sola linea, separados por comas, los 3 o 4 temas "
+                    "medicos principales de esta clase. Solo los temas, nada mas."
+                )),
+                ChatMessage(role="user", content=clase[:6000]),
+            ], temperatura=0.1)
+            try:
+                hallado = await buscador.search(
+                    f"preguntas examen MIR {temas.strip()[:200]} con respuesta comentada"
+                )
+                if hallado.strip():
+                    material_examenes = hallado[:8000]
+                    origen = "preguntas del MIR encontradas en internet"
+            except Exception:
+                pass
+
+    entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:25000]
+    if material_examenes:
+        entrada += "\n\n=== PREGUNTAS DE EXAMENES ANTERIORES SOBRE ESTOS TEMAS ===\n" + material_examenes
+    else:
+        entrada += (
+            "\n\n(NO hay preguntas de examenes anteriores disponibles. Genera las "
+            "preguntas solo a partir de la clase, y dilo al principio del todo.)"
+        )
+
+    preguntas = await _pedir_a_la_ia(registro, [
+        ChatMessage(role="system", content=INSTRUCCION_EXAMEN),
+        ChatMessage(role="user", content=entrada),
+    ], temperatura=0.4)
+
+    nombre = fichero.rsplit(".", 1)[0] + "_examen.txt"
+    await clases_store.guardar(nombre, preguntas)
+
+    return {"preguntas": preguntas, "fichero": nombre, "origen": origen}
 
 
 @router.delete("/borrar/{fichero}")

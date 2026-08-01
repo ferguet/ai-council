@@ -81,6 +81,9 @@
     <button class="gris" onclick="descargar()">⬇️ Descargar como texto</button>
     <button class="azul" id="btnDiapos" onclick="document.getElementById('pdf').click()" disabled>📊 Cruzar con las diapositivas (PDF)</button>
     <input type="file" id="pdf" accept="application/pdf" style="display:none" onchange="cruzar(this.files[0])">
+    <button class="verde" id="btnExamen" onclick="preguntas(null)" disabled>❓ Proponer preguntas de examen</button>
+    <button class="gris" id="btnExamenPdf" onclick="document.getElementById('pdfex').click()" disabled>📎 …usando exámenes que yo suba</button>
+    <input type="file" id="pdfex" accept="application/pdf" style="display:none" onchange="preguntas(this.files[0])">
   </div>
 
   <div class="panel">
@@ -182,9 +185,7 @@ async function enviar(blob, nombre) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     salida.textContent = d.texto;
-    ficheroVisible = d.fichero;
-    btnResumir.disabled = false;
-    document.getElementById('btnDiapos').disabled = false;
+    seleccionar(d.fichero);
     document.getElementById('tituloImpreso').textContent = d.fichero;
     di('✅ Transcrito y guardado (' + d.fichero + ')', '#4ADE80');
     cargarLista();
@@ -283,6 +284,40 @@ async function cruzar(f) {
   document.getElementById('pdf').value = '';
 }
 
+// PREGUNTAS TIPO EXAMEN SOBRE LA CLASE.
+//
+// Dos vias porque la realidad es asi: a veces se tienen los examenes
+// anteriores y se suben, y muchas otras no se tienen. Si no hay, se
+// buscan en internet los del MIR sobre esos temas. Y si tampoco hay
+// nada, se generan solo con la clase, DICIENDOLO -sirve para repasar
+// igual, pero la persona tiene que saber que van sin respaldo-.
+async function preguntas(f) {
+  const cual = baseSeleccionada || ficheroVisible;
+  if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
+  const b1 = document.getElementById('btnExamen'), b2 = document.getElementById('btnExamenPdf');
+  b1.disabled = b2.disabled = true;
+  di(f ? '⏳ Leyendo sus exámenes y preparando preguntas…'
+       : '⏳ Buscando preguntas del MIR sobre estos temas y preparando el test…\n' +
+         'Puede tardar un minuto.', '#FACC15');
+  try {
+    const fd = new FormData();
+    if (f) fd.append('pdf', f, f.name);
+    const r = await fetch(base() + '/clases/examen/' + encodeURIComponent(cual),
+                          { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    salida.textContent = d.preguntas;
+    document.getElementById('tituloImpreso').textContent = d.fichero;
+    di('✅ Preguntas listas.\nBasadas en: ' + d.origen, '#4ADE80');
+    cargarLista();
+  } catch (e) {
+    di('❌ ' + e.message, '#F87171');
+  } finally {
+    b1.disabled = b2.disabled = false;
+    document.getElementById('pdfex').value = '';
+  }
+}
+
 function descargar() {
   const nombre = (document.getElementById('tituloImpreso').textContent || 'clase') .replace(/\.txt$/, '') + '.txt';
   const a = document.createElement('a');
@@ -307,55 +342,101 @@ async function cargarLista(avisar) {
   }
 }
 
+// LA LISTA, AGRUPADA POR CLASE Y CON NOMBRES QUE SE ENTIENDEN.
+//
+// Antes salia todo mezclado y distinguido solo por un icono, y la
+// pregunta que llego fue la correcta: "no se a que se refiere cada uno".
+// Un icono no explica nada por si solo. Ahora cada clase es un bloque y
+// dentro se dice CON PALABRAS que es cada cosa.
+function nombreBase(n) {
+  return n.replace(/_resumen\.txt$/, '').replace(/_prioridades\.txt$/, '').replace(/_examen\.txt$/, '').replace(/\.txt$/, '');
+}
+
+function queEs(n) {
+  if (n.endsWith('_resumen.txt'))     return { icono: '📝', nombre: 'Apuntes resumidos',      pista: 'La clase ordenada por conceptos' };
+  if (n.endsWith('_prioridades.txt')) return { icono: '📊', nombre: 'Qué estudiar primero',   pista: 'Cruce con las diapositivas del profesor' };
+  if (n.endsWith('_examen.txt'))      return { icono: '❓', nombre: 'Posibles preguntas',      pista: 'Preguntas tipo examen sobre esta clase' };
+  return                                     { icono: '🎙️', nombre: 'Grabación transcrita',  pista: 'Lo que se dijo, palabra por palabra' };
+}
+
 function pintarLista(clases) {
   const c = document.getElementById('lista');
   c.innerHTML = '';
   if (!clases || !clases.length) { c.textContent = 'Todavía no hay clases guardadas.'; return; }
-  clases.slice(0, 40).forEach(n => {
-    const b = document.createElement('button');
-    b.className = 'gris';
-    b.textContent = n.endsWith('_resumen.txt')
-      ? '📝  ' + n.replace('_resumen.txt', '') + '  (apuntes)'
-      : n.endsWith('_prioridades.txt')
-        ? '📊  ' + n.replace('_prioridades.txt', '') + '  (prioridades)'
-        : '🎙️  ' + n.replace(/\.txt$/, '');
-    b.onclick = async () => {
-      di('Cargando…');
-      try {
-        const r = await fetch(base() + '/clases/leer/' + encodeURIComponent(n));
-        const d = await r.json();
-        salida.textContent = d.texto;
-        document.getElementById('tituloImpreso').textContent = n;
-        const esDerivado = n.endsWith('_resumen.txt') || n.endsWith('_prioridades.txt');
-        btnResumir.disabled = esDerivado;
-        document.getElementById('btnDiapos').disabled = esDerivado;
-        ficheroVisible = esDerivado ? null : n;
-        di('Mostrando: ' + n);
-      } catch (e) { di('❌ ' + e.message, '#F87171'); }
-    };
-    // Cada clase con su propia papelera: borrar la de prueba sin
-    // llevarse por delante las de verdad.
-    const fila = document.createElement('div');
-    fila.style.cssText = 'display:flex;gap:6px;align-items:stretch';
-    b.style.flex = '1';
-    const x = document.createElement('button');
-    x.className = 'gris';
-    x.textContent = '🗑️';
-    x.style.cssText = 'width:52px;flex:0 0 auto';
-    x.onclick = async (ev) => {
-      ev.stopPropagation();
-      if (!confirm('¿Borrar «' + n + '»?\n\nEsto no se puede deshacer.')) return;
-      try {
-        const r = await fetch(base() + '/clases/borrar/' + encodeURIComponent(n), { method: 'DELETE' });
-        if (!r.ok) throw new Error('el servidor respondió ' + r.status);
-        di('🗑️ Borrada: ' + n, '#9AA4B2');
-        cargarLista();
-      } catch (e) { di('❌ No se pudo borrar.\n' + e.message, '#F87171'); }
-    };
-    fila.appendChild(b);
-    fila.appendChild(x);
-    c.appendChild(fila);
+
+  // Agrupar: cada grabación con todo lo que se ha sacado de ella debajo.
+  const grupos = {};
+  clases.forEach(n => { (grupos[nombreBase(n)] = grupos[nombreBase(n)] || []).push(n); });
+
+  Object.keys(grupos).sort().reverse().forEach(claseBase => {
+    const cab = document.createElement('div');
+    cab.textContent = claseBase.replace(/_/g, ' ');
+    cab.style.cssText = 'margin:16px 0 6px;font-size:13px;color:#7E8AA0;letter-spacing:.04em';
+    c.appendChild(cab);
+
+    grupos[claseBase].sort().forEach(n => {
+      const info = queEs(n);
+      const fila = document.createElement('div');
+      fila.style.cssText = 'display:flex;gap:6px;align-items:stretch';
+
+      const b = document.createElement('button');
+      b.className = 'gris';
+      b.style.cssText = 'flex:1;text-align:left;line-height:1.35';
+      b.innerHTML = '<div>' + info.icono + '  <b>' + info.nombre + '</b></div>' +
+                    '<div style="font-size:12px;opacity:.7">' + info.pista + '</div>';
+      b.onclick = async () => {
+        di('Cargando…');
+        try {
+          const r = await fetch(base() + '/clases/leer/' + encodeURIComponent(n));
+          const d = await r.json();
+          salida.textContent = d.texto;
+          document.getElementById('tituloImpreso').textContent = n;
+          seleccionar(n);
+          di('Mostrando: ' + info.nombre + ' — ' + claseBase.replace(/_/g, ' '));
+        } catch (e) { di('❌ ' + e.message, '#F87171'); }
+      };
+
+      const x = document.createElement('button');
+      x.className = 'gris';
+      x.textContent = '🗑️';
+      x.style.cssText = 'width:52px;flex:0 0 auto';
+      x.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (!confirm('¿Borrar «' + info.nombre + '» de ' + base.replace(/_/g, ' ') + '?\n\nEsto no se puede deshacer.')) return;
+        try {
+          const r = await fetch(base() + '/clases/borrar/' + encodeURIComponent(n), { method: 'DELETE' });
+          if (!r.ok) throw new Error('el servidor respondió ' + r.status);
+          di('🗑️ Borrado.', '#9AA4B2');
+          cargarLista();
+        } catch (e) { di('❌ No se pudo borrar.\n' + e.message, '#F87171'); }
+      };
+
+      fila.appendChild(b);
+      fila.appendChild(x);
+      c.appendChild(fila);
+    });
   });
+}
+
+// QUE SE PUEDA CRUZAR TAMBIEN DESDE UN RESUMEN.
+//
+// Antes, al abrir unos apuntes o unas prioridades, el boton de cruzar se
+// apagaba. Y no tenia sentido: la transcripcion original sigue estando
+// ahi, solo hacia falta saber cual era. Apagar un boton porque estas
+// mirando un derivado del mismo material es ponerle una traba a la
+// persona por una limitacion mia, no suya.
+let baseSeleccionada = null;
+
+function seleccionar(n) {
+  const derivado = n.endsWith('_resumen.txt') || n.endsWith('_prioridades.txt') || n.endsWith('_examen.txt');
+  baseSeleccionada = derivado ? nombreBase(n) + '.txt' : n;
+  ficheroVisible = derivado ? null : n;          // resumir solo tiene sentido sobre la transcripcion
+  btnResumir.disabled = derivado;
+  // Cruzar y examinar SI valen siempre: trabajan sobre la transcripcion
+  // original, que existe se este mirando lo que se este mirando.
+  document.getElementById('btnDiapos').disabled = false;
+  const be = document.getElementById('btnExamen');
+  if (be) be.disabled = false;
 }
 
 cargarLista();
