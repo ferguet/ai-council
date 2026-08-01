@@ -14,11 +14,38 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
+      # EL DESPERTADOR SE RENDIA ANTES DE DESPERTAR A NADIE.
+      #
+      # Estaba con --max-time 30, y despertar a Render desde dormido tarda
+      # entre 30 y 60 segundos. O sea que justo en el unico caso en el que
+      # este workflow hace falta de verdad -el servicio dormido- se
+      # rendia, daba error, y lo dejaba dormido. Cuando funcionaba era
+      # porque el servicio YA estaba despierto y no hacia falta.
+      #
+      # Se veia en el historial: fallaba una de cada dos ejecuciones.
+      #
+      # Ahora: 120 segundos de margen, y dos intentos. El primero puede
+      # servir solo para despertarlo (aunque se agote el tiempo), y el
+      # segundo lo encuentra ya en pie.
       - name: Ping /health
         run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://ai-council-ekax.onrender.com/health)
-          echo "Respuesta: $code"
+          intentar() {
+            curl -s -o /dev/null -w "%{http_code}" --max-time 120 \
+              https://ai-council-ekax.onrender.com/health
+          }
+
+          code=$(intentar)
+          echo "Primer intento: $code"
+
           if [ "$code" != "200" ]; then
-            echo "El servicio no respondio 200 (respondio $code)"
+            echo "No respondio 200. Esperando 20s y probando otra vez..."
+            sleep 20
+            code=$(intentar)
+            echo "Segundo intento: $code"
+          fi
+
+          if [ "$code" != "200" ]; then
+            echo "El servicio no respondio 200 tras dos intentos (ultimo: $code)"
             exit 1
           fi
+          echo "Despierto y respondiendo."
