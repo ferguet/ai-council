@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<!--
+  CLASES DESDE EL ORDENADOR.
+
+  Esto sustituye a la "app para PC" que haria falta si no existiera:
+  graba con el microfono del ordenador, sube ficheros de audio, enseña
+  las clases guardadas, y descarga o imprime los apuntes en PDF.
+
+  Es una pagina web a proposito, no un programa que instalar:
+   - Funciona en cualquier ordenador sin instalar nada.
+   - El PDF sale gratis, porque el navegador ya sabe imprimir a PDF; no
+     hay que escribir ni mantener un generador de PDF.
+   - Se actualiza sola: al estar servida desde el mismo sitio que el
+     resto, no hay versiones viejas dando vueltas por ahi.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clases</title>
+<style>
+  :root { --fondo:#101828; --panel:#1C2434; --texto:#E7ECF3; --suave:#9AA4B2; --linea:#2A3648; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--fondo); color:var(--texto);
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .caja { max-width:900px; margin:0 auto; padding:28px 20px 80px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  .sub { color:var(--suave); font-size:15px; margin-bottom:24px; }
+  .panel { background:var(--panel); border-radius:16px; padding:20px; margin-bottom:18px; }
+  .et { font-size:12px; letter-spacing:.08em; color:#7E8AA0; text-transform:uppercase; margin-bottom:10px; }
+  input[type=text] { width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--linea);
+                     background:#141C2A; color:var(--texto); font-size:15px; }
+  button { border:0; border-radius:12px; padding:13px 18px; font-size:15px; font-weight:600;
+           color:#fff; cursor:pointer; margin:6px 6px 0 0; }
+  .verde{background:#0B7A3B;} .rojo{background:#B91C1C;} .azul{background:#1D4ED8;}
+  .morado{background:#7C2D6E;} .gris{background:#243044;}
+  button:disabled { opacity:.45; cursor:default; }
+  #estado { margin-top:12px; font-size:15px; white-space:pre-line; }
+  #texto { white-space:pre-wrap; line-height:1.55; font-size:15px; background:#141C2A;
+           border-radius:12px; padding:18px; min-height:120px; }
+  .lista button { display:block; width:100%; text-align:left; font-weight:400; font-size:14px; }
+  #crono { font-size:34px; font-variant-numeric:tabular-nums; }
+  /* Al imprimir solo sale el texto: nada de botones ni menus en el papel. */
+  @media print {
+    body { background:#fff; color:#000; }
+    .panel, .sub, h1, #estado { display:none; }
+    #panelTexto { display:block !important; background:#fff; padding:0; }
+    #texto { background:#fff; color:#000; font-size:12pt; }
+    #tituloImpreso { display:block !important; font-size:16pt; margin-bottom:12pt; }
+  }
+  #tituloImpreso { display:none; }
+</style>
+</head>
+<body>
+<div class="caja">
+  <h1>Clases</h1>
+  <div class="sub">Graba o sube una clase, y se transcribe sola. Sin datos de pacientes: esto es para clases y estudio.</div>
+
+  <div class="panel">
+    <div class="et">Servidor</div>
+    <input type="text" id="servidor">
+    <button class="gris" onclick="probar()">🔌 Probar la conexión</button>
+  </div>
+
+  <div class="panel">
+    <div class="et">Nueva clase</div>
+    <input type="text" id="asignatura" placeholder="Asignatura (opcional)">
+    <div id="crono"></div>
+    <button class="verde" id="btnGrabar" onclick="alternarGrabacion()">🎙️ Empezar a grabar</button>
+    <button class="azul" onclick="document.getElementById('fichero').click()">📂 Subir un audio</button>
+    <input type="file" id="fichero" accept="audio/*" style="display:none" onchange="subirFichero(this.files[0])">
+    <div id="estado">Listo.</div>
+  </div>
+
+  <div class="panel" id="panelTexto">
+    <div class="et">Texto</div>
+    <div id="tituloImpreso"></div>
+    <div id="texto">Todavía no hay nada que enseñar.</div>
+    <button class="morado" id="btnResumir" onclick="resumir()" disabled>📝 Resumir en apuntes</button>
+    <button class="gris" onclick="window.print()">🖨️ Imprimir o guardar en PDF</button>
+    <button class="gris" onclick="descargar()">⬇️ Descargar como texto</button>
+  </div>
+
+  <div class="panel">
+    <div class="et">Clases guardadas</div>
+    <div class="lista" id="lista">—</div>
+    <button class="gris" onclick="cargarLista()">🔄 Actualizar</button>
+  </div>
+</div>
+
+<script>
+// La direccion se recuerda en el navegador, y se puede cambiar a mano:
+// igual que en el movil, saber a donde llama la pagina no deberia ser un
+// misterio cuando algo falla.
+const guardado = localStorage.getItem('clases_servidor');
+const campoServidor = document.getElementById('servidor');
+campoServidor.value = guardado || window.location.origin;
+
+function base() {
+  const v = campoServidor.value.trim().replace(/\/+$/, '');
+  localStorage.setItem('clases_servidor', v);
+  return v;
+}
+
+const estado = document.getElementById('estado');
+const salida = document.getElementById('texto');
+const btnResumir = document.getElementById('btnResumir');
+let ficheroVisible = null;
+
+function di(msg, color) {
+  estado.textContent = msg;
+  estado.style.color = color || '#9AA4B2';
+}
+
+async function probar() {
+  di('⏳ Probando ' + base() + ' …\n(si el servidor estaba dormido tarda hasta un minuto)', '#FACC15');
+  try {
+    const r = await fetch(base() + '/clases/listar');
+    if (!r.ok) throw new Error('El servidor respondió ' + r.status);
+    const d = await r.json();
+    di('✅ El servidor contesta.\n' + base() +
+       '\nClases guardadas: ' + d.clases.length +
+       '\nSe guardan en: ' + (d.guardado_en || '?'), '#4ADE80');
+    pintarLista(d.clases);
+  } catch (e) {
+    di('❌ No contesta.\nDirección: ' + base() + '\nMotivo: ' + e.message, '#F87171');
+  }
+}
+
+// ---------- grabar con el microfono del ordenador ----------
+let grabador = null, trozos = [], desde = 0, tic = null;
+
+async function alternarGrabacion() {
+  const btn = document.getElementById('btnGrabar');
+  if (grabador && grabador.state === 'recording') {
+    grabador.stop();
+    return;
+  }
+  try {
+    const flujo = await navigator.mediaDevices.getUserMedia({ audio: true });
+    trozos = [];
+    grabador = new MediaRecorder(flujo);
+    grabador.ondataavailable = e => { if (e.data.size) trozos.push(e.data); };
+    grabador.onstop = () => {
+      clearInterval(tic);
+      document.getElementById('crono').textContent = '';
+      flujo.getTracks().forEach(t => t.stop());
+      btn.textContent = '🎙️ Empezar a grabar';
+      btn.className = 'verde';
+      const blob = new Blob(trozos, { type: grabador.mimeType || 'audio/webm' });
+      enviar(blob, 'clase.webm');
+    };
+    grabador.start();
+    desde = Date.now();
+    tic = setInterval(() => {
+      const s = Math.floor((Date.now() - desde) / 1000);
+      document.getElementById('crono').textContent =
+        String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    }, 500);
+    btn.textContent = '⏹️ Parar y transcribir';
+    btn.className = 'rojo';
+    di('🔴 Grabando…', '#F87171');
+  } catch (e) {
+    di('❌ No se pudo usar el micrófono: ' + e.message, '#F87171');
+  }
+}
+
+function subirFichero(f) { if (f) enviar(f, f.name); }
+
+async function enviar(blob, nombre) {
+  const mb = (blob.size / 1048576).toFixed(1);
+  di('⏳ Transcribiendo ' + nombre + ' (' + mb + ' MB)…\n' +
+     'Las clases largas se parten en trozos, así que puede tardar varios minutos.', '#FACC15');
+  const fd = new FormData();
+  fd.append('audio', blob, nombre);
+  try {
+    const r = await fetch(base() + '/clases/transcribir?asignatura=' +
+                          encodeURIComponent(document.getElementById('asignatura').value || 'sin_asignatura'),
+                          { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    salida.textContent = d.texto;
+    ficheroVisible = d.fichero;
+    btnResumir.disabled = false;
+    document.getElementById('tituloImpreso').textContent = d.fichero;
+    di('✅ Transcrito y guardado (' + d.fichero + ')', '#4ADE80');
+    cargarLista();
+  } catch (e) {
+    di('❌ ' + e.message, '#F87171');
+  }
+}
+
+async function resumir() {
+  if (!ficheroVisible) return;
+  btnResumir.disabled = true;
+  di('⏳ Convirtiendo en apuntes…', '#FACC15');
+  try {
+    const r = await fetch(base() + '/clases/resumir/' + encodeURIComponent(ficheroVisible), { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    salida.textContent = d.resumen;
+    document.getElementById('tituloImpreso').textContent = d.fichero;
+    ficheroVisible = null;
+    di('✅ Apuntes listos (' + d.fichero + ')', '#4ADE80');
+    cargarLista();
+  } catch (e) {
+    di('❌ ' + e.message, '#F87171');
+    btnResumir.disabled = false;
+  }
+}
+
+function descargar() {
+  const nombre = (document.getElementById('tituloImpreso').textContent || 'clase') .replace(/\.txt$/, '') + '.txt';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([salida.textContent], { type: 'text/plain;charset=utf-8' }));
+  a.download = nombre;
+  a.click();
+}
+
+async function cargarLista() {
+  try {
+    const r = await fetch(base() + '/clases/listar');
+    const d = await r.json();
+    pintarLista(d.clases);
+  } catch (e) {
+    document.getElementById('lista').textContent = 'No se pudo consultar la lista.';
+  }
+}
+
+function pintarLista(clases) {
+  const c = document.getElementById('lista');
+  c.innerHTML = '';
+  if (!clases || !clases.length) { c.textContent = 'Todavía no hay clases guardadas.'; return; }
+  clases.slice(0, 40).forEach(n => {
+    const b = document.createElement('button');
+    b.className = 'gris';
+    b.textContent = n.endsWith('_resumen.txt')
+      ? '📝  ' + n.replace('_resumen.txt', '') + '  (apuntes)'
+      : '🎙️  ' + n.replace(/\.txt$/, '');
+    b.onclick = async () => {
+      di('Cargando…');
+      try {
+        const r = await fetch(base() + '/clases/leer/' + encodeURIComponent(n));
+        const d = await r.json();
+        salida.textContent = d.texto;
+        document.getElementById('tituloImpreso').textContent = n;
+        if (n.endsWith('_resumen.txt')) { btnResumir.disabled = true; ficheroVisible = null; }
+        else { btnResumir.disabled = false; ficheroVisible = n; }
+        di('Mostrando: ' + n);
+      } catch (e) { di('❌ ' + e.message, '#F87171'); }
+    };
+    c.appendChild(b);
+  });
+}
+
+cargarLista();
+</script>
+</body>
+</html>

@@ -23,7 +23,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.api import clases_store
+from app.api import clases_audio, clases_store
 from app.core.config import get_settings
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
@@ -83,32 +83,60 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
     if not contenido:
         raise HTTPException(400, "El audio ha llegado vacío")
 
-    # Groq cobra/limita por tamaño de fichero; un audio de mas de una hora en
-    # buena calidad puede pasar de 25 MB, que es el limite de su API. Se
-    # avisa aqui en vez de dejar que Groq de un error confuso.
-    if len(contenido) > 25 * 1024 * 1024:
-        raise HTTPException(
-            413,
-            "El audio pesa más de 25 MB. Para clases muy largas, hay que "
-            "partirlo en trozos antes de mandarlo (pendiente de implementar "
-            "en el móvil)."
-        )
+    # YA NO SE RECHAZAN LAS CLASES LARGAS.
+    #
+    # Antes, un audio de mas de 25 MB se devolvia con un "pártalo usted",
+    # que es cargarle a la persona un trabajo que puede hacer la maquina,
+    # y ademas justo cuando mas falta hace: una clase larga es la que mas
+    # merece la pena tener transcrita.
+    #
+    # Ahora se parte aqui en trozos de 10 minutos, se transcribe cada uno
+    # y se une el texto. El limite de 25 MB de Whisper sigue existiendo,
+    # pero lo lleva el servidor en vez de la persona.
+    with clases_audio.carpeta_temporal() as tmp:
+        carpeta = Path(tmp)
+        sufijo = Path(audio.filename or "clase.m4a").suffix or ".m4a"
+        original = carpeta / f"entera{sufijo}"
+        original.write_bytes(contenido)
 
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                _GROQ_TRANSCRIBE_URL,
-                headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-                files={"file": (audio.filename or "clase.m4a", contenido, audio.content_type)},
-                data={"model": _MODELO, "response_format": "text"},
-            )
-    except httpx.RequestError as e:
-        raise HTTPException(502, f"No se pudo contactar con Groq: {e}")
+        trozos = await clases_audio.partir_en_hilo(original, carpeta)
+        partes: list[str] = []
 
-    if resp.status_code != 200:
-        raise HTTPException(502, f"Groq devolvió un error: {resp.text[:300]}")
+        for i, trozo in enumerate(trozos, start=1):
+            datos = trozo.read_bytes()
+            if len(datos) > 25 * 1024 * 1024:
+                raise HTTPException(
+                    413,
+                    f"Un trozo del audio sigue pesando más de 25 MB aunque se ha "
+                    f"partido. Probablemente el audio venga con una calidad muy "
+                    f"alta; conviene reducirla antes de subirlo."
+                )
+            try:
+                async with httpx.AsyncClient(timeout=180) as client:
+                    resp = await client.post(
+                        _GROQ_TRANSCRIBE_URL,
+                        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                        files={"file": (trozo.name, datos, audio.content_type or "audio/mp4")},
+                        data={"model": _MODELO, "response_format": "text"},
+                    )
+            except httpx.RequestError as e:
+                raise HTTPException(502, f"No se pudo contactar con Groq: {e}")
 
-    texto = resp.text
+            if resp.status_code != 200:
+                # Si ya hay trozos transcritos, se conserva lo conseguido y
+                # se avisa de donde se corto: media clase es mucho mejor que
+                # ninguna, siempre que quede claro que esta incompleta.
+                if partes:
+                    partes.append(
+                        f"\n\n[AVISO: la transcripción se cortó aquí, en el trozo {i} "
+                        f"de {len(trozos)}. El resto de la clase no se pudo transcribir.]"
+                    )
+                    break
+                raise HTTPException(502, f"Groq devolvió un error: {resp.text[:300]}")
+
+            partes.append(resp.text.strip())
+
+        texto = "\n\n".join(partes)
 
     ahora = datetime.now(timezone.utc)
     nombre = f"{ahora.strftime('%Y-%m-%d_%H%M')}_{_sanear(asignatura)}.txt"

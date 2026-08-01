@@ -12,3 +12,8 @@ python-multipart==0.0.12
 pypdf==5.0.1
 python-docx==1.1.2
 openpyxl==3.1.5
+# Trae un ffmpeg propio ya compilado, sin depender de que el sistema lo
+# tenga instalado (en Render no lo tiene). Se usa para partir las clases
+# largas en trozos antes de transcribirlas: la API de Whisper no acepta
+# ficheros de mas de 25 MB, y una clase de dos horas los pasa de largo.
+imageio-ffmpeg==0.5.1
