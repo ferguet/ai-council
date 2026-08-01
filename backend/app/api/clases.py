@@ -38,10 +38,11 @@ router = APIRouter(prefix="/clases", tags=["clases"])
 _PROVEEDOR_RESUMEN = "groq"
 _MODELO_RESUMEN = "llama-3.3-70b-versatile"
 
-# Para el cruce con las diapositivas, por orden de preferencia. Cerebras
-# va primero porque su nivel gratuito es mucho mas holgado por minuto y
-# ningun ciudadano de la Ciudad lo usa, asi que no compite por cuota con
-# nada mas del proyecto. Si no estuviera configurado, se cae a Groq.
+# Proveedores de IA para resumir y cruzar, POR ORDEN DE PREFERENCIA.
+#
+# Se prueban de arriba abajo hasta que uno conteste de verdad. Groq va el
+# ultimo a proposito: su nivel gratuito solo admite 12.000 tokens por
+# minuto y es el que primero se queda corto con textos largos.
 _PROVEEDORES_CRUCE = [
     ("cerebras", "gpt-oss-120b"),
     ("glm", "glm-4.7-flash"),
@@ -77,6 +78,45 @@ _MODELO = "whisper-large-v3-turbo"
 # Donde se guardan las transcripciones, junto al resto de datos persistentes
 # de esta app (igual que city_state.json y conversations.json).
 _CARPETA = Path("data/clases")
+
+
+async def _pedir_a_la_ia(registro, mensajes, temperatura: float = 0.3) -> str:
+    """
+    Pide algo a la IA probando varios proveedores por orden.
+
+    TENER CLAVE NO ES TENER CUOTA.
+
+    Antes esto elegia UN proveedor al principio, preguntando si estaba
+    "configurado". Pero is_configured() solo mira si hay una clave puesta:
+    Cerebras tenia clave y la cuota agotada, asi que se elegia igualmente
+    y luego moria con un error de pago. Comprobar la clave y dar por
+    supuesto que funciona es la misma trampa de siempre -dar por bueno
+    algo que no se ha verificado-.
+
+    Ahora se prueba de verdad, uno detras de otro, y solo se rinde cuando
+    han fallado todos. El ultimo error se conserva para poder contarlo.
+    """
+    ultimo = None
+    for nombre_prov, nombre_mod in _PROVEEDORES_CRUCE:
+        try:
+            proveedor = registro.get(nombre_prov)
+        except KeyError:
+            continue
+        if not proveedor.is_configured():
+            continue
+        try:
+            return await proveedor.chat(mensajes, model=nombre_mod, temperature=temperatura)
+        except ProviderError as e:
+            ultimo = f"{nombre_prov}: {e}"
+            continue
+        except Exception as e:
+            ultimo = f"{nombre_prov}: {e}"
+            continue
+    raise HTTPException(
+        502,
+        "Ningún proveedor de IA ha podido con esto. "
+        f"El último dijo: {ultimo or 'no hay ninguno configurado'}"
+    )
 
 
 @router.post("/transcribir")
@@ -244,11 +284,7 @@ async def resumir(fichero: str):
     if len(texto.strip()) < 20:
         raise HTTPException(400, "La transcripción está casi vacía, no hay nada que resumir")
 
-    settings = get_settings()
-    registro = ProviderRegistry(settings)
-    proveedor = registro.get(_PROVEEDOR_RESUMEN)
-    if not proveedor.is_configured():
-        raise HTTPException(500, f"El proveedor '{_PROVEEDOR_RESUMEN}' no está configurado")
+    registro = ProviderRegistry(get_settings())
 
     bloques = _partir_texto(texto)
     total = len(bloques)
@@ -266,20 +302,20 @@ async def resumir(fichero: str):
                 ChatMessage(role="system", content=_INSTRUCCION_RESUMEN + aviso),
                 ChatMessage(role="user", content=bloque),
             ]
-            trozo = await proveedor.chat(mensajes, model=_MODELO_RESUMEN, temperature=0.3)
+            trozo = await _pedir_a_la_ia(registro, mensajes, temperatura=0.3)
             partes.append(trozo.strip())
             _PROGRESO[fichero] = {
                 "estado": "trabajando",
                 "porcentaje": int(i * 100 / total),
                 "parte": i, "total": total,
             }
-    except ProviderError as e:
-        _PROGRESO[fichero] = {"estado": "error", "porcentaje": 0, "mensaje": str(e)}
+    except HTTPException as e:
+        _PROGRESO[fichero] = {"estado": "error", "porcentaje": 0}
         # Si ya habia partes hechas se conservan: medio resumen de una clase
         # larga vale mucho mas que ninguno, siempre que se diga que esta a
         # medias.
         if not partes:
-            raise HTTPException(502, f"No se pudo generar el resumen: {e}")
+            raise
         partes.append(
             f"\n\n[AVISO: el resumen se cortó en la parte {len(partes)} de {total}. "
             f"El resto de la clase no llegó a resumirse.]"
@@ -333,21 +369,7 @@ async def diapositivas(fichero: str, pdf: UploadFile = File(...)):
             "escaneadas como imagen. De esas no se puede sacar el formato."
         )
 
-    settings = get_settings()
-    registro = ProviderRegistry(settings)
-
-    # Se prueba primero un proveedor con mas margen por minuto, y si no
-    # esta configurado se usa el de siempre. El limite de Groq (12.000
-    # tokens/minuto) es justo el que hizo fallar esto la primera vez.
-    proveedor = None
-    modelo = _MODELO_RESUMEN
-    for nombre_prov, nombre_mod in _PROVEEDORES_CRUCE:
-        p = registro.get(nombre_prov)
-        if p.is_configured():
-            proveedor, modelo = p, nombre_mod
-            break
-    if proveedor is None:
-        raise HTTPException(500, "No hay ningún proveedor de IA configurado")
+    registro = ProviderRegistry(get_settings())
 
     # Lista de resaltados, recortada: es la parte que se repite en TODAS
     # las peticiones, asi que cuanto mas corta, mas sitio queda para la
@@ -366,34 +388,28 @@ async def diapositivas(fichero: str, pdf: UploadFile = File(...)):
     hallazgos: list[str] = []
     try:
         for i, bloque in enumerate(bloques, start=1):
-            texto_ia = await proveedor.chat(
-                [
-                    ChatMessage(role="system", content=clases_diapositivas.INSTRUCCION_PARTE),
-                    ChatMessage(role="user", content=(
-                        f"{cabecera}\n\n=== PARTE {i} DE {len(bloques)} DE LA CLASE ===\n{bloque}"
-                    )),
-                ],
-                model=modelo, temperature=0.2,
-            )
+            texto_ia = await _pedir_a_la_ia(registro, [
+                ChatMessage(role="system", content=clases_diapositivas.INSTRUCCION_PARTE),
+                ChatMessage(role="user", content=(
+                    f"{cabecera}\n\n=== PARTE {i} DE {len(bloques)} DE LA CLASE ===\n{bloque}"
+                )),
+            ], temperatura=0.2)
             hallazgos.append(texto_ia.strip())
             _PROGRESO[fichero] = {
                 "estado": "trabajando", "porcentaje": int(i * 100 / total),
                 "parte": i, "total": total,
             }
 
-        guia = await proveedor.chat(
-            [
-                ChatMessage(role="system", content=clases_diapositivas.INSTRUCCION_CRUCE),
-                ChatMessage(role="user", content=(
-                    cabecera + "\n\n=== LO OBSERVADO EN CADA PARTE DE LA CLASE ===\n"
-                    + "\n\n".join(hallazgos)
-                )),
-            ],
-            model=modelo, temperature=0.3,
-        )
-    except ProviderError as e:
-        _PROGRESO[fichero] = {"estado": "error", "porcentaje": 0, "mensaje": str(e)}
-        raise HTTPException(502, f"No se pudo cruzar: {e}")
+        guia = await _pedir_a_la_ia(registro, [
+            ChatMessage(role="system", content=clases_diapositivas.INSTRUCCION_CRUCE),
+            ChatMessage(role="user", content=(
+                cabecera + "\n\n=== LO OBSERVADO EN CADA PARTE DE LA CLASE ===\n"
+                + "\n\n".join(hallazgos)
+            )),
+        ], temperatura=0.3)
+    except HTTPException:
+        _PROGRESO[fichero] = {"estado": "error", "porcentaje": 0}
+        raise
 
     _PROGRESO[fichero] = {"estado": "hecho", "porcentaje": 100, "parte": total, "total": total}
 
