@@ -69,3 +69,45 @@ class WebSearchClient:
         if not text:
             raise WebSearchError(f"sin resultados para '{query}'")
         return text
+
+    async def search_con_fuentes(self, query: str) -> tuple[str, list[dict]]:
+        """
+        Igual que search(), pero devuelve ademas DE DONDE sale cada cosa.
+
+        search() tira las URLs y se queda solo con el texto. Para el chat
+        da igual, pero cuando lo que se genera son preguntas de examen no:
+        la persona necesita saber si vienen del MIR oficial, del temario de
+        otra universidad o de una academia privada, porque no todas las
+        fuentes valen lo mismo para estudiar. Un dato sin procedencia
+        obliga a fiarse a ciegas.
+        """
+        if not self._api_key:
+            raise WebSearchError("TAVILY_API_KEY no configurada")
+        payload = {
+            "api_key": self._api_key, "query": query,
+            "max_results": _MAX_RESULTS, "include_answer": True,
+        }
+        try:
+            resp = await post_with_retry(
+                _URL, headers={"Content-Type": "application/json"}, json=payload,
+                timeout=_TIMEOUT, max_retries=1,
+            )
+        except httpx.HTTPError as exc:
+            raise WebSearchError(f"error de red buscando '{query}': {exc}") from exc
+        if resp.status_code != 200:
+            raise WebSearchError(f"Tavily error {resp.status_code}: {resp.text[:200]}")
+
+        data = resp.json()
+        partes, fuentes = [], []
+        if data.get("answer"):
+            partes.append(f"Resumen: {data['answer']}")
+        for r in data.get("results", [])[:_MAX_RESULTS]:
+            titulo = r.get("title", "")
+            url = r.get("url", "")
+            partes.append(f"- {titulo}: {(r.get('content') or '')[:_SNIPPET_CHARS]}")
+            if url:
+                fuentes.append({"titulo": titulo, "url": url})
+        texto = "\n".join(partes).strip()
+        if not texto:
+            raise WebSearchError(f"sin resultados para '{query}'")
+        return texto, fuentes

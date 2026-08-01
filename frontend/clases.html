@@ -47,6 +47,7 @@
     #panelTexto { display:block !important; background:#fff; padding:0; }
     #texto { background:#fff; color:#000; font-size:12pt; }
     #tituloImpreso { display:block !important; font-size:16pt; margin-bottom:12pt; }
+    #cabecera { background:#fff !important; color:#000 !important; border-left:3px solid #000; }
   }
   #tituloImpreso { display:none; }
 </style>
@@ -74,11 +75,20 @@
 
   <div class="panel" id="panelTexto">
     <div class="et">Texto</div>
+    <!-- QUE DOCUMENTO ESTOY MIRANDO.
+         Antes el texto aparecia a secas y habia que adivinar de que
+         grabacion era: con varias clases guardadas es facil abrir una y
+         creer que estas leyendo otra. Un texto sin decir de donde sale
+         obliga a comprobarlo cada vez. -->
+    <div id="cabecera" style="background:#141C2A;border-left:4px solid #1D4ED8;
+         border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;
+         line-height:1.5;color:#9AA4B2">Todavía no ha abierto nada.</div>
     <div id="tituloImpreso"></div>
     <div id="texto">Todavía no hay nada que enseñar.</div>
     <button class="morado" id="btnResumir" onclick="resumir()" disabled>📝 Resumir en apuntes</button>
     <button class="gris" onclick="window.print()">🖨️ Imprimir o guardar en PDF</button>
     <button class="gris" onclick="descargar()">⬇️ Descargar como texto</button>
+    <button class="gris" id="btnCopiar" onclick="copiar()">📋 Copiar todo el texto</button>
     <button class="azul" id="btnDiapos" onclick="document.getElementById('pdf').click()" disabled>📊 Cruzar con las diapositivas (PDF)</button>
     <input type="file" id="pdf" accept="application/pdf" style="display:none" onchange="cruzar(this.files[0])">
     <button class="verde" id="btnExamen" onclick="preguntas(null)" disabled>❓ Proponer preguntas de examen</button>
@@ -185,6 +195,7 @@ async function enviar(blob, nombre) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     salida.textContent = d.texto;
+    pintarCabecera(d.fichero);
     seleccionar(d.fichero);
     document.getElementById('tituloImpreso').textContent = d.fichero;
     di('✅ Transcrito y guardado (' + d.fichero + ')', '#4ADE80');
@@ -220,7 +231,7 @@ async function resumir() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     salida.textContent = d.resumen;
-    document.getElementById('tituloImpreso').textContent = d.fichero;
+    pintarCabecera(d.fichero);
     ficheroVisible = null;
     di('✅ Apuntes listos (' + d.fichero + ')' + (d.partes > 1 ? ' — resumido en ' + d.partes + ' partes' : ''), '#4ADE80');
     cargarLista();
@@ -267,7 +278,7 @@ async function cruzar(f) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     salida.textContent = d.guia;
-    document.getElementById('tituloImpreso').textContent = d.fichero;
+    pintarCabecera(d.fichero);
     di('✅ Guía de prioridades lista.\n' +
        d.resaltados + ' cosas resaltadas en ' + d.paginas + ' páginas, cruzadas con la clase en ' +
        d.partes + ' partes' +
@@ -307,8 +318,12 @@ async function preguntas(f) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     salida.textContent = d.preguntas;
-    document.getElementById('tituloImpreso').textContent = d.fichero;
-    di('✅ Preguntas listas.\nBasadas en: ' + d.origen, '#4ADE80');
+    pintarCabecera(d.fichero);
+    let msg = '✅ Preguntas listas.\nBasadas en: ' + d.origen;
+    if (d.fuentes && d.fuentes.length)
+      msg += '\nFuentes:\n' + d.fuentes.map(x => '· ' + x.titulo + '\n  ' + x.url).join('\n');
+    if (d.diario && d.diario.length) msg += '\n\n' + d.diario.join('\n');
+    di(msg, '#4ADE80');
     cargarLista();
   } catch (e) {
     di('❌ ' + e.message, '#F87171');
@@ -316,6 +331,54 @@ async function preguntas(f) {
     b1.disabled = b2.disabled = false;
     document.getElementById('pdfex').value = '';
   }
+}
+
+// Fecha legible a partir del nombre "2026-08-01_1637_Oftalmologia.txt"
+function describir(n) {
+  const info = queEs(n);
+  const m = nombreBase(n).match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})_(.*)$/);
+  let cuando = '', asig = '';
+  if (m) {
+    cuando = m[3] + '/' + m[2] + '/' + m[1] + ' a las ' + m[4] + ':' + m[5];
+    asig = m[6].replace(/_/g, ' ');
+    if (asig === 'sin asignatura') asig = '(sin asignatura)';
+  }
+  return { info, cuando, asig };
+}
+
+function pintarCabecera(n) {
+  const d = describir(n);
+  document.getElementById('cabecera').innerHTML =
+    '<div style="color:#E7ECF3;font-size:16px"><b>' + d.info.icono + '  ' + d.info.nombre + '</b></div>' +
+    '<div>' + d.info.pista + '</div>' +
+    (d.cuando ? '<div style="margin-top:6px">📅 Clase grabada el <b>' + d.cuando + '</b></div>' : '') +
+    (d.asig ? '<div>📚 Asignatura: <b>' + d.asig + '</b></div>' : '') +
+    '<div style="font-size:11px;opacity:.6;margin-top:6px">' + n + '</div>';
+  document.getElementById('tituloImpreso').textContent =
+    d.info.nombre + (d.asig ? ' — ' + d.asig : '') + (d.cuando ? ' — ' + d.cuando : '');
+}
+
+// COPIAR EL TEXTO ENTERO.
+//
+// Para seguir trabajando con estos apuntes en otro sitio -otra IA, un
+// documento propio, un correo a un compañero-. El material es suyo: no
+// tiene sentido que se quede encerrado aqui dentro.
+async function copiar() {
+  const b = document.getElementById('btnCopiar');
+  try {
+    await navigator.clipboard.writeText(salida.textContent);
+    b.textContent = '✅ Copiado';
+  } catch (e) {
+    // Si el navegador no deja usar el portapapeles (pasa sin HTTPS), se
+    // selecciona el texto para que baste con Ctrl+C, en vez de dejar a la
+    // persona con un boton que no hace nada.
+    const r = document.createRange();
+    r.selectNodeContents(salida);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+    b.textContent = '👆 Seleccionado: pulse Ctrl+C';
+  }
+  setTimeout(() => { b.textContent = '📋 Copiar todo el texto'; }, 2500);
 }
 
 function descargar() {
@@ -390,7 +453,7 @@ function pintarLista(clases) {
           const r = await fetch(base() + '/clases/leer/' + encodeURIComponent(n));
           const d = await r.json();
           salida.textContent = d.texto;
-          document.getElementById('tituloImpreso').textContent = n;
+          pintarCabecera(n);
           seleccionar(n);
           di('Mostrando: ' + info.nombre + ' — ' + claseBase.replace(/_/g, ' '));
         } catch (e) { di('❌ ' + e.message, '#F87171'); }

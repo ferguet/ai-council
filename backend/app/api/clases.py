@@ -477,23 +477,45 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
     registro = ProviderRegistry(get_settings())
     material_examenes = ""
     origen = "solo la clase"
+    fuentes: list[dict] = []
+    # Lo que ha pasado de verdad con lo que se ha intentado. Se devuelve a
+    # la pantalla porque el primer intento se tragaba los fallos en
+    # silencio: si el PDF no se podia leer, seguia adelante como si nada y
+    # la persona se quedaba sin saber si su fichero se habia usado o no.
+    diario: list[str] = []
 
     # 1. Examenes subidos a mano, si los hay.
     if pdf is not None:
         datos = await pdf.read()
-        if datos:
+        if not datos:
+            diario.append(f"El PDF «{pdf.filename}» llegó vacío.")
+        else:
+            kb = len(datos) // 1024
             try:
                 extraido = await asyncio.to_thread(clases_diapositivas.extraer, datos)
-                if extraido["texto"].strip():
-                    material_examenes = extraido["texto"][:18000]
-                    origen = "exámenes que ha subido usted"
-            except Exception:
-                pass
+                texto_pdf = extraido["texto"].strip()
+                if texto_pdf:
+                    material_examenes = texto_pdf[:18000]
+                    origen = f"los exámenes que ha subido ({pdf.filename})"
+                    diario.append(
+                        f"Leído «{pdf.filename}» ({kb} KB, {extraido['paginas']} páginas): "
+                        f"{len(texto_pdf)} caracteres de texto, se usan los primeros "
+                        f"{len(material_examenes)}."
+                    )
+                else:
+                    diario.append(
+                        f"«{pdf.filename}» se abrió bien pero NO tiene texto: "
+                        f"probablemente sea un escaneo en imagen. No se ha podido usar."
+                    )
+            except Exception as e:
+                diario.append(f"No se pudo leer «{pdf.filename}»: {e}")
 
-    # 2. Si no hay, se busca en internet.
+    # 2. Si no hay examenes propios utilizables, se busca en internet.
     if not material_examenes and buscar:
         buscador = WebSearchClient(get_settings().tavily_api_key)
-        if buscador.is_configured():
+        if not buscador.is_configured():
+            diario.append("No hay búsqueda web configurada en el servidor.")
+        else:
             temas = await _pedir_a_la_ia(registro, [
                 ChatMessage(role="system", content=(
                     "Di en una sola linea, separados por comas, los 3 o 4 temas "
@@ -501,15 +523,15 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
                 )),
                 ChatMessage(role="user", content=clase[:6000]),
             ], temperatura=0.1)
+            consulta = f"preguntas examen MIR {temas.strip()[:200]} con respuesta comentada"
             try:
-                hallado = await buscador.search(
-                    f"preguntas examen MIR {temas.strip()[:200]} con respuesta comentada"
-                )
+                hallado, fuentes = await buscador.search_con_fuentes(consulta)
                 if hallado.strip():
                     material_examenes = hallado[:8000]
-                    origen = "preguntas del MIR encontradas en internet"
-            except Exception:
-                pass
+                    origen = "preguntas encontradas en internet"
+                    diario.append(f"Buscado en internet: «{consulta}».")
+            except Exception as e:
+                diario.append(f"La búsqueda en internet falló: {e}")
 
     entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:25000]
     if material_examenes:
@@ -525,10 +547,23 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
         ChatMessage(role="user", content=entrada),
     ], temperatura=0.4)
 
-    nombre = fichero.rsplit(".", 1)[0] + "_examen.txt"
-    await clases_store.guardar(nombre, preguntas)
+    # La procedencia se guarda DENTRO del documento, no solo en la
+    # pantalla: si mañana se imprime o se comparte, la fuente tiene que
+    # viajar con las preguntas. Unas preguntas de examen sin decir de
+    # donde salen invitan a fiarse de ellas mas de lo debido.
+    pie = "\n\n---\nDE DÓNDE SALEN ESTAS PREGUNTAS: " + origen
+    if fuentes:
+        pie += "\n" + "\n".join(f"- {f['titulo']}: {f['url']}" for f in fuentes)
+    for linea in diario:
+        pie += f"\n({linea})"
 
-    return {"preguntas": preguntas, "fichero": nombre, "origen": origen}
+    nombre = fichero.rsplit(".", 1)[0] + "_examen.txt"
+    await clases_store.guardar(nombre, preguntas + pie)
+
+    return {
+        "preguntas": preguntas, "fichero": nombre, "origen": origen,
+        "fuentes": fuentes, "diario": diario,
+    }
 
 
 @router.delete("/borrar/{fichero}")
