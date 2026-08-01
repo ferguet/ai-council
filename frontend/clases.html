@@ -242,6 +242,22 @@ async function cruzar(f) {
   di('⏳ Leyendo las diapositivas y cruzándolas con la clase…\n' +
      'Esto mira qué ha resaltado el profesor (negrita, color, letra grande) ' +
      'y lo compara con lo que explicó en voz alta.', '#FACC15');
+  const cual = ficheroVisible;
+  const btn = document.getElementById('btnDiapos');
+  btn.disabled = true;
+
+  // Mismo porcentaje real que en el resumen: partes hechas de partes
+  // totales, contadas por el servidor.
+  const ojo = setInterval(async () => {
+    try {
+      const p = await (await fetch(base() + '/clases/progreso/' + encodeURIComponent(cual))).json();
+      if (p.estado === 'trabajando') {
+        di('⏳ Cruzando… ' + p.porcentaje + '%  (parte ' + p.parte + ' de ' + p.total + ')', '#FACC15');
+        btn.textContent = '📊 Cruzando… ' + p.porcentaje + '%';
+      }
+    } catch (e) {}
+  }, 3000);
+
   const fd = new FormData();
   fd.append('pdf', f, f.name);
   try {
@@ -252,12 +268,17 @@ async function cruzar(f) {
     salida.textContent = d.guia;
     document.getElementById('tituloImpreso').textContent = d.fichero;
     di('✅ Guía de prioridades lista.\n' +
-       d.resaltados + ' cosas resaltadas encontradas en ' + d.paginas + ' páginas' +
+       d.resaltados + ' cosas resaltadas en ' + d.paginas + ' páginas, cruzadas con la clase en ' +
+       d.partes + ' partes' +
        (d.recortado ? ' (el PDF era muy largo y solo se han mirado las primeras).' : '.'),
        '#4ADE80');
     cargarLista();
   } catch (e) {
     di('❌ ' + e.message, '#F87171');
+  } finally {
+    clearInterval(ojo);
+    btn.textContent = '📊 Cruzar con las diapositivas (PDF)';
+    btn.disabled = false;
   }
   document.getElementById('pdf').value = '';
 }

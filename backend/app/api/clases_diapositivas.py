@@ -123,10 +123,30 @@ def extraer(datos: bytes, max_paginas: int = 120) -> dict:
     }
 
 
+# Primera pasada: se mira la clase por partes, y de cada parte solo se
+# saca lo observado, sin sacar conclusiones todavia. Sacar conclusiones
+# viendo un trozo suelto seria decidir con informacion incompleta -algo
+# que el profesor solo menciona en la ultima media hora parece irrelevante
+# si solo has visto la primera-.
+INSTRUCCION_PARTE = (
+    "Tienes la lista de lo que el profesor RESALTA en sus diapositivas, y "
+    "un TROZO de lo que dijo en clase. Tu tarea es solo observar, sin "
+    "concluir nada todavia.\n\n"
+    "Devuelve una lista corta con:\n"
+    "- Que conceptos de la lista de resaltados aparecen en este trozo, y si "
+    "el profesor los explica de pasada o se detiene en ellos.\n"
+    "- Que conceptos repite o insiste en este trozo AUNQUE no esten en la "
+    "lista de resaltados.\n"
+    "- Si dice expresamente que algo no entra o no lo va a preguntar.\n\n"
+    "Se breve: una linea por concepto. No inventes nada que no este en el "
+    "texto. Si en este trozo no aparece ninguno de los conceptos "
+    "resaltados, dilo en una linea y ya esta."
+)
+
+
 INSTRUCCION_CRUCE = (
-    "Tienes dos cosas de la MISMA clase de medicina: la transcripcion de lo "
-    "que el profesor dijo en voz alta, y lo que aparece RESALTADO en sus "
-    "diapositivas (negrita, color o letra grande).\n\n"
+    "Tienes lo que el profesor RESALTA en sus diapositivas, y las "
+    "observaciones recogidas al recorrer su clase por partes.\n\n"
     "Cruza las dos y devuelve una GUIA DE PRIORIDADES para estudiar, en tres "
     "apartados y en este orden:\n\n"
     "1. MUY PROBABLE QUE ENTRE — conceptos que el profesor resalta en las "

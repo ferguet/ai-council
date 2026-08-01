@@ -38,6 +38,16 @@ router = APIRouter(prefix="/clases", tags=["clases"])
 _PROVEEDOR_RESUMEN = "groq"
 _MODELO_RESUMEN = "llama-3.3-70b-versatile"
 
+# Para el cruce con las diapositivas, por orden de preferencia. Cerebras
+# va primero porque su nivel gratuito es mucho mas holgado por minuto y
+# ningun ciudadano de la Ciudad lo usa, asi que no compite por cuota con
+# nada mas del proyecto. Si no estuviera configurado, se cae a Groq.
+_PROVEEDORES_CRUCE = [
+    ("cerebras", "gpt-oss-120b"),
+    ("glm", "glm-4.7-flash"),
+    ("groq", "llama-3.3-70b-versatile"),
+]
+
 _INSTRUCCION_RESUMEN = (
     "Eres un asistente que convierte la transcripcion literal de una clase "
     "universitaria (medicina) en apuntes de estudio organizados. Sigue estas "
@@ -193,7 +203,12 @@ _LETRAS_POR_BLOQUE = 12000
 
 
 def _partir_texto(texto: str) -> list[str]:
+    return _partir_texto_a(texto, _LETRAS_POR_BLOQUE)
+
+
+def _partir_texto_a(texto: str, tope: int) -> list[str]:
     """Corta por parrafos, nunca a mitad de frase."""
+    _LETRAS_POR_BLOQUE = tope
     if len(texto) <= _LETRAS_POR_BLOQUE:
         return [texto]
     bloques, actual = [], ""
@@ -283,10 +298,18 @@ async def diapositivas(fichero: str, pdf: UploadFile = File(...)):
     """
     Cruza las diapositivas del profesor con lo que dijo en clase.
 
-    Se queda con lo que aparece RESALTADO en el PDF (negrita, color o
-    letra mas grande de lo normal en esa pagina) y lo compara con la
-    transcripcion. Lo que coincide en las dos señales es lo que de verdad
-    merece estudiarse primero; lo que solo esta en una, baja de prioridad.
+    SE HACE POR PARTES, Y NO POR CAPRICHO.
+
+    El primer intento mandaba las diapositivas enteras y la clase entera en
+    una sola peticion, y el proveedor lo rechazo: su plan gratuito admite
+    12.000 tokens por minuto y aquello pedia 17.000. Pero el limite solo
+    saco a la luz un problema que ya estaba ahi: meter cincuenta mil
+    caracteres de golpe da respuestas pobres, porque el modelo se queda con
+    lo general y pierde justo el detalle que se le esta pidiendo.
+
+    Asi que se recorre la clase por bloques, cruzando cada uno con lo
+    resaltado del PDF, y al final se junta todo en la guia de prioridades.
+    Ademas permite decir por donde va, que es lo que se pidio.
     """
     if "/" in fichero or "\\" in fichero:
         raise HTTPException(404, "No existe esa clase")
@@ -311,31 +334,68 @@ async def diapositivas(fichero: str, pdf: UploadFile = File(...)):
         )
 
     settings = get_settings()
-    proveedor = ProviderRegistry(settings).get(_PROVEEDOR_RESUMEN)
-    if not proveedor.is_configured():
-        raise HTTPException(500, f"El proveedor '{_PROVEEDOR_RESUMEN}' no está configurado")
+    registro = ProviderRegistry(settings)
 
-    resaltados = extraido["resaltados"]
-    entrada = (
-        "=== LO QUE EL PROFESOR RESALTA EN LAS DIAPOSITIVAS ===\n"
+    # Se prueba primero un proveedor con mas margen por minuto, y si no
+    # esta configurado se usa el de siempre. El limite de Groq (12.000
+    # tokens/minuto) es justo el que hizo fallar esto la primera vez.
+    proveedor = None
+    modelo = _MODELO_RESUMEN
+    for nombre_prov, nombre_mod in _PROVEEDORES_CRUCE:
+        p = registro.get(nombre_prov)
+        if p.is_configured():
+            proveedor, modelo = p, nombre_mod
+            break
+    if proveedor is None:
+        raise HTTPException(500, "No hay ningún proveedor de IA configurado")
+
+    # Lista de resaltados, recortada: es la parte que se repite en TODAS
+    # las peticiones, asi que cuanto mas corta, mas sitio queda para la
+    # clase en cada bloque.
+    resaltados = extraido["resaltados"][:120]
+    cabecera = (
+        "=== LO QUE EL PROFESOR RESALTA EN SUS DIAPOSITIVAS ===\n"
         + ("\n".join(f"- {r}" for r in resaltados) if resaltados
            else "(no se ha detectado nada resaltado en este PDF)")
-        + "\n\n=== TEXTO COMPLETO DE LAS DIAPOSITIVAS ===\n"
-        + extraido["texto"][:20000]
-        + "\n\n=== LO QUE DIJO EN CLASE ===\n"
-        + transcripcion[:30000]
     )
 
+    bloques = _partir_texto_a(transcripcion, 6000)
+    total = len(bloques) + 1  # +1 por la union final
+    _PROGRESO[fichero] = {"estado": "trabajando", "porcentaje": 0, "parte": 0, "total": total}
+
+    hallazgos: list[str] = []
     try:
+        for i, bloque in enumerate(bloques, start=1):
+            texto_ia = await proveedor.chat(
+                [
+                    ChatMessage(role="system", content=clases_diapositivas.INSTRUCCION_PARTE),
+                    ChatMessage(role="user", content=(
+                        f"{cabecera}\n\n=== PARTE {i} DE {len(bloques)} DE LA CLASE ===\n{bloque}"
+                    )),
+                ],
+                model=modelo, temperature=0.2,
+            )
+            hallazgos.append(texto_ia.strip())
+            _PROGRESO[fichero] = {
+                "estado": "trabajando", "porcentaje": int(i * 100 / total),
+                "parte": i, "total": total,
+            }
+
         guia = await proveedor.chat(
             [
                 ChatMessage(role="system", content=clases_diapositivas.INSTRUCCION_CRUCE),
-                ChatMessage(role="user", content=entrada),
+                ChatMessage(role="user", content=(
+                    cabecera + "\n\n=== LO OBSERVADO EN CADA PARTE DE LA CLASE ===\n"
+                    + "\n\n".join(hallazgos)
+                )),
             ],
-            model=_MODELO_RESUMEN, temperature=0.3,
+            model=modelo, temperature=0.3,
         )
     except ProviderError as e:
+        _PROGRESO[fichero] = {"estado": "error", "porcentaje": 0, "mensaje": str(e)}
         raise HTTPException(502, f"No se pudo cruzar: {e}")
+
+    _PROGRESO[fichero] = {"estado": "hecho", "porcentaje": 100, "parte": total, "total": total}
 
     nombre = fichero.rsplit(".", 1)[0] + "_prioridades.txt"
     await clases_store.guardar(nombre, guia)
@@ -346,6 +406,7 @@ async def diapositivas(fichero: str, pdf: UploadFile = File(...)):
         "resaltados": len(resaltados),
         "paginas": extraido["paginas"],
         "recortado": extraido["recortado"],
+        "partes": len(bloques),
     }
 
 
