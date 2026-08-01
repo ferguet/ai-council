@@ -69,7 +69,7 @@ services:
       # de respaldo. Subelo si ves que se queda corto, bajalo si un
       # proveedor sigue agotando su cuota real antes de llegar aqui.
       - key: PROVIDER_DAILY_SOFT_CAP
-        value: "150"
+        value: "600"
 
       # Busqueda web real para Gemini y Kimi en el Chat Grupal (las unicas
       # con esta capacidad de momento). Sin esto, siguen funcionando igual
@@ -93,7 +93,7 @@ services:
       - key: SIM_HOURS_PER_TICK
         value: "1"
       - key: SIM_REAL_AI_INTERVAL_MINUTES
-        value: "45"
+        value: "20"
       # Si nadie abre la Ciudad en estos minutos, los ciudadanos dejan de
       # pensar con IA real (el reloj y sus rutinas siguen: eso es gratis).
       # Era la mayor fuga de cuota: pensaban las 24 horas mirase alguien o

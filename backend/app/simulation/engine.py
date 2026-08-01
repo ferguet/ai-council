@@ -159,7 +159,10 @@ class SimulationEngine:
         self._usage.record_call(provider_name)
         try:
             text = await provider.chat(
-                prompt, model, temperature=temperature, max_tokens=180,
+                # Subido de 180 a 300 por el mismo motivo que _CHAT_MAX_TOKENS:
+                # un pensamiento cortado a la mitad cuesta lo mismo que uno
+                # entero y no aporta nada al historial de la ciudad.
+                prompt, model, temperature=temperature, max_tokens=300,
             )
         except ProviderError:
             self._breaker.record_failure(provider_name)
@@ -589,7 +592,45 @@ class SimulationEngine:
     def recent_events(self, limit: int = 50) -> list[dict]:
         return [self._event_payload(e) for e in self.world.recent_events(limit)]
 
+    # Cuanto historial viaja al navegador en la foto inicial. La vista de
+    # actividad ya solo pinta los 50 ultimos, y pensamientos/ideas/aula
+    # filtran sobre lo que haya: con 300 eventos van servidas de sobra. Sin
+    # este tope la foto crecia sin freno (nunca se borra un evento), y como
+    # se manda ENTERA en cada conexion, un movil reconectando se llevaba por
+    # delante el ancho de banda del mes. Ver _SNAPSHOT_* mas abajo.
+    _SNAPSHOT_MAX_EVENTS = 300
+    _SNAPSHOT_MAX_NEWS = 30
+    _SNAPSHOT_MAX_MEMORY = 10  # la ficha del ciudadano enseña las 5 ultimas
+    _SNAPSHOT_MAX_LOG = 10
+
     def snapshot(self) -> dict:
-        """Estado completo, listo para JSON (misma serializacion que se usa
-        para guardar a disco: ya no tiene enums ni datetimes sueltos)."""
-        return world_to_dict(self.world)
+        """Foto del mundo para MANDAR AL NAVEGADOR. Ojo: no es lo mismo que
+        lo que se guarda en disco.
+
+        world_to_dict() se usa tambien para persistir, y ahi hay que
+        guardarlo TODO. Aqui, en cambio, se recorta lo que el navegador no
+        necesita, porque esta foto se manda entera cada vez que alguien
+        abre la Ciudad o se le reconecta el WebSocket:
+
+        - system_prompt: es la personalidad de cada IA, texto largo (la
+          mitad del peso total) que el frontend no lee en ningun sitio.
+        - direct_messages: se piden aparte cuando se abre una conversacion
+          (/city/citizens/{a}/messages/{b}), no hacen falta de entrada.
+        - events/news/memory/log: solo lo reciente (ver _SNAPSHOT_MAX_*).
+
+        Nada de esto se pierde: sigue entero en el mundo y en disco.
+        """
+        data = world_to_dict(self.world)
+
+        data["events"] = data.get("events", [])[-self._SNAPSHOT_MAX_EVENTS:]
+        data["news"] = data.get("news", [])[-self._SNAPSHOT_MAX_NEWS:]
+        data["direct_messages"] = []
+
+        for citizen in data.get("citizens", {}).values():
+            citizen.pop("system_prompt", None)
+            citizen["memory"] = citizen.get("memory", [])[-self._SNAPSHOT_MAX_MEMORY:]
+
+        for project in data.get("projects", {}).values():
+            project["log"] = project.get("log", [])[-self._SNAPSHOT_MAX_LOG:]
+
+        return data

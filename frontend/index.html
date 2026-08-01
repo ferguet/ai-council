@@ -381,14 +381,39 @@ function renderRooms(){
 }
 
 /* ---------------- WebSocket ---------------- */
+let reintentoMs = 3000;
+let reconexionPendiente = null;
+
+/* Al volver a mirar la pagina, reconectar ya (sin esperar el rato largo). */
+document.addEventListener("visibilitychange", ()=>{
+  if(document.hidden) return;
+  if(ws && ws.readyState===WebSocket.OPEN) return;
+  if(!currentRoomId) return;
+  if(reconexionPendiente){ clearTimeout(reconexionPendiente); reconexionPendiente=null; }
+  reintentoMs = 3000;
+  connect(currentRoomId);
+});
+
 function connect(id){
   if(ws){ try{ ws.onclose=null; ws.close(); }catch(e){} }
   snapshot = null; typingId = null;
   document.getElementById("messages").innerHTML = '<div class="empty">Cargando la sala…</div>';
   document.getElementById("typingBar").textContent = "";
   ws = new WebSocket(wsUrl(id));
-  ws.onopen = ()=>setConn(true);
-  ws.onclose = ()=>{ setConn(false); setTimeout(()=>{ if(currentRoomId===id) connect(id); }, 3000); };
+  ws.onopen = ()=>{ setConn(true); reintentoMs=3000; };  // conexion buena: se reinicia la espera
+  // Espera creciente en vez de machacar cada 3s: al conectar, el servidor
+  // manda la sala entera, y reintentar sin freno con mala cobertura (o con
+  // la pestana olvidada abierta) se come el ancho de banda del mes.
+  ws.onclose = ()=>{
+    setConn(false);
+    if(reconexionPendiente) return;
+    if(document.hidden) return;  // nadie mirando: al volver se reconecta
+    reconexionPendiente = setTimeout(()=>{
+      reconexionPendiente = null;
+      if(currentRoomId===id) connect(id);
+    }, reintentoMs);
+    reintentoMs = Math.min(reintentoMs*2, 60000);
+  };
   ws.onerror = ()=>setConn(false);
   ws.onmessage = e=>handleMessage(JSON.parse(e.data));
 }

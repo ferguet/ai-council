@@ -5,11 +5,13 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.agents.presets import ROLE_PRESETS
 from app.api.city import router as city_router
+from app.api.clases import router as clases_router
 from app.api.conversation import router as conversation_router
 from app.api.guardian import router as guardian_router
 from app.api.uso import router as uso_router
@@ -39,6 +41,18 @@ app = FastAPI(
 )
 
 settings = get_settings()
+
+# Comprimir todo lo que salga por HTTP. El HTML y el JSON de esta app son
+# texto muy repetitivo y encogen alrededor de un 80%: city.html pasa de
+# ~60 KB a ~12 KB, y /city/state de decenas de KB a unos pocos. Render
+# cobra por ancho de banda de salida (5 GB al mes en el plan gratuito, que
+# se agotaron el 26/07 y suspendieron el servicio), asi que esto es de lo
+# mas barato que se puede hacer: una linea, sin tocar nada del frontend,
+# porque los navegadores descomprimen solos.
+# OJO: esto NO comprime el WebSocket, que va por otro camino; para eso
+# esta el recorte de SimulationEngine.snapshot().
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -52,6 +66,7 @@ app.include_router(city_router)
 app.include_router(conversation_router)
 app.include_router(guardian_router)
 app.include_router(uso_router)
+app.include_router(clases_router)
 
 
 def _refresh_personalities(world) -> None:

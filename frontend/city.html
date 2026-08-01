@@ -507,13 +507,45 @@ let seenThoughts=0, thoughtsViewed=0;
 function wsUrl(){
   return (location.protocol==="https:"?"wss://":"ws://")+(window.AI_COUNCIL_HOST||location.host||"localhost:8000")+"/ws/city"+AIAccess.wsParam();
 }
+/* Reconexion con espera creciente.
+
+   Antes esto reintentaba cada 3 segundos para siempre. Como el servidor
+   manda la foto entera de la ciudad en CADA conexion, un movil con mala
+   cobertura -o una pestana olvidada abierta toda la noche- se descargaba
+   esa foto una y otra vez y se comia el ancho de banda del mes (fue lo
+   que tumbo el servicio el 26/07). Ahora la espera se va doblando hasta
+   un minuto, y ademas no se reintenta con la pagina en segundo plano:
+   si nadie la esta mirando, no hay ninguna prisa por reconectar. */
+let reintentoMs=3000;
+const REINTENTO_MAX=60000;
+let reconexionPendiente=null;
+
+function programarReconexion(){
+  if(reconexionPendiente) return;            // ya hay una en cola
+  if(document.hidden){ return; }             // pestana de fondo: al volver se reconecta (ver visibilitychange)
+  reconexionPendiente=setTimeout(()=>{
+    reconexionPendiente=null;
+    connect();
+  }, reintentoMs);
+  reintentoMs=Math.min(reintentoMs*2, REINTENTO_MAX);
+}
+
 function connect(){
   ws=new WebSocket(wsUrl());
-  ws.onopen=()=>setConn(true);
-  ws.onclose=()=>{ setConn(false); setTimeout(connect,3000); };
+  ws.onopen=()=>{ setConn(true); reintentoMs=3000; };  // conexion buena: se reinicia la espera
+  ws.onclose=()=>{ setConn(false); programarReconexion(); };
   ws.onerror=()=>setConn(false);
   ws.onmessage=e=>handleMessage(JSON.parse(e.data));
 }
+
+/* Al volver a mirar la pagina, reconectar ya (sin esperar el rato largo). */
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden) return;
+  if(ws && ws.readyState===WebSocket.OPEN) return;
+  if(reconexionPendiente){ clearTimeout(reconexionPendiente); reconexionPendiente=null; }
+  reintentoMs=3000;
+  connect();
+});
 function setConn(live){
   const el=document.getElementById("connLabel");
   el.className="conn "+(live?"live":"down");

@@ -66,6 +66,42 @@
      --------------------------------------------------------------- */
   var GUION = [
 
+    /* Probado contra la web real (27/07/2026): antes de llegar a
+       identificarse hay DOS pantallas de elegir opcion (que tramite
+       quieres, y que tipo de vehiculo) que no estaban previstas. Sin
+       estos dos pasos la guia solo señalaba el boton "Siguiente" sin
+       decir que casilla marcar antes, y la persona se quedaba sin
+       saber que elegir. Mantener igual que la copia local del apk. */
+    { id: 'tramite',
+      buscar: function () {
+        if (!/qu[eé] es lo que quieres hacer con el veh[ií]culo/i.test(textoPagina())) return null;
+        var radios = [].slice.call(document.querySelectorAll('input[type=radio]'));
+        for (var i = 0; i < radios.length; i++) {
+          var r = radios[i];
+          if (!visible(r) || r.checked) continue;
+          var etiqueta = limpio((r.parentElement || {}).textContent || '');
+          if (/baja temporal de un veh[ií]culo y pr[oó]rroga/i.test(etiqueta)) return r;
+        }
+        return null;
+      },
+      corto: 'Elija esta opción',
+      voz: 'Le preguntan qué quiere hacer con el vehículo. Toque la opción que dice "Baja temporal de un vehículo y prórroga de baja", que es la que necesita para dejar de circular con él una temporada.' },
+
+    { id: 'modalidad',
+      buscar: function () {
+        if (!/elige el tipo de veh[ií]culo del que quieras realizar la baja temporal/i.test(textoPagina())) return null;
+        var radios = [].slice.call(document.querySelectorAll('input[type=radio]'));
+        for (var i = 0; i < radios.length; i++) {
+          var r = radios[i];
+          if (!visible(r) || r.checked) continue;
+          var etiqueta = limpio((r.parentElement || {}).textContent || '');
+          if (/coche, moto/i.test(etiqueta)) return r;
+        }
+        return null;
+      },
+      corto: 'Su tipo de vehículo',
+      voz: 'Ahora preguntan qué tipo de vehículo es. Si tiene un coche o una moto normal, toque la primera opción, la que dice "Para un coche, moto u otro vehículo".' },
+
     { id: 'identificarse',
       buscar: function () {
         // Solo tiene sentido este aviso si TODAVIA no hay una matricula

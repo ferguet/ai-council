@@ -88,8 +88,14 @@ _PREFIX_RE = re.compile(r"^(\[[^\[\]]{1,40}\]:\s*)+")
 # chat de verdad (1-4 frases), no ensayos. Antes solo se lo pedíamos en el
 # prompt, pero varios modelos lo ignoraban y soltaban párrafos largos; con
 # esto se corta la respuesta de raíz (más barato en cuota Y más corto de leer).
-# 220 tokens da margen de sobra para 4 frases largas sin cortar a media frase.
-_CHAT_MAX_TOKENS = 220
+#
+# Estuvo en 220 mientras el proyecto vivía en Render con la cuota justa, pero
+# se veía: las respuestas se cortaban a media frase ("Te leo perfectamente,
+# Fran, y"). Un mensaje truncado gasta la MISMA cuota que uno entero y encima
+# no sirve, así que apretar tanto salía caro de verdad. 400 deja terminar la
+# idea sin abrir la puerta a los ensayos de tres párrafos que dábamos por
+# zanjados; el límite de brevedad sigue pedido en el prompt.
+_CHAT_MAX_TOKENS = 400
 
 
 class ConversationEngine:

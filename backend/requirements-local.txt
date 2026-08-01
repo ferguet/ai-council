@@ -1,0 +1,16 @@
+# Igual que requirements.txt pero SIN versiones clavadas, para poder
+# correr en el Python que haya instalado en el PC de casa (3.14 en el
+# de Fran). Render sigue usando requirements.txt con las versiones
+# exactas: esto es solo para el arranque local.
+fastapi
+uvicorn[standard]
+websockets
+httpx
+pydantic
+pydantic-settings
+python-dotenv
+asyncpg
+python-multipart
+pypdf
+python-docx
+openpyxl
