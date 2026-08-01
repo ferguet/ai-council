@@ -24,8 +24,74 @@ import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.core.config import get_settings
+from app.providers.base import ChatMessage, ProviderError
+from app.providers.registry import ProviderRegistry
 
 router = APIRouter(prefix="/clases", tags=["clases"])
+
+# Mismo proveedor que la transcripcion (Groq), y mismo motivo: la clave ya
+# esta configurada para el ciudadano "groq" de la Ciudad, sin cuenta nueva
+# que crear. Es trabajo mecanico -condensar un texto largo en apuntes
+# organizados-, asi que no hace falta un modelo caro para hacerlo bien.
+_PROVEEDOR_RESUMEN = "groq"
+_MODELO_RESUMEN = "llama-3.3-70b-versatile"
+
+_INSTRUCCION_RESUMEN = (
+    "Eres un asistente que convierte la transcripcion literal de una clase "
+    "universitaria (medicina) en apuntes de estudio organizados. Sigue estas "
+    "reglas:\n"
+    "1. Organiza por temas o conceptos, con un titulo corto por bloque.\n"
+    "2. Para cada concepto, redacta la explicacion en un parrafo claro, no "
+    "solo palabras sueltas: alguien que no fue a la clase tiene que poder "
+    "entenderlo.\n"
+    "3. Si el profesor dice explicitamente que algo 'no entra' o 'no lo va a "
+    "preguntar', escribe ese aviso en una linea aparte que empiece por "
+    "'NO ENTRA:' justo debajo del concepto correspondiente.\n"
+    "4. Si el profesor repite una idea varias veces o le dedica mucho "
+    "tiempo, añade al final del bloque la etiqueta '(insistido)'.\n"
+    "5. No inventes nada que no este en la transcripcion. Si una parte del "
+    "audio no se entiende bien, dilo en vez de rellenar con suposiciones.\n"
+    "6. Al final, añade un apartado 'REPASO RAPIDO' con las 3-5 ideas mas "
+    "importantes de toda la clase, una linea cada una."
+)
+
+
+@router.post("/resumir/{fichero}")
+async def resumir(fichero: str):
+    """
+    Coge una transcripcion ya guardada y le pide a una IA que la convierta
+    en apuntes organizados. Se guarda junto al original, con el mismo
+    nombre y sufijo "_resumen", para no perder ni la transcripcion literal
+    ni el resumen si hay que volver a mirar el audio original de alguna
+    frase concreta.
+    """
+    ruta = _CARPETA / fichero
+    if "/" in fichero or "\\" in fichero or not ruta.is_file():
+        raise HTTPException(404, "No existe esa clase")
+
+    texto = ruta.read_text(encoding="utf-8")
+    if len(texto.strip()) < 20:
+        raise HTTPException(400, "La transcripción está casi vacía, no hay nada que resumir")
+
+    settings = get_settings()
+    registro = ProviderRegistry(settings)
+    proveedor = registro.get(_PROVEEDOR_RESUMEN)
+    if not proveedor.is_configured():
+        raise HTTPException(500, f"El proveedor '{_PROVEEDOR_RESUMEN}' no está configurado")
+
+    mensajes = [
+        ChatMessage(role="system", content=_INSTRUCCION_RESUMEN),
+        ChatMessage(role="user", content=texto),
+    ]
+    try:
+        resumen = await proveedor.chat(mensajes, model=_MODELO_RESUMEN, temperature=0.3)
+    except ProviderError as e:
+        raise HTTPException(502, f"No se pudo generar el resumen: {e}")
+
+    nombre_resumen = fichero.rsplit(".", 1)[0] + "_resumen.txt"
+    (_CARPETA / nombre_resumen).write_text(resumen, encoding="utf-8")
+
+    return {"resumen": resumen, "fichero": nombre_resumen}
 
 _GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 # whisper-large-v3-turbo: la version rapida y barata de Whisper en Groq.
