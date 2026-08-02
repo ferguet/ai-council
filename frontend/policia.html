@@ -318,6 +318,42 @@ async function enviar(blob, nombre) {
 // ---------- fotos de daños ----------
 let fotosElegidas = [];
 
+// REDUCIR LA FOTO ANTES DE SUBIRLA.
+//
+// Una foto de movil son 3-5 MB. Seis son treinta megas entrando de golpe
+// en un servidor gratuito de 512 MB de memoria, y ahi se atraganta: deja
+// de responder a todo, no solo a las fotos. Ademas, subir treinta megas
+// por datos moviles desde la calle es lento y caro.
+//
+// A 1600 pixeles de lado mayor un desperfecto se sigue apreciando
+// perfectamente -que es para lo unico que se usa la imagen aqui- y la
+// foto baja a unos 300 KB.
+const LADO_MAXIMO = 1600;
+
+function reducir(fichero) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width: an, height: al } = img;
+      if (Math.max(an, al) > LADO_MAXIMO) {
+        const f = LADO_MAXIMO / Math.max(an, al);
+        an = Math.round(an * f); al = Math.round(al * f);
+      }
+      const cv = document.createElement('canvas');
+      cv.width = an; cv.height = al;
+      cv.getContext('2d').drawImage(img, 0, 0, an, al);
+      cv.toBlob(b => {
+        URL.revokeObjectURL(img.src);
+        // Si por lo que sea no se pudo reducir, se manda la original:
+        // mejor una foto pesada que ninguna.
+        resolve(b || fichero);
+      }, 'image/jpeg', 0.82);
+    };
+    img.onerror = () => resolve(fichero);
+    img.src = URL.createObjectURL(fichero);
+  });
+}
+
 function elegirFotos(lista) {
   fotosElegidas = Array.from(lista);
   const c = document.getElementById('miniaturas');
@@ -344,7 +380,13 @@ async function describir() {
   di('estadoFotos', '⏳ Describiendo lo que se aprecia en las fotos…', '#FACC15');
 
   const fd = new FormData();
-  fotosElegidas.slice(0,6).forEach(f => fd.append('fotos', f, f.name || 'foto.jpg'));
+  let bytes = 0;
+  for (const f of fotosElegidas.slice(0, 6)) {
+    const chica = await reducir(f);
+    bytes += chica.size;
+    fd.append('fotos', chica, (f.name || 'foto') + '.jpg');
+  }
+  di('estadoFotos', '⏳ Enviando ' + Math.round(bytes/1024) + ' KB y describiendo…', '#FACC15');
   try {
     const r = await fetch(base() + '/policia/danos', { method:'POST', body: fd });
     const d = await r.json();

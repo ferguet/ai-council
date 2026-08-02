@@ -82,6 +82,10 @@ _PROVEEDORES_VISION = [
 # de daños normal y el gasto queda acotado.
 _MAX_FOTOS = 6
 
+# Tope por foto. La pagina ya las reduce a ~300 KB antes de subirlas;
+# esto es la red de seguridad por si llegan sin reducir.
+_MAX_BYTES_FOTO = 3 * 1024 * 1024
+
 # Cuanto se espera COMO MUCHO a cada proveedor.
 #
 # Los proveedores traen 60s por dentro. Con cinco en la lista, el peor
@@ -495,6 +499,20 @@ async def danos(fotos: list[UploadFile] = File(...)):
         datos = await foto.read()
         if not datos:
             fallos.append(f"Foto {i}: llegó vacía.")
+            continue
+        # TOPE DE TAMAÑO, AUNQUE LA PAGINA YA REDUZCA.
+        #
+        # La pagina encoge las fotos antes de mandarlas, pero el servidor
+        # no puede dar eso por hecho: basta con que alguien llame a esta
+        # ruta desde otro sitio. Varias fotos de 5 MB en una instancia de
+        # 512 MB de memoria la dejan sin responder a NADA, no solo a las
+        # fotos -y un servidor caido por una foto grande es un fallo muy
+        # caro comparado con rechazarla aqui-.
+        if len(datos) > _MAX_BYTES_FOTO:
+            fallos.append(
+                f"Foto {i}: pesa {len(datos)//1024} KB y el tope son "
+                f"{_MAX_BYTES_FOTO//1024} KB. No se ha mirado."
+            )
             continue
 
         b64 = base64.b64encode(datos).decode("ascii")
