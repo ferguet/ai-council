@@ -21,6 +21,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Redacción de documentos</title>
+<!-- Para poder instalarlo en la pantalla de inicio del movil como una
+     app mas. No es un APK: es la misma pagina, pero con icono propio y
+     a pantalla completa. Ventaja de hacerlo asi: se actualiza sola, sin
+     recompilar ni reinstalar nada cuando cambiemos algo. -->
+<link rel="manifest" href="policia.webmanifest">
+<meta name="theme-color" content="#0F1620">
+<link rel="apple-touch-icon" href="policia-192.png">
 <style>
   :root { --fondo:#0F1620; --panel:#1A2331; --texto:#E7ECF3; --suave:#9AA4B2; --linea:#2A3648; }
   * { box-sizing:border-box; }
@@ -99,7 +106,26 @@
   </div>
 
   <div class="panel">
-    <div class="et"><span class="paso">3</span> Redactar</div>
+    <div class="et"><span class="paso">3</span> Fotos de los daños <span style="text-transform:none;letter-spacing:0">(opcional)</span></div>
+    <!-- capture=environment: en el movil abre directamente la camara
+         trasera, que es lo que hace falta cuando se esta delante de los
+         daños. En el ordenador se comporta como un selector normal. -->
+    <button class="azul" onclick="document.getElementById('fotos').click()">📷 Añadir fotos</button>
+    <input type="file" id="fotos" accept="image/*" capture="environment" multiple
+           style="display:none" onchange="elegirFotos(this.files)">
+    <button class="gris" id="btnDescribir" onclick="describir()" disabled>🔍 Describir los daños</button>
+    <div id="miniaturas" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"></div>
+    <div class="estado" id="estadoFotos"></div>
+    <div style="margin-top:12px" id="cajaDanos" hidden>
+      <label style="font-size:12px;color:#7E8AA0;display:block;margin-bottom:6px">
+        DAÑOS APRECIADOS — corrija lo que haga falta antes de redactar
+      </label>
+      <textarea id="danos" rows="6"></textarea>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="et"><span class="paso">4</span> Redactar</div>
     <button class="morado" id="btnRedactar" onclick="redactar()" disabled>✍️ Redactar el documento</button>
     <div class="estado" id="estadoRedaccion"></div>
   </div>
@@ -124,9 +150,55 @@
     <b>Las fórmulas legales no las escribe la IA.</b> La advertencia de los artículos
     433 LECrim y 456/457/458 CP se inserta literal desde plantilla.
   </div>
+
+  <div class="nota" style="border-left-color:#1D4ED8" id="avisoInstalar" hidden>
+    <b>📲 Puede tenerlo como app en el móvil.</b> Abra esta página en el móvil,
+    menú del navegador → <b>«Añadir a pantalla de inicio»</b> o <b>«Instalar»</b>.
+    Queda con icono propio y a pantalla completa. No es un APK: es esta misma
+    página, así que se actualiza sola.
+  </div>
 </div>
 
 <script>
+// Sin service worker registrado, Android no ofrece "instalar" y solo deja
+// un acceso directo del navegador. Con el, sale el icono de verdad y
+// abre a pantalla completa, sin barra de direcciones.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// El aviso de "puede instalarlo" solo se enseña si de verdad se puede:
+// en un ordenador de sobremesa no viene a cuento, y un consejo que no
+// aplica solo estorba. Si el navegador ofrece instalar, se pone además
+// un botón que lo hace en un toque.
+let peticionInstalar = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  peticionInstalar = e;
+  const aviso = document.getElementById('avisoInstalar');
+  aviso.hidden = false;
+  const b = document.createElement('button');
+  b.className = 'azul';
+  b.textContent = '📲 Instalar en este dispositivo';
+  b.style.marginTop = '10px';
+  b.onclick = async () => {
+    if (!peticionInstalar) return;
+    peticionInstalar.prompt();
+    await peticionInstalar.userChoice;
+    peticionInstalar = null;
+    b.remove();
+  };
+  aviso.appendChild(document.createElement('br'));
+  aviso.appendChild(b);
+});
+// En iPhone no existe beforeinstallprompt, pero sí se puede añadir a
+// inicio a mano: ahí el texto explicativo sigue haciendo falta.
+if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('avisoInstalar').hidden = false;
+  });
+}
+
 const campoServidor = document.getElementById('servidor');
 campoServidor.value = localStorage.getItem('policia_servidor') || window.location.origin;
 function base() {
@@ -243,6 +315,55 @@ async function enviar(blob, nombre) {
   }
 }
 
+// ---------- fotos de daños ----------
+let fotosElegidas = [];
+
+function elegirFotos(lista) {
+  fotosElegidas = Array.from(lista);
+  const c = document.getElementById('miniaturas');
+  c.innerHTML = '';
+  fotosElegidas.forEach(f => {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(f);
+    img.style.cssText = 'width:74px;height:74px;object-fit:cover;border-radius:8px';
+    c.appendChild(img);
+  });
+  document.getElementById('btnDescribir').disabled = fotosElegidas.length === 0;
+  di('estadoFotos', fotosElegidas.length
+      ? fotosElegidas.length + ' foto(s) preparada(s). Se describen las 6 primeras.'
+      : '');
+}
+
+async function describir() {
+  if (!fotosElegidas.length) return;
+  const b = document.getElementById('btnDescribir');
+  b.disabled = true;
+  const orig = b.textContent;
+  let p = 0;
+  const late = setInterval(() => { p=(p+1)%4; b.textContent = '⏳ Mirando' + '.'.repeat(p); }, 600);
+  di('estadoFotos', '⏳ Describiendo lo que se aprecia en las fotos…', '#FACC15');
+
+  const fd = new FormData();
+  fotosElegidas.slice(0,6).forEach(f => fd.append('fotos', f, f.name || 'foto.jpg'));
+  try {
+    const r = await fetch(base() + '/policia/danos', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    document.getElementById('cajaDanos').hidden = false;
+    document.getElementById('danos').value = d.descripcion;
+    let msg = '✅ Descritas ' + d.descritas + ' de ' + d.recibidas + ' fotos.';
+    if (d.fallos && d.fallos.length) msg += '\n' + d.fallos.join('\n');
+    msg += '\nRevise el texto: describe lo que se ve, no cómo ocurrió.';
+    di('estadoFotos', msg, '#4ADE80');
+  } catch (e) {
+    di('estadoFotos', '❌ ' + e.message, '#F87171');
+  } finally {
+    clearInterval(late);
+    b.textContent = orig;
+    b.disabled = false;
+  }
+}
+
 // ---------- redactar ----------
 async function redactar() {
   const dictado = document.getElementById('dictado').value.trim();
@@ -259,6 +380,7 @@ async function redactar() {
   const fd = new FormData();
   fd.append('tipo', tipo);
   fd.append('dictado', dictado);
+  fd.append('danos', document.getElementById('danos').value || '');
   ['localidad','hora','minutos','dia','mes','anio','agentes','indicativo','origen'].forEach(k => {
     const el = document.getElementById('f-' + k);
     if (el) fd.append(k, el.value);

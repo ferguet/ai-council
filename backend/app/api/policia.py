@@ -37,6 +37,7 @@ implementacion: es la primera pregunta.
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -68,6 +69,18 @@ _PROVEEDORES = [
     ("glm", "glm-4.7-flash"),
     ("cerebras", "gpt-oss-120b"),
 ]
+
+# Para leer fotos hace falta un proveedor con vision de verdad. En este
+# proyecto solo Gemini la tiene implementada (ver gemini_provider.py).
+_PROVEEDORES_VISION = [
+    ("gemini2", "gemini-3.6-flash"),
+    ("gemini", "gemini-3.6-flash"),
+]
+
+# Tope de fotos por peticion. Cada foto es una llamada a la IA, asi que
+# veinte fotos son veinte llamadas. Con seis se cubre de sobra un parte
+# de daños normal y el gasto queda acotado.
+_MAX_FOTOS = 6
 
 # Cuanto se espera COMO MUCHO a cada proveedor.
 #
@@ -290,6 +303,7 @@ async def dictar(audio: UploadFile = File(...)):
 async def redactar(
     tipo: str = Form(...),
     dictado: str = Form(...),
+    danos: str = Form(""),
     localidad: str = Form(""),
     hora: str = Form(""),
     minutos: str = Form(""),
@@ -321,9 +335,24 @@ async def redactar(
             contexto = ("=== DATOS DEL SERVICIO (úsalos si encajan en el relato) ===\n"
                         + "\n".join(datos) + "\n\n")
 
+    entrada = contexto + "=== DICTADO DEL AGENTE ===\n" + dictado[:20000]
+    if danos.strip():
+        # Los daños entran como material APARTE, y con instrucción propia:
+        # es lo que se ve en unas fotos, no lo que ha dictado el agente.
+        # Mezclarlo sin más haría que el relato diera por presenciado lo
+        # que en realidad consta por una imagen.
+        entrada += (
+            "\n\n=== DAÑOS APRECIADOS EN EL REPORTAJE FOTOGRÁFICO ===\n"
+            + danos.strip()[:6000]
+            + "\n\n(Integra esta descripción en el relato como lo que es: "
+              "los desperfectos que se aprecian en las fotografías tomadas "
+              "por la dotación. No la copies literal, redáctala dentro del "
+              "texto, y no añadas causas ni responsables que no consten.)"
+        )
+
     cuerpo = await _pedir_a_la_ia(registro, [
         ChatMessage(role="system", content=_INSTRUCCIONES[tipo]),
-        ChatMessage(role="user", content=contexto + "=== DICTADO DEL AGENTE ===\n" + dictado[:20000]),
+        ChatMessage(role="user", content=entrada),
     ])
     cuerpo = cuerpo.strip()
 
@@ -402,6 +431,120 @@ async def calificar(relato: str = Form(...)):
     ], temperatura=0.1)
 
     return {"calificacion": texto.strip()}
+
+
+# =====================================================================
+# DESCRIBIR DAÑOS A PARTIR DE FOTOS
+# =====================================================================
+_INSTRUCCION_DANOS = (
+    "Eres un apoyo para un agente de Policía Nacional que documenta unos "
+    "daños. Te da una fotografía y describes ÚNICAMENTE los desperfectos "
+    "que se aprecian en ella, en el registro de un documento policial.\n\n"
+
+    "=== DESCRIBE SOLO LO QUE SE VE ===\n"
+    "Nada de deducir cómo se produjo el daño. No escribas que algo «fue "
+    "golpeado», «fue forzado» o «presenta signos de haber sido»: eso es "
+    "una conclusión sobre la causa, y tú solo ves el resultado. Describe "
+    "el estado: qué elemento es, qué le pasa, dónde y qué extensión "
+    "aparente tiene.\n\n"
+    "  MAL:  «El cristal fue roto de una pedrada.»\n"
+    "  BIEN: «Se aprecia el cristal de la puerta fracturado, con un "
+    "orificio de unos 10 centímetros en su tercio inferior y grietas "
+    "que irradian hacia los extremos.»\n\n"
+
+    "=== NO IDENTIFIQUES A NADIE NI NADA ===\n"
+    "Si en la foto aparecen personas, NO las describas: ni rasgos, ni "
+    "ropa, ni nada. Si aparecen matrículas, documentos, pantallas con "
+    "datos o cualquier dato personal, NO los transcribas. Limítate a los "
+    "desperfectos. Si el daño está en un vehículo, di la parte del "
+    "vehículo afectada, no su matrícula.\n\n"
+
+    "=== SÉ HONESTO CON LO QUE NO SE APRECIA ===\n"
+    "Si la foto está movida, oscura, o el daño no se distingue bien, "
+    "dilo con esas palabras. Si no puedes apreciar la profundidad o la "
+    "extensión real, dilo. Las medidas que des son aproximadas y por "
+    "referencia visual: escríbelo así («aproximadamente», «en torno a»). "
+    "Nunca des una medida como si estuviera tomada.\n"
+    "Si en la imagen no se aprecia ningún desperfecto, dilo y ya está: "
+    "no busques uno para rellenar.\n\n"
+
+    "=== FORMA ===\n"
+    "Uno o dos párrafos, impersonal («se aprecia», «se observa»), sin "
+    "adjetivos valorativos ni cálculos de lo que costaría repararlo."
+)
+
+
+@router.post("/danos")
+async def danos(fotos: list[UploadFile] = File(...)):
+    """
+    Describe los desperfectos visibles en una o varias fotos.
+
+    El resultado NO se mete solo en el documento: sale en un cuadro que
+    el agente lee y corrige antes de nada. Una descripción de daños es
+    algo que acaba en un atestado, y quien responde de ella es quien
+    firma, no el modelo que la escribió.
+    """
+    if not fotos:
+        raise HTTPException(400, "No ha llegado ninguna foto")
+
+    registro = ProviderRegistry(get_settings())
+    descripciones: list[str] = []
+    fallos: list[str] = []
+
+    for i, foto in enumerate(fotos[:_MAX_FOTOS], start=1):
+        datos = await foto.read()
+        if not datos:
+            fallos.append(f"Foto {i}: llegó vacía.")
+            continue
+
+        b64 = base64.b64encode(datos).decode("ascii")
+        mime = foto.content_type or "image/jpeg"
+        texto = None
+        motivo = None
+
+        for nombre_prov, nombre_mod in _PROVEEDORES_VISION:
+            try:
+                proveedor = registro.get(nombre_prov)
+            except KeyError:
+                continue
+            if not proveedor.is_configured():
+                continue
+            try:
+                texto = await asyncio.wait_for(
+                    proveedor.chat(
+                        [ChatMessage(role="user", content=_INSTRUCCION_DANOS,
+                                     image_base64=b64, image_mime=mime)],
+                        model=nombre_mod, temperature=0.1,
+                    ),
+                    timeout=_ESPERA_POR_PROVEEDOR,
+                )
+                break
+            except asyncio.TimeoutError:
+                motivo = f"{nombre_prov} no contestó en {int(_ESPERA_POR_PROVEEDOR)}s"
+            except Exception as e:
+                motivo = f"{nombre_prov}: {type(e).__name__} {e}"
+
+        if texto and texto.strip():
+            descripciones.append(f"Fotografía {i}: {texto.strip()}")
+        else:
+            fallos.append(f"Foto {i}: no se pudo describir ({motivo or 'sin proveedor con visión'}).")
+
+    if not descripciones and fallos:
+        raise HTTPException(502, "No se pudo describir ninguna foto:\n" + "\n".join(fallos))
+
+    # Se dice cuantas se han mirado y cuantas se han quedado fuera: si
+    # alguien sube diez fotos y solo se procesan seis, tiene que verlo.
+    aviso = ""
+    if len(fotos) > _MAX_FOTOS:
+        aviso = (f"\n\n[Se han descrito las {_MAX_FOTOS} primeras fotos de las "
+                 f"{len(fotos)} aportadas. Las demás no se han mirado.]")
+
+    return {
+        "descripcion": "\n\n".join(descripciones) + aviso,
+        "descritas": len(descripciones),
+        "recibidas": len(fotos),
+        "fallos": fallos,
+    }
 
 
 @router.get("/campos/{tipo}")

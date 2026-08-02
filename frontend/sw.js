@@ -2,8 +2,10 @@
    rapido cacheando el "cascaron". Los datos de la ciudad (WebSocket y API)
    nunca se cachean: siempre van en directo al servidor para ver el estado
    real. */
-const CACHE = "ciudad-ia-v3";
-const SHELL = ["index.html", "city.html", "debate.html", "access.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const CACHE = "ciudad-ia-v4";
+const SHELL = ["index.html", "city.html", "debate.html", "access.js", "manifest.webmanifest", "icon-192.png", "icon-512.png",
+               "policia.html", "policia.webmanifest", "policia-192.png", "policia-512.png",
+               "clases.html"];
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
@@ -20,10 +22,15 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   // Nunca cachear API ni websockets: siempre en vivo.
+  // /policia y /clases NUNCA se cachean. Son documentos de trabajo: leer
+  // una version guardada de hace dos dias y creer que es la de hoy seria
+  // mucho peor que no poder abrirlo.
   if (e.request.method !== "GET" || url.pathname.startsWith("/city") ||
       url.pathname.startsWith("/conversations") ||
       url.pathname.startsWith("/ws") || url.pathname.startsWith("/providers") ||
-      url.pathname.startsWith("/health") || url.pathname.startsWith("/access")) {
+      url.pathname.startsWith("/health") || url.pathname.startsWith("/access") ||
+      url.pathname.startsWith("/policia/") || url.pathname.startsWith("/clases/") ||
+      url.pathname.startsWith("/guardian")) {
     return; // deja pasar a la red normal
   }
   // Cascaron: network-first con recaida a cache (para que actualice al desplegar).
