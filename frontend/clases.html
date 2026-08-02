@@ -338,12 +338,21 @@ async function preguntas(f) {
                           { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
-    salida.textContent = d.preguntas;
+    // LA FUENTE DENTRO DEL TEXTO, NO SOLO EN EL AVISO DE ARRIBA.
+    //
+    // Antes "Basado en: ..." solo salia en el aviso de estado, que se
+    // borra en cuanto se hace otra cosa y no viaja si se copia, se
+    // descarga o se imprime -que es para lo que sirve este boton-. Y la
+    // IA, al escribir sus preguntas, no siempre se acordaba de mencionar
+    // que tenia un examen real delante: podia abrir con "basadas en la
+    // clase" aunque tambien hubiera un PDF de examenes leido. Ahora el
+    // servidor manda una cabecera fija que no depende de la IA, y va
+    // DENTRO del texto como primera linea: se copia, se imprime y se
+    // guarda siempre junto con las preguntas.
+    salida.textContent = (d.cabecera ? d.cabecera + '\n\n' : '') + d.preguntas;
     pintarCabecera(d.fichero);
-    let msg = '✅ Preguntas listas.\nBasadas en: ' + d.origen;
-    if (d.fuentes && d.fuentes.length)
-      msg += '\nFuentes:\n' + d.fuentes.map(x => '· ' + x.titulo + '\n  ' + x.url).join('\n');
-    if (d.diario && d.diario.length) msg += '\n\n' + d.diario.join('\n');
+    let msg = '✅ Preguntas listas.';
+    if (d.diario && d.diario.length) msg += '\n' + d.diario.join('\n');
     di(msg, '#4ADE80');
     cargarLista();
   } catch (e) {

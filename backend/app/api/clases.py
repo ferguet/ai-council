@@ -510,6 +510,10 @@ INSTRUCCION_EXAMEN = (
     "- No inventes datos clinicos ni cifras que no aparezcan en el material.\n"
     "- Si tienes preguntas de examenes anteriores, usalas como modelo de "
     "ESTILO y de que se suele preguntar, pero no las copies tal cual.\n"
+    "- Si tienes examenes anteriores reales, dilo explicitamente en la "
+    "primera linea de tu respuesta: no lo des por sobreentendido ni lo "
+    "omitas. Y cuando una pregunta este inspirada directamente en una de "
+    "esas preguntas reales, dilo en su '[Motivo: ...]'.\n"
     "- Termina con una linea honesta: estas preguntas son un entrenamiento "
     "basado en lo que el profesor enfatizo, NO una prediccion del examen."
 )
@@ -560,7 +564,7 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
                 texto_pdf = extraido["texto"].strip()
                 if texto_pdf:
                     material_examenes = texto_pdf[:18000]
-                    origen = f"los exámenes que ha subido ({pdf.filename})"
+                    origen = f"los exámenes que ha subido ({pdf.filename}, {extraido['paginas']} páginas)"
                     diario.append(
                         f"Leído «{pdf.filename}» ({kb} KB, {extraido['paginas']} páginas): "
                         f"{len(texto_pdf)} caracteres de texto, se usan los primeros "
@@ -577,7 +581,10 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
                     leido = await _leer_escaneado(registro, datos, pdf.filename or "examen.pdf")
                     if leido["texto"].strip():
                         material_examenes = leido["texto"][:18000]
-                        origen = f"los exámenes escaneados que ha subido ({pdf.filename})"
+                        origen = (
+                            f"los exámenes escaneados que ha subido "
+                            f"({pdf.filename}, {leido['paginas_leidas']} páginas leídas)"
+                        )
                         diario.append(
                             f"Leídas {leido['paginas_leidas']} páginas del escaneo"
                             + (f" (de {leido['paginas_totales']} en total; "
@@ -621,6 +628,24 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
     entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:25000]
     if material_examenes:
         entrada += "\n\n=== PREGUNTAS DE EXAMENES ANTERIORES SOBRE ESTOS TEMAS ===\n" + material_examenes
+        # EL FALLO ESTABA AQUI.
+        #
+        # La rama de "NO hay material" (mas abajo) siempre le decia a la IA
+        # que lo avisara al principio de su respuesta. Esta rama, la de "SI
+        # hay material", no decia nada parecido -asi que la IA escribia su
+        # frase de apertura de memoria ("preguntas basadas en la clase") y
+        # se olvidaba de mencionar que tambien tenia un examen real
+        # delante. Quien preguntaba no tenia forma de saber, leyendo el
+        # texto, si su PDF se habia usado de verdad. Ahora se le pide lo
+        # mismo que a la otra rama, para que las dos sean simetricas.
+        entrada += (
+            "\n\n(SI hay preguntas de examenes anteriores disponibles, arriba. "
+            "Dilo con claridad al principio del todo -por ejemplo: 'Estas "
+            "preguntas se basan en la clase y en los examenes anteriores "
+            "aportados'-. NO escribas que te basas 'solo en la clase' cuando "
+            "tambien tienes examenes reales delante: seria falso y quien lo "
+            "lea no podria confiar en que su documento se ha usado.)"
+        )
     else:
         entrada += (
             "\n\n(NO hay preguntas de examenes anteriores disponibles. Genera las "
@@ -632,22 +657,30 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
         ChatMessage(role="user", content=entrada),
     ], temperatura=0.4)
 
-    # La procedencia se guarda DENTRO del documento, no solo en la
-    # pantalla: si mañana se imprime o se comparte, la fuente tiene que
-    # viajar con las preguntas. Unas preguntas de examen sin decir de
-    # donde salen invitan a fiarse de ellas mas de lo debido.
-    pie = "\n\n---\nDE DÓNDE SALEN ESTAS PREGUNTAS: " + origen
+    # LA FUENTE VA PRIMERO, NO AL FINAL.
+    #
+    # Antes esto se guardaba DESPUES de las 10 preguntas: para verlo habia
+    # que leer todo el documento hasta el final. Y en la respuesta que se
+    # enseñaba al momento, la procedencia ni siquiera iba pegada al texto
+    # -cada pantalla la montaba por su cuenta, y era facil que se quedara
+    # fuera-. Ahora la cabecera es UNA FRASE FIJA que no depende de que la
+    # IA se acuerde de decirla, y va delante: la respuesta a "¿esto ha
+    # usado mi documento?" se ve sin buscar.
+    cabecera = f"📎 Fuente de estas preguntas: {origen}."
     if fuentes:
-        pie += "\n" + "\n".join(f"- {f['titulo']}: {f['url']}" for f in fuentes)
+        cabecera += "\n" + "\n".join(f"   • {f['titulo']}: {f['url']}" for f in fuentes)
+    cabecera += "\n" + "─" * 44
+
+    pie = "\n\n---"
     for linea in diario:
         pie += f"\n({linea})"
 
     nombre = fichero.rsplit(".", 1)[0] + "_examen.txt"
-    await clases_store.guardar(nombre, preguntas + pie)
+    await clases_store.guardar(nombre, cabecera + "\n\n" + preguntas + pie)
 
     return {
-        "preguntas": preguntas, "fichero": nombre, "origen": origen,
-        "fuentes": fuentes, "diario": diario,
+        "preguntas": preguntas, "cabecera": cabecera, "fichero": nombre,
+        "origen": origen, "fuentes": fuentes, "diario": diario,
     }
 
 
