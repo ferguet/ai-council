@@ -528,10 +528,18 @@ function seleccionar(n) {
   ficheroVisible = derivado ? null : n;          // resumir solo tiene sentido sobre la transcripcion
   btnResumir.disabled = derivado;
   // Cruzar y examinar SI valen siempre: trabajan sobre la transcripcion
-  // original, que existe se este mirando lo que se este mirando.
+  // original, que existe se este mirando lo que se este mirando. Antes
+  // esto encendia "Proponer preguntas" pero NO su boton hermano de
+  // adjuntar examen: ese se quedaba apagado hasta la primera vez que se
+  // generaban preguntas sin PDF, porque solo ESE otro camino lo
+  // encendia (en el finally de preguntas()). Los dos botones dependen de
+  // lo mismo -tener una transcripcion elegida-, asi que se encienden
+  // juntos aqui.
   document.getElementById('btnDiapos').disabled = false;
   const be = document.getElementById('btnExamen');
   if (be) be.disabled = false;
+  const bep = document.getElementById('btnExamenPdf');
+  if (bep) bep.disabled = false;
 }
 
 cargarLista();

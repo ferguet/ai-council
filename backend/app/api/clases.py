@@ -625,9 +625,19 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
             except Exception as e:
                 diario.append(f"La búsqueda en internet falló: {e}")
 
-    entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:25000]
+    # PRESUPUESTO DE CARACTERES, PARA NO REPETIR EL 413 DE SIEMPRE.
+    #
+    # Meter la clase entera (hasta 25.000 caracteres) Y el examen entero
+    # (hasta 18.000) a la vez es justo lo que hace saltar el limite de
+    # Groq -12.000 tokens por minuto en su nivel gratuito-. Mientras
+    # Cerebras o GLM esten disponibles no pasa nada, porque van primero y
+    # admiten mucho mas; pero ya hemos visto a Cerebras caerse por cuota
+    # agotada, y entonces esto acaba cayendo en Groq de todas formas. Con
+    # examenes delante se recorta mas fuerte, para que quepa incluso en
+    # el proveedor mas limitado.
     if material_examenes:
-        entrada += "\n\n=== PREGUNTAS DE EXAMENES ANTERIORES SOBRE ESTOS TEMAS ===\n" + material_examenes
+        entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:12000]
+        entrada += "\n\n=== PREGUNTAS DE EXAMENES ANTERIORES SOBRE ESTOS TEMAS ===\n" + material_examenes[:8000]
         # EL FALLO ESTABA AQUI.
         #
         # La rama de "NO hay material" (mas abajo) siempre le decia a la IA
@@ -647,6 +657,7 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
             "lea no podria confiar en que su documento se ha usado.)"
         )
     else:
+        entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:25000]
         entrada += (
             "\n\n(NO hay preguntas de examenes anteriores disponibles. Genera las "
             "preguntas solo a partir de la clase, y dilo al principio del todo.)"
