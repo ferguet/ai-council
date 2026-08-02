@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<!--
+  REDACCION DE DOCUMENTOS POLICIALES.
+
+  El flujo es a proposito de TRES pasos, no de uno:
+
+    1. Dictar  -> sale el texto crudo, tal cual lo entendio el sistema.
+    2. Revisar -> el agente LEE y corrige antes de seguir.
+    3. Redactar-> se da forma de documento.
+
+  El paso 2 podria ahorrarse encadenando todo, y seria mas comodo. No se
+  hace porque si el reconocimiento de voz entiende mal una matricula o
+  un importe, ese error se arrastra hasta el documento firmado y ya no
+  se distingue de lo que se dicto. Un error visible en el paso 2 se
+  corrige en diez segundos.
+
+  CON CASOS FICTICIOS. Ver el aviso al pie de la pagina.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redacción de documentos</title>
+<style>
+  :root { --fondo:#0F1620; --panel:#1A2331; --texto:#E7ECF3; --suave:#9AA4B2; --linea:#2A3648; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--fondo); color:var(--texto);
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .caja { max-width:920px; margin:0 auto; padding:26px 20px 80px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .sub { color:var(--suave); font-size:15px; margin-bottom:22px; }
+  .panel { background:var(--panel); border-radius:14px; padding:18px; margin-bottom:16px; }
+  .et { font-size:12px; letter-spacing:.08em; color:#7E8AA0; text-transform:uppercase; margin-bottom:10px; }
+  .paso { display:inline-block; background:#243044; color:#9AA4B2; font-size:12px;
+          padding:3px 9px; border-radius:20px; margin-right:8px; }
+  input[type=text], select, textarea {
+      width:100%; padding:11px 13px; border-radius:10px; border:1px solid var(--linea);
+      background:#131B27; color:var(--texto); font-size:15px; font-family:inherit; }
+  textarea { line-height:1.55; resize:vertical; }
+  button { border:0; border-radius:10px; padding:12px 17px; font-size:15px; font-weight:600;
+           color:#fff; cursor:pointer; margin:6px 6px 0 0; }
+  .verde{background:#0B7A3B;} .rojo{background:#B91C1C;} .azul{background:#1D4ED8;}
+  .morado{background:#6D28A8;} .gris{background:#243044;}
+  button:disabled { opacity:.4; cursor:default; }
+  .tipos button { flex:1; min-width:170px; }
+  .tipos { display:flex; gap:8px; flex-wrap:wrap; }
+  .elegido { outline:2px solid #7FB0FF; }
+  .rejilla { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .campo label { display:block; font-size:12px; color:#7E8AA0; margin-bottom:4px; }
+  #salida { white-space:pre-wrap; line-height:1.6; font-size:15px; background:#131B27;
+            border-radius:10px; padding:18px; min-height:100px; font-family:Georgia,serif; }
+  #crono { font-size:30px; font-variant-numeric:tabular-nums; }
+  .estado { margin-top:10px; font-size:14px; white-space:pre-line; color:var(--suave); }
+  .nota { background:#131B27; border-left:4px solid #B45309; border-radius:8px;
+          padding:12px 14px; font-size:13px; line-height:1.6; color:#C9D2DE; margin-top:14px; }
+  @media print {
+    body { background:#fff; color:#000; }
+    .panel, .sub, h1, .nota { display:none; }
+    #panelSalida { display:block !important; }
+    #salida { background:#fff; color:#000; font-size:12pt; }
+  }
+</style>
+</head>
+<body>
+<div class="caja">
+  <h1>Redacción de documentos</h1>
+  <div class="sub">Dicte lo ocurrido y se le da forma de documento. Después lo descarga y lo pega en SIDENPOL.</div>
+
+  <div class="panel">
+    <div class="et">Servidor</div>
+    <input type="text" id="servidor">
+    <button class="gris" onclick="probar()">🔌 Probar la conexión</button>
+    <div class="estado" id="estadoServidor"></div>
+  </div>
+
+  <div class="panel">
+    <div class="et"><span class="paso">1</span> Qué documento</div>
+    <div class="tipos">
+      <button class="gris" id="t-parte" onclick="elegirTipo('parte')">📋 Parte de intervención</button>
+      <button class="gris" id="t-comparecencia" onclick="elegirTipo('comparecencia')">👮 Comparecencia de funcionarios</button>
+      <button class="gris" id="t-denuncia" onclick="elegirTipo('denuncia')">🗣️ Denuncia de víctima</button>
+    </div>
+    <div class="rejilla" id="formulario" style="margin-top:16px"></div>
+  </div>
+
+  <div class="panel">
+    <div class="et"><span class="paso">2</span> Dictado</div>
+    <div id="crono"></div>
+    <button class="verde" id="btnGrabar" onclick="alternar()">🎙️ Empezar a dictar</button>
+    <button class="azul" onclick="document.getElementById('audio').click()">📂 Subir un audio</button>
+    <input type="file" id="audio" accept="audio/*" style="display:none" onchange="subir(this.files[0])">
+    <div class="estado" id="estadoDictado">Puede dictar, subir un audio, o escribir directamente abajo.</div>
+    <div style="margin-top:14px">
+      <label style="font-size:12px;color:#7E8AA0;display:block;margin-bottom:6px">
+        LO QUE SE HA ENTENDIDO — revíselo antes de redactar
+      </label>
+      <textarea id="dictado" rows="9" placeholder="Aquí aparece el dictado transcrito. Corrija lo que haga falta: matrículas, importes, horas… Los errores que queden aquí pasarán al documento."></textarea>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="et"><span class="paso">3</span> Redactar</div>
+    <button class="morado" id="btnRedactar" onclick="redactar()" disabled>✍️ Redactar el documento</button>
+    <div class="estado" id="estadoRedaccion"></div>
+  </div>
+
+  <div class="panel" id="panelSalida">
+    <div class="et">Documento</div>
+    <div id="salida">Todavía no hay nada redactado.</div>
+    <button class="verde" id="btnDescargar" onclick="descargar()" disabled>💾 Descargar para el pendrive</button>
+    <button class="gris" id="btnCopiar" onclick="copiar()" disabled>📋 Copiar todo</button>
+    <button class="gris" onclick="window.print()">🖨️ Imprimir</button>
+    <button class="azul" id="btnCalificar" onclick="calificar()" disabled>⚖️ Orientación sobre el tipo penal</button>
+    <div class="estado" id="estadoSalida"></div>
+  </div>
+
+  <div class="nota">
+    <b>Trabaje con casos ficticios.</b> El audio y el texto se envían a proveedores
+    de IA fuera de España para procesarse. Con datos reales de víctimas o
+    denunciados entra en juego la normativa de datos con fines policiales
+    (LO 7/2021), y eso hay que resolverlo antes, no después.<br><br>
+    <b>La calificación penal es orientativa.</b> Un artículo citado por una IA puede
+    estar mal aunque suene seguro. Verifíquelo siempre.<br><br>
+    <b>Las fórmulas legales no las escribe la IA.</b> La advertencia de los artículos
+    433 LECrim y 456/457/458 CP se inserta literal desde plantilla.
+  </div>
+</div>
+
+<script>
+const campoServidor = document.getElementById('servidor');
+campoServidor.value = localStorage.getItem('policia_servidor') || window.location.origin;
+function base() {
+  const v = campoServidor.value.trim().replace(/\/+$/, '');
+  localStorage.setItem('policia_servidor', v);
+  return v;
+}
+
+let tipo = null;
+let documentoActual = '';
+
+function di(id, msg, color) {
+  const e = document.getElementById(id);
+  e.textContent = msg;
+  e.style.color = color || '#9AA4B2';
+}
+
+async function probar() {
+  di('estadoServidor', '⏳ Probando… (si el servidor estaba dormido tarda hasta un minuto)', '#FACC15');
+  try {
+    const r = await fetch(base() + '/policia/campos/parte');
+    if (!r.ok) throw new Error('respondió ' + r.status);
+    await r.json();
+    di('estadoServidor', '✅ El servidor contesta.', '#4ADE80');
+  } catch (e) {
+    di('estadoServidor', '❌ No contesta.\n' + base() + '\nMotivo: ' + e.message, '#F87171');
+  }
+}
+
+async function elegirTipo(t) {
+  tipo = t;
+  ['parte','comparecencia','denuncia'].forEach(x => {
+    document.getElementById('t-' + x).classList.toggle('elegido', x === t);
+  });
+  document.getElementById('btnRedactar').disabled = false;
+  try {
+    const d = await (await fetch(base() + '/policia/campos/' + t)).json();
+    pintarFormulario(d);
+  } catch (e) {
+    di('estadoRedaccion', '❌ No se pudieron cargar los campos: ' + e.message, '#F87171');
+  }
+}
+
+function pintarFormulario(d) {
+  const c = document.getElementById('formulario');
+  c.innerHTML = '';
+  d.campos.forEach(campo => {
+    const div = document.createElement('div');
+    div.className = 'campo';
+    // El origen es una lista, pero abierta: si falta una opcion se
+    // puede escribir. Una lista cerrada mal hecha obliga a elegir algo
+    // que no es.
+    if (campo.id === 'origen') {
+      div.innerHTML = '<label>' + campo.etiqueta + '</label>' +
+        '<input type="text" id="f-origen" list="lista-origen" value="' + campo.porDefecto + '">' +
+        '<datalist id="lista-origen">' +
+        d.origenes.map(o => '<option value="' + o + '">').join('') + '</datalist>';
+    } else {
+      div.innerHTML = '<label>' + campo.etiqueta + '</label>' +
+        '<input type="text" id="f-' + campo.id + '" value="' + campo.porDefecto + '">';
+    }
+    c.appendChild(div);
+  });
+}
+
+// ---------- dictado ----------
+let grabador = null, trozos = [], desde = 0, tic = null;
+
+async function alternar() {
+  const btn = document.getElementById('btnGrabar');
+  if (grabador && grabador.state === 'recording') { grabador.stop(); return; }
+  try {
+    const flujo = await navigator.mediaDevices.getUserMedia({ audio: true });
+    trozos = [];
+    grabador = new MediaRecorder(flujo);
+    grabador.ondataavailable = e => { if (e.data.size) trozos.push(e.data); };
+    grabador.onstop = () => {
+      clearInterval(tic);
+      document.getElementById('crono').textContent = '';
+      flujo.getTracks().forEach(t => t.stop());
+      btn.textContent = '🎙️ Empezar a dictar';
+      btn.className = 'verde';
+      enviar(new Blob(trozos, { type: grabador.mimeType || 'audio/webm' }), 'dictado.webm');
+    };
+    grabador.start();
+    desde = Date.now();
+    tic = setInterval(() => {
+      const s = Math.floor((Date.now() - desde) / 1000);
+      document.getElementById('crono').textContent =
+        String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+    }, 500);
+    btn.textContent = '⏹️ Parar';
+    btn.className = 'rojo';
+    di('estadoDictado', '🔴 Dictando…', '#F87171');
+  } catch (e) {
+    di('estadoDictado', '❌ No se pudo usar el micrófono: ' + e.message, '#F87171');
+  }
+}
+
+function subir(f) { if (f) enviar(f, f.name); }
+
+async function enviar(blob, nombre) {
+  di('estadoDictado', '⏳ Transcribiendo el dictado…', '#FACC15');
+  const fd = new FormData();
+  fd.append('audio', blob, nombre);
+  try {
+    const r = await fetch(base() + '/policia/dictar', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    document.getElementById('dictado').value = d.texto;
+    di('estadoDictado', '✅ Transcrito. Léalo y corrija lo que haga falta antes de redactar.', '#4ADE80');
+  } catch (e) {
+    di('estadoDictado', '❌ ' + e.message, '#F87171');
+  }
+}
+
+// ---------- redactar ----------
+async function redactar() {
+  const dictado = document.getElementById('dictado').value.trim();
+  if (!tipo) { di('estadoRedaccion', 'Elija primero qué documento.', '#F87171'); return; }
+  if (dictado.length < 20) { di('estadoRedaccion', 'No hay dictado que redactar.', '#F87171'); return; }
+
+  const b = document.getElementById('btnRedactar');
+  b.disabled = true;
+  const original = b.textContent;
+  let p = 0;
+  const late = setInterval(() => { p = (p+1)%4; b.textContent = '⏳ Redactando' + '.'.repeat(p); }, 600);
+  di('estadoRedaccion', '⏳ Dando forma al documento…', '#FACC15');
+
+  const fd = new FormData();
+  fd.append('tipo', tipo);
+  fd.append('dictado', dictado);
+  ['localidad','hora','minutos','dia','mes','anio','agentes','indicativo','origen'].forEach(k => {
+    const el = document.getElementById('f-' + k);
+    if (el) fd.append(k, el.value);
+  });
+
+  try {
+    const r = await fetch(base() + '/policia/redactar', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    documentoActual = d.documento;
+    document.getElementById('salida').textContent = d.documento;
+    ['btnDescargar','btnCopiar','btnCalificar'].forEach(x =>
+      document.getElementById(x).disabled = false);
+    di('estadoRedaccion', '✅ ' + d.nombre + ' redactado. Revíselo antes de usarlo.', '#4ADE80');
+  } catch (e) {
+    di('estadoRedaccion', '❌ ' + e.message, '#F87171');
+  } finally {
+    clearInterval(late);
+    b.textContent = original;
+    b.disabled = false;
+  }
+}
+
+async function calificar() {
+  const b = document.getElementById('btnCalificar');
+  b.disabled = true;
+  di('estadoSalida', '⏳ Buscando qué figuras podrían encajar…', '#FACC15');
+  const fd = new FormData();
+  fd.append('relato', documentoActual);
+  try {
+    const r = await fetch(base() + '/policia/calificar', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    // Se AÑADE debajo, no sustituye: el documento redactado no se pierde.
+    document.getElementById('salida').textContent =
+      documentoActual + '\n\n' + '─'.repeat(50) + '\nORIENTACIÓN SOBRE EL TIPO PENAL (no forma parte del documento)\n' +
+      '─'.repeat(50) + '\n\n' + d.calificacion;
+    di('estadoSalida', '✅ Orientación añadida al final. No la copie a SIDENPOL: es una ayuda, no parte del documento.', '#4ADE80');
+  } catch (e) {
+    di('estadoSalida', '❌ ' + e.message, '#F87171');
+  } finally {
+    b.disabled = false;
+  }
+}
+
+function descargar() {
+  const hoy = new Date().toISOString().slice(0,10);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([documentoActual], { type:'text/plain;charset=utf-8' }));
+  a.download = hoy + '_' + tipo + '.txt';
+  a.click();
+  di('estadoSalida', '💾 Descargado. Cópielo al pendrive desde su carpeta de descargas.', '#4ADE80');
+}
+
+async function copiar() {
+  const b = document.getElementById('btnCopiar');
+  try {
+    await navigator.clipboard.writeText(documentoActual);
+    b.textContent = '✅ Copiado';
+  } catch (e) {
+    const r = document.createRange();
+    r.selectNodeContents(document.getElementById('salida'));
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    b.textContent = '👆 Pulse Ctrl+C';
+  }
+  setTimeout(() => { b.textContent = '📋 Copiar todo'; }, 2500);
+}
+</script>
+</body>
+</html>
