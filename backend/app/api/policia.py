@@ -36,6 +36,7 @@ implementacion: es la primera pregunta.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,13 +53,30 @@ router = APIRouter(prefix="/policia", tags=["policia"])
 _GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 _MODELO_AUDIO = "whisper-large-v3-turbo"
 
-# Mismo orden de preferencia que en clases: se prueban de verdad, uno
-# detras de otro, porque tener clave no es tener cuota.
+# Proveedores por orden, y el orden importa MAS de lo que parece.
+#
+# Gemini va primero porque es el unico que se ha visto contestar hoy de
+# verdad (es el que leyo un examen escaneado pagina a pagina). Cerebras
+# esta devolviendo "payment required" -cuota agotada- y Groq esta
+# rozando su limite de 12.000 tokens por minuto. Ponerlos por delante
+# significaba gastar un minuto de espera en cada uno antes de llegar al
+# que funciona.
 _PROVEEDORES = [
-    ("cerebras", "gpt-oss-120b"),
-    ("glm", "glm-4.7-flash"),
+    ("gemini2", "gemini-3.6-flash"),
+    ("gemini", "gemini-3.6-flash"),
     ("groq", "llama-3.3-70b-versatile"),
+    ("glm", "glm-4.7-flash"),
+    ("cerebras", "gpt-oss-120b"),
 ]
+
+# Cuanto se espera COMO MUCHO a cada proveedor.
+#
+# Los proveedores traen 60s por dentro. Con cinco en la lista, el peor
+# caso serian cinco minutos de boton mudo antes de decir que ha fallado
+# -y un fallo que tarda cinco minutos en aparecer es indistinguible de
+# un cuelgue-. Con 40s el peor caso queda acotado y, sobre todo, el
+# error llega mientras la persona sigue mirando la pantalla.
+_ESPERA_POR_PROVEEDOR = 40.0
 
 
 # =====================================================================
@@ -180,25 +198,38 @@ async def _pedir_a_la_ia(registro, mensajes, temperatura: float = 0.2) -> str:
     Temperatura baja (0.2) a proposito: aqui no se quiere creatividad,
     se quiere que repita el formato igual todas las veces.
     """
-    ultimo = None
+    intentos: list[str] = []
     for nombre_prov, nombre_mod in _PROVEEDORES:
         try:
             proveedor = registro.get(nombre_prov)
         except KeyError:
+            intentos.append(f"{nombre_prov}: no existe en el servidor")
             continue
         if not proveedor.is_configured():
+            intentos.append(f"{nombre_prov}: sin clave configurada")
             continue
         try:
-            return await proveedor.chat(mensajes, model=nombre_mod,
-                                        temperature=temperatura)
-        except (ProviderError, Exception) as e:
-            ultimo = f"{nombre_prov}: {e}"
-            continue
-    raise HTTPException(
-        502,
-        "Ningún proveedor de IA ha podido con esto. "
-        f"El último dijo: {ultimo or 'no hay ninguno configurado'}"
-    )
+            return await asyncio.wait_for(
+                proveedor.chat(mensajes, model=nombre_mod, temperature=temperatura),
+                timeout=_ESPERA_POR_PROVEEDOR,
+            )
+        except asyncio.TimeoutError:
+            intentos.append(f"{nombre_prov}: no contestó en {int(_ESPERA_POR_PROVEEDOR)}s")
+        except ProviderError as e:
+            intentos.append(f"{nombre_prov}: {e}")
+        except Exception as e:
+            intentos.append(f"{nombre_prov}: {type(e).__name__} {e}")
+
+    # SE CUENTAN TODOS, NO SOLO EL ULTIMO.
+    #
+    # Antes esto devolvia unicamente el error del ultimo proveedor, y eso
+    # despista: si Cerebras esta sin cuota y Groq al limite, ver solo
+    # "Groq 413" hace pensar que el problema es el tamaño del texto,
+    # cuando en realidad se han caido tres cosas distintas. Con la lista
+    # entera se ve de un vistazo si es un proveedor concreto o si no
+    # queda ninguno en pie.
+    detalle = "\n".join(f"· {i}" for i in intentos) or "· no hay ningún proveedor configurado"
+    raise HTTPException(502, "Ningún proveedor de IA ha podido con esto:\n" + detalle)
 
 
 @router.post("/dictar")
