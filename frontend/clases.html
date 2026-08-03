@@ -17,7 +17,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clases</title>
+<title>Clases · grabar y estudiar</title>
+<link rel="manifest" href="clases.webmanifest">
+<meta name="theme-color" content="#101828">
+<link rel="apple-touch-icon" href="clases-192.png">
 <style>
   :root { --fondo:#101828; --panel:#1C2434; --texto:#E7ECF3; --suave:#9AA4B2; --linea:#2A3648; }
   * { box-sizing:border-box; }
@@ -55,12 +58,33 @@
 <body>
 <div class="caja">
   <h1>Clases</h1>
-  <div class="sub">Graba o sube una clase, y se transcribe sola. Sin datos de pacientes: esto es para clases y estudio.</div>
+  <div class="sub">Graba la clase, y se transcribe, se resume y te propone preguntas de examen.</div>
 
-  <div class="panel">
-    <div class="et">Servidor</div>
-    <input type="text" id="servidor">
-    <button class="gris" onclick="probar()">🔌 Probar la conexión</button>
+  <!-- BIENVENIDA.
+       Solo sale la primera vez. Quien abre esto por primera vez no sabe
+       si tiene que registrarse, si es de pago, ni por donde empezar, y
+       en esos primeros segundos es cuando la gente cierra la pestaña.
+       Se guarda que ya se ha visto para no molestar cada dia. -->
+  <div class="panel" id="bienvenida" hidden
+       style="border-left:4px solid #1D4ED8">
+    <div class="et">Qué es esto</div>
+    <div style="font-size:15px;line-height:1.65;color:#C9D2DE">
+      Dale a <b>Empezar a grabar</b> al principio de la clase y a parar al
+      final. La grabación se transcribe sola y queda guardada.<br><br>
+      Después, con el texto delante, puedes:<br>
+      · <b>Resumirlo en apuntes</b> ordenados<br>
+      · <b>Cruzarlo con las diapositivas</b> del profesor<br>
+      · <b>Pedir preguntas de examen</b> sobre lo que se ha dado<br><br>
+      No hay que registrarse ni instalar nada. Las clases se quedan
+      guardadas y las tienes en «Clases guardadas», abajo del todo.
+    </div>
+    <button class="verde" onclick="cerrarBienvenida()">Entendido, empezar</button>
+  </div>
+
+  <!-- Aviso de que el servidor esta despertando. Ver despertarServidor(). -->
+  <div class="panel" id="avisoDespertar" hidden
+       style="border-left:4px solid #FACC15">
+    <div style="font-size:15px;line-height:1.6;color:#C9D2DE" id="textoDespertar"></div>
   </div>
 
   <div class="panel">
@@ -103,6 +127,32 @@
     <div class="lista" id="lista">—</div>
     <button class="gris" onclick="cargarLista(true)">🔄 Actualizar</button>
   </div>
+
+  <!-- AJUSTES, ESCONDIDOS PERO NO ELIMINADOS.
+       La direccion del servidor no le dice nada a quien solo quiere
+       grabar una clase, y verla nada mas entrar hace que la pagina
+       parezca a medio hacer. Pero cuando algo falla es justo lo primero
+       que hay que mirar, asi que se esconde, no se quita. -->
+  <div style="text-align:center;margin-top:26px">
+    <button class="gris" onclick="alternarAjustes()"
+            style="background:none;color:#5C6879;font-size:13px;font-weight:400">
+      ⚙️ Ajustes avanzados
+    </button>
+  </div>
+  <div class="panel" id="panelAjustes" hidden>
+    <div class="et">Servidor</div>
+    <input type="text" id="servidor">
+    <button class="gris" onclick="probar()">🔌 Probar la conexión</button>
+    <button class="gris" onclick="verBienvenida()">❔ Volver a ver la explicación</button>
+  </div>
+
+  <div class="panel" id="avisoInstalar" hidden style="border-left:4px solid #1D4ED8">
+    <div style="font-size:14px;line-height:1.6;color:#C9D2DE">
+      <b>📲 Puedes tenerlo como app.</b> Menú del navegador →
+      <b>«Añadir a pantalla de inicio»</b> o <b>«Instalar»</b>. Queda con
+      icono propio, y como es esta misma página, se actualiza sola.
+    </div>
+  </div>
 </div>
 
 <script>
@@ -123,6 +173,94 @@ const estado = document.getElementById('estado');
 const salida = document.getElementById('texto');
 const btnResumir = document.getElementById('btnResumir');
 let ficheroVisible = null;
+
+// =====================================================================
+// EL SERVIDOR SE DUERME, Y HAY QUE CONTARLO
+// =====================================================================
+//
+// El plan gratuito apaga el servidor cuando no se usa, y la primera
+// peticion tarda cerca de un minuto en despertarlo. Hasta ahora eso
+// pasaba en silencio: le dabas a grabar, no respondia, y parecia roto.
+// Quien lo abre por primera vez no vuelve despues de eso.
+//
+// Se hace dos cosas: se llama al servidor NADA MAS ABRIR la pagina (asi
+// se despierta mientras la persona lee, no cuando ya tiene prisa), y si
+// tarda, se dice con una cuenta atras para que se vea que va avanzando.
+
+let servidorDespierto = false;
+
+async function despertarServidor() {
+  const caja = document.getElementById('avisoDespertar');
+  const txt = document.getElementById('textoDespertar');
+  let segundos = 0;
+  let tarda = null;
+
+  // Solo se enseña el aviso si de verdad esta tardando. Si el servidor
+  // ya estaba despierto contesta en menos de un segundo y no hace falta
+  // marear con mensajes.
+  const avisarSiTarda = setTimeout(() => {
+    caja.hidden = false;
+    tarda = setInterval(() => {
+      segundos++;
+      txt.innerHTML = '⏳ <b>Poniendo en marcha el servidor…</b> (' + segundos + 's)<br>' +
+        'Se apaga solo cuando no se usa, y tarda hasta un minuto en arrancar. ' +
+        'No está roto: espere y ya funcionará normal el resto del rato.';
+    }, 1000);
+  }, 1200);
+
+  try {
+    const r = await fetch(base() + '/clases/listar');
+    const d = await r.json();
+    servidorDespierto = true;
+    pintarLista(d.clases || []);
+  } catch (e) {
+    txt.innerHTML = '⚠️ <b>No se ha podido conectar.</b><br>' +
+      'Compruebe que tiene internet. Si el problema sigue, mire en ' +
+      '«Ajustes avanzados», al final de la página.';
+    caja.hidden = false;
+  } finally {
+    clearTimeout(avisarSiTarda);
+    if (tarda) clearInterval(tarda);
+    if (servidorDespierto) caja.hidden = true;
+  }
+}
+
+// TRADUCIR LOS ERRORES.
+//
+// Un mensaje como "error 502" o "Failed to fetch" no le dice nada a
+// nadie que no programe, y encima asusta. Estos son los que salen de
+// verdad, con lo que hay que hacer en cada caso.
+function enCristiano(mensaje) {
+  const m = String(mensaje || '');
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m))
+    return 'No hay conexión con el servidor. Compruebe su internet y vuelva a intentarlo.';
+  if (/\b50[234]\b/.test(m) || /proveedor/i.test(m))
+    return 'El servicio de transcripción no responde ahora mismo. Suele ser pasajero: espere un minuto y reinténtelo.';
+  if (/\b413\b|too large|demasiado/i.test(m))
+    return 'La grabación es demasiado larga para procesarla de una vez. Pruebe a partirla en trozos más cortos.';
+  if (/\b429\b|rate limit|quota/i.test(m))
+    return 'Se ha alcanzado el límite de uso por ahora. Espere unos minutos y vuelva a intentarlo.';
+  if (/timeout|tard/i.test(m))
+    return 'El servidor ha tardado demasiado en responder. Vuelva a intentarlo.';
+  if (/\b404\b/.test(m))
+    return 'No se ha encontrado eso. Puede que se haya borrado.';
+  return m;  // si no lo reconocemos, mejor el mensaje original que uno inventado
+}
+
+// ---------- bienvenida ----------
+function cerrarBienvenida() {
+  document.getElementById('bienvenida').hidden = true;
+  localStorage.setItem('clases_bienvenida_vista', '1');
+}
+function verBienvenida() {
+  document.getElementById('bienvenida').hidden = false;
+  document.getElementById('bienvenida').scrollIntoView({ behavior: 'smooth' });
+}
+function alternarAjustes() {
+  const p = document.getElementById('panelAjustes');
+  p.hidden = !p.hidden;
+  if (!p.hidden) p.scrollIntoView({ behavior: 'smooth' });
+}
 
 function di(msg, color) {
   // Se escribe en los DOS sitios: arriba y junto a los botones de abajo.
@@ -219,7 +357,7 @@ async function alternarGrabacion() {
     btn.className = 'rojo';
     di('🔴 Grabando…', '#F87171');
   } catch (e) {
-    di('❌ No se pudo usar el micrófono: ' + e.message, '#F87171');
+    di('❌ No se ha podido usar el micrófono. Compruebe que le ha dado permiso al navegador.', '#F87171');
   }
 }
 
@@ -248,7 +386,7 @@ async function enviar(blob, nombre) {
     // El audio YA esta guardado en Descargas desde antes de llegar aqui:
     // un fallo de red no cuesta la clase, solo hay que reintentar.
     const conCopia = blob === ultimoAudioBlob;
-    di('❌ ' + e.message +
+    di('❌ ' + enCristiano(e.message) +
        (conCopia ? '\n💾 El audio está a salvo en Descargas (' + nombre +
                    '). Puede reintentar sin volver a grabar.' : ''),
        '#F87171');
@@ -287,7 +425,7 @@ async function resumir() {
     di('✅ Apuntes listos (' + d.fichero + ')' + (d.partes > 1 ? ' — resumido en ' + d.partes + ' partes' : ''), '#4ADE80');
     cargarLista();
   } catch (e) {
-    di('❌ ' + e.message, '#F87171');
+    di('❌ ' + enCristiano(e.message), '#F87171');
     btnResumir.disabled = false;
   } finally {
     clearInterval(vigilante);
@@ -337,7 +475,7 @@ async function cruzar(f) {
        '#4ADE80');
     cargarLista();
   } catch (e) {
-    di('❌ ' + e.message, '#F87171');
+    di('❌ ' + enCristiano(e.message), '#F87171');
   } finally {
     clearInterval(ojo);
     btn.textContent = '📊 Cruzar con las diapositivas (PDF)';
@@ -401,7 +539,7 @@ async function preguntas(f) {
     di(msg, '#4ADE80');
     cargarLista();
   } catch (e) {
-    di('❌ ' + e.message, '#F87171');
+    di('❌ ' + enCristiano(e.message), '#F87171');
   } finally {
     clearInterval(late);
     (f ? b2 : b1).textContent = textoOriginal;
@@ -478,7 +616,7 @@ async function cargarLista(avisar) {
     if (avisar) di('✅ Lista actualizada: ' + d.clases.length + ' guardadas.', '#4ADE80');
   } catch (e) {
     document.getElementById('lista').textContent = 'No se pudo consultar la lista.';
-    if (avisar) di('❌ No se pudo consultar la lista.\n' + e.message, '#F87171');
+    if (avisar) di('❌ No se pudo consultar la lista.\n' + enCristiano(e.message), '#F87171');
   }
 }
 
@@ -533,7 +671,7 @@ function pintarLista(clases) {
           pintarCabecera(n);
           seleccionar(n);
           di('Mostrando: ' + info.nombre + ' — ' + claseBase.replace(/_/g, ' '));
-        } catch (e) { di('❌ ' + e.message, '#F87171'); }
+        } catch (e) { di('❌ ' + enCristiano(e.message), '#F87171'); }
       };
 
       const x = document.createElement('button');
@@ -548,7 +686,7 @@ function pintarLista(clases) {
           if (!r.ok) throw new Error('el servidor respondió ' + r.status);
           di('🗑️ Borrado.', '#9AA4B2');
           cargarLista();
-        } catch (e) { di('❌ No se pudo borrar.\n' + e.message, '#F87171'); }
+        } catch (e) { di('❌ No se pudo borrar.\n' + enCristiano(e.message), '#F87171'); }
       };
 
       fila.appendChild(b);
@@ -587,7 +725,41 @@ function seleccionar(n) {
   if (bep) bep.disabled = false;
 }
 
-cargarLista();
+// =====================================================================
+// ARRANQUE
+// =====================================================================
+//
+// El orden importa: primero se enseña la explicacion (si es la primera
+// vez) y a la vez se empieza a despertar el servidor. Asi el minuto que
+// tarda en arrancar se gasta mientras la persona lee, en vez de despues
+// cuando ya le ha dado a grabar y esta esperando.
+
+if (!localStorage.getItem('clases_bienvenida_vista')) {
+  document.getElementById('bienvenida').hidden = false;
+}
+
+// Para que se pueda instalar con icono propio en el movil.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// El consejo de instalar solo se enseña donde de verdad se puede: en un
+// ordenador de sobremesa no viene a cuento y solo estorba.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  const aviso = document.getElementById('avisoInstalar');
+  aviso.hidden = false;
+  const b = document.createElement('button');
+  b.className = 'azul';
+  b.textContent = '📲 Instalar en este dispositivo';
+  b.onclick = async () => { e.prompt(); await e.userChoice; b.remove(); };
+  aviso.appendChild(b);
+});
+if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+  document.getElementById('avisoInstalar').hidden = false;
+}
+
+despertarServidor();
 </script>
 </body>
 </html>

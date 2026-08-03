@@ -1,0 +1,17 @@
+{
+  "id": "/clases-estudio",
+  "name": "Clases · grabar y estudiar",
+  "short_name": "Clases",
+  "description": "Graba la clase y se transcribe, se resume y te propone preguntas de examen.",
+  "start_url": "clases.html",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#101828",
+  "theme_color": "#101828",
+  "icons": [
+    { "src": "clases-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "clases-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "clases-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
