@@ -53,11 +53,29 @@ _PROVEEDORES_VISION = [
     ("gemini", "gemini-3.6-flash"),
 ]
 
+# EL ORDEN IMPORTA MAS DE LO QUE PARECE.
+#
+# Antes esta lista empezaba por Cerebras. Cerebras tiene la clave puesta
+# pero la cuota agotada, y Groq esta rozando su limite por minuto: los
+# dos fallan, pero fallan DESPACIO -cada uno agota su espera interna de
+# 60 segundos antes de rendirse-. Resultado: para llegar al proveedor
+# que si funciona habia que esperar minutos con el boton mudo, y un
+# fallo que tarda tres minutos en aparecer es indistinguible de un
+# cuelgue.
+#
+# Gemini va primero porque es el que contesta de verdad hoy. Los demas
+# quedan detras como red de seguridad.
 _PROVEEDORES_CRUCE = [
-    ("cerebras", "gpt-oss-120b"),
+    ("gemini2", "gemini-3.6-flash"),
+    ("gemini", "gemini-3.6-flash"),
     ("glm", "glm-4.7-flash"),
     ("groq", "llama-3.3-70b-versatile"),
+    ("cerebras", "gpt-oss-120b"),
 ]
+
+# Cuanto se espera COMO MUCHO a cada proveedor antes de pasar al
+# siguiente. Sin este tope, un proveedor colgado bloquea toda la cadena.
+_ESPERA_POR_PROVEEDOR = 45.0
 
 _INSTRUCCION_RESUMEN = (
     "Eres un asistente que convierte la transcripcion literal de una clase "
@@ -106,27 +124,39 @@ async def _pedir_a_la_ia(registro, mensajes, temperatura: float = 0.3) -> str:
     Ahora se prueba de verdad, uno detras de otro, y solo se rinde cuando
     han fallado todos. El ultimo error se conserva para poder contarlo.
     """
-    ultimo = None
+    # SE CUENTAN TODOS LOS INTENTOS, NO SOLO EL ULTIMO.
+    #
+    # Antes solo se guardaba el error del ultimo proveedor. Eso despista:
+    # si Cerebras esta sin cuota y Groq al limite, ver unicamente "Groq
+    # 413" hace pensar que el problema es el tamaño del texto, cuando en
+    # realidad se han caido tres cosas distintas. Con la lista entera se
+    # ve de un vistazo si falla uno o si no queda ninguno en pie.
+    intentos: list[str] = []
     for nombre_prov, nombre_mod in _PROVEEDORES_CRUCE:
         try:
             proveedor = registro.get(nombre_prov)
         except KeyError:
+            intentos.append(f"{nombre_prov}: no existe en el servidor")
             continue
         if not proveedor.is_configured():
+            intentos.append(f"{nombre_prov}: sin clave configurada")
             continue
         try:
-            return await proveedor.chat(mensajes, model=nombre_mod, temperature=temperatura)
+            # El tope de espera es lo que evita que un proveedor colgado
+            # bloquee toda la cadena durante minutos.
+            return await asyncio.wait_for(
+                proveedor.chat(mensajes, model=nombre_mod, temperature=temperatura),
+                timeout=_ESPERA_POR_PROVEEDOR,
+            )
+        except asyncio.TimeoutError:
+            intentos.append(f"{nombre_prov}: no contestó en {int(_ESPERA_POR_PROVEEDOR)}s")
         except ProviderError as e:
-            ultimo = f"{nombre_prov}: {e}"
-            continue
+            intentos.append(f"{nombre_prov}: {e}")
         except Exception as e:
-            ultimo = f"{nombre_prov}: {e}"
-            continue
-    raise HTTPException(
-        502,
-        "Ningún proveedor de IA ha podido con esto. "
-        f"El último dijo: {ultimo or 'no hay ninguno configurado'}"
-    )
+            intentos.append(f"{nombre_prov}: {type(e).__name__} {e}")
+
+    detalle = "\n".join(f"· {i}" for i in intentos) or "· no hay ningún proveedor configurado"
+    raise HTTPException(502, "Ningún proveedor de IA ha podido con esto:\n" + detalle)
 
 
 async def _leer_escaneado(registro, datos: bytes, nombre: str) -> dict:
