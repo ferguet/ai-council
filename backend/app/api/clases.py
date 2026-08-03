@@ -23,8 +23,10 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response
 
-from app.api import clases_audio, clases_diapositivas, clases_ocr, clases_store
+from app.api import (clases_audio, clases_diapositivas, clases_ocr,
+                     clases_podcast, clases_store)
 from app.core.config import get_settings
 from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
@@ -714,3 +716,83 @@ async def borrar(fichero: str):
 def _sanear(texto: str) -> str:
     permitido = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
     return "".join(c if c in permitido else "_" for c in texto)[:40] or "sin_asignatura"
+
+
+# =====================================================================
+# LA CLASE EN PODCAST, PARA ESCUCHARLA CONDUCIENDO
+# =====================================================================
+#
+# Va en DOS PASOS a proposito, igual que el dictado en la app de
+# documentos:
+#
+#   1. /guion-podcast  -> devuelve el texto de la conversacion
+#   2. /audio-podcast  -> lo convierte en mp3
+#
+# Podrian ir juntos y seria un boton menos. No se hace porque generar la
+# voz tarda bastante, y si el guion ha salido mal habria que esperar dos
+# veces. Ademas el guion vale por si solo: se puede leer, corregir, o
+# pegar en otra herramienta de voz mejor.
+
+@router.post("/guion-podcast/{fichero}")
+async def guion_podcast(fichero: str):
+    """Convierte unos apuntes en un diálogo de dos voces para escuchar."""
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe eso")
+    texto = await clases_store.leer(fichero)
+    if not texto:
+        raise HTTPException(404, "No existe eso")
+    if len(texto.strip()) < 120:
+        raise HTTPException(400, "Hay muy poco texto para hacer un pódcast")
+
+    registro = ProviderRegistry(get_settings())
+    guion = await _pedir_a_la_ia(
+        registro,
+        [ChatMessage(role="system", content=clases_podcast.INSTRUCCION_GUION),
+         ChatMessage(role="user", content=texto[:18000])],
+        temperatura=0.55,   # algo mas suelto: es una conversacion, no un informe
+    )
+    guion = guion.strip()[:clases_podcast.MAX_CARACTERES_GUION]
+
+    nombre = fichero.rsplit(".", 1)[0].replace("_resumen", "") + "_podcast.txt"
+    await clases_store.guardar(nombre, guion)
+
+    turnos = clases_podcast.partir_en_turnos(guion)
+    return {
+        "guion": guion,
+        "fichero": nombre,
+        "turnos": len(turnos),
+        # Cinco palabras por segundo es el ritmo normal de habla en
+        # español. Sirve para decir cuanto va a durar ANTES de generarlo.
+        "minutos": max(1, round(len(guion.split()) / 150)),
+    }
+
+
+@router.post("/audio-podcast/{fichero}")
+async def audio_podcast(fichero: str):
+    """Genera el mp3 del pódcast, para descargarlo y oírlo en el coche."""
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe eso")
+    guion = await clases_store.leer(fichero)
+    if not guion:
+        raise HTTPException(404, "Primero hay que crear el guion")
+
+    try:
+        audio = await clases_podcast.sintetizar(guion)
+    except ImportError:
+        raise HTTPException(
+            503, "El servidor no tiene instalado el generador de voz. "
+                 "El guion sí está: puede leerlo o pegarlo en otra herramienta.")
+    except Exception as e:
+        # NUNCA dejar al usuario sin saber que ha pasado. El guion ya lo
+        # tiene, asi que esto no es perderlo todo: es no poder oirlo.
+        raise HTTPException(
+            502, f"No se pudo generar la voz ({type(e).__name__}). "
+                 f"El guion sigue guardado y puede leerlo o pegarlo en otra "
+                 f"herramienta de audio.")
+
+    nombre_mp3 = fichero.rsplit(".", 1)[0] + ".mp3"
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_mp3}"'},
+    )

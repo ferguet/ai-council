@@ -231,6 +231,8 @@
     <button class="verde" id="btnExamen" onclick="preguntas(null)" disabled>❓ Proponer preguntas de examen</button>
     <button class="gris" id="btnExamenPdf" onclick="document.getElementById('pdfex').click()" disabled>📎 …usando exámenes que yo suba</button>
     <input type="file" id="pdfex" accept="application/pdf" style="display:none" onchange="preguntas(this.files[0])">
+    <button class="morado" id="btnPodcast" onclick="hacerPodcast()" disabled>🎧 Convertir en pódcast</button>
+    <button class="verde" id="btnAudio" onclick="bajarAudio()" hidden>⬇️ Descargar el audio (mp3)</button>
     <div id="estado2" style="margin-top:12px;font-size:14px;white-space:pre-line;color:#9AA4B2"></div>
   </div>
 
@@ -285,6 +287,7 @@ const estado = document.getElementById('estado');
 const salida = document.getElementById('texto');
 const btnResumir = document.getElementById('btnResumir');
 let ficheroVisible = null;
+let ficheroMostrado = null;   // lo que hay abierto ahora, sea transcripcion o derivado
 
 // =====================================================================
 // EL SERVIDOR SE DUERME, Y HAY QUE CONTARLO
@@ -853,6 +856,18 @@ function seleccionar(n) {
   baseSeleccionada = derivado ? nombreBase(n) + '.txt' : n;
   ficheroVisible = derivado ? null : n;          // resumir solo tiene sentido sobre la transcripcion
   btnResumir.disabled = derivado;
+  // QUE SE ESTA MIRANDO AHORA MISMO, sea lo que sea.
+  //
+  // Hace falta una variable aparte de ficheroVisible porque esa se pone
+  // a null al abrir un resumen (para apagar el boton de resumir). El
+  // podcast SI se puede hacer sobre un resumen -de hecho es lo normal-,
+  // asi que necesita saber que hay abierto aunque no sea transcripcion.
+  ficheroMostrado = n;
+  const bp = document.getElementById('btnPodcast');
+  if (bp) bp.disabled = false;
+  // El boton de descargar audio solo vale para el guion recien hecho.
+  const ba = document.getElementById('btnAudio');
+  if (ba && n !== ficheroPodcast) ba.hidden = true;
   // Cruzar y examinar SI valen siempre: trabajan sobre la transcripcion
   // original, que existe se este mirando lo que se este mirando. Antes
   // esto encendia "Proponer preguntas" pero NO su boton hermano de
@@ -866,6 +881,85 @@ function seleccionar(n) {
   if (be) be.disabled = false;
   const bep = document.getElementById('btnExamenPdf');
   if (bep) bep.disabled = false;
+}
+
+// =====================================================================
+// PODCAST: LA CLASE PARA ESCUCHARLA EN EL COCHE
+// =====================================================================
+//
+// Dos pasos: primero el guion (rapido, y se puede leer y corregir),
+// despues el audio (tarda mas). Si el audio falla, el guion ya esta
+// guardado, asi que no se pierde nada.
+let ficheroPodcast = null;
+
+async function hacerPodcast() {
+  // Se hace sobre lo que se este mirando: lo normal es el resumen, pero
+  // vale igual sobre la transcripcion entera.
+  const origen = ficheroMostrado;
+  if (!origen) { di('Abra primero una clase o unos apuntes.', '#F87171'); return; }
+
+  const b = document.getElementById('btnPodcast');
+  b.disabled = true;
+  const orig = b.textContent;
+  let p = 0;
+  const late = setInterval(() => { p=(p+1)%4; b.textContent='⏳ Escribiendo el guion'+'.'.repeat(p); }, 600);
+  di('⏳ Convirtiendo los apuntes en una conversación de dos voces…', '#FACC15');
+
+  try {
+    const r = await fetch(base() + '/clases/guion-podcast/' + encodeURIComponent(origen),
+                          { method:'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    ficheroPodcast = d.fichero;
+    mostrarTexto(d.guion);
+    document.getElementById('cabecera').innerHTML =
+      '🎧 <b>Guion del pódcast</b><br>' + d.turnos + ' intervenciones · unos ' +
+      d.minutos + ' minutos de audio<br>' +
+      '<span style="opacity:.75">Léalo y, si le convence, genere el audio.</span>';
+    document.getElementById('btnAudio').hidden = false;
+    di('✅ Guion listo (' + d.minutos + ' min aprox.). Ahora puede generar el audio.', '#4ADE80');
+    cargarLista();
+  } catch (e) {
+    di('❌ ' + enCristiano(e.message), '#F87171');
+  } finally {
+    clearInterval(late);
+    b.textContent = orig;
+    b.disabled = false;
+  }
+}
+
+async function bajarAudio() {
+  if (!ficheroPodcast) return;
+  const b = document.getElementById('btnAudio');
+  b.disabled = true;
+  const orig = b.textContent;
+  let p = 0;
+  const late = setInterval(() => { p=(p+1)%4; b.textContent='⏳ Grabando las voces'+'.'.repeat(p); }, 700);
+  di('⏳ Generando el audio. Tarda un rato: son varios minutos de voz.', '#FACC15');
+
+  try {
+    const r = await fetch(base() + '/clases/audio-podcast/' + encodeURIComponent(ficheroPodcast),
+                          { method:'POST' });
+    if (!r.ok) {
+      let motivo = 'error ' + r.status;
+      try { motivo = (await r.json()).detail || motivo; } catch (e) {}
+      throw new Error(motivo);
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = ficheroPodcast.replace(/\.txt$/, '') + '.mp3';
+    document.body.appendChild(a); a.click(); a.remove();
+    di('🎧 Audio descargado (' + Math.round(blob.size/1024/1024*10)/10 + ' MB).\n' +
+       'Ábralo con el reproductor del móvil: suena por el Bluetooth del coche ' +
+       'y sigue con la pantalla apagada.', '#4ADE80');
+  } catch (e) {
+    di('❌ ' + enCristiano(e.message), '#F87171');
+  } finally {
+    clearInterval(late);
+    b.textContent = orig;
+    b.disabled = false;
+  }
 }
 
 // =====================================================================

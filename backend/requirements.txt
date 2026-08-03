@@ -25,3 +25,7 @@ pdfplumber==0.11.4
 # (Render no tiene poppler ni ImageMagick). Hace falta para los examenes
 # escaneados: son fotos, no texto, y hay que leerlos con vision.
 pymupdf==1.24.10
+# Voces neuronales en español para el podcast de las clases. Gratis y sin
+# clave de API. Si el servicio no responde, la app sigue dando el guion
+# escrito: se pierde el audio, no el trabajo.
+edge-tts==6.1.12
