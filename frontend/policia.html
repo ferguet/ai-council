@@ -96,6 +96,7 @@
     <button class="verde" id="btnGrabar" onclick="alternar()">🎙️ Empezar a dictar</button>
     <button class="azul" onclick="document.getElementById('audio').click()">📂 Subir un audio</button>
     <input type="file" id="audio" accept="audio/*" style="display:none" onchange="subir(this.files[0])">
+    <button class="gris" id="btnReintentar" onclick="reintentarEnvio()" hidden>🔁 Reintentar transcripción (sin volver a grabar)</button>
     <div class="estado" id="estadoDictado">Puede dictar, subir un audio, o escribir directamente abajo.</div>
     <div style="margin-top:14px">
       <label style="font-size:12px;color:#7E8AA0;display:block;margin-bottom:6px">
@@ -267,6 +268,27 @@ function pintarFormulario(d) {
 // ---------- dictado ----------
 let grabador = null, trozos = [], desde = 0, tic = null;
 
+// EL AUDIO GRABADO NUNCA SE PIERDE, PASE LO QUE PASE.
+//
+// Antes, en cuanto se paraba de grabar, se intentaba subir y transcribir
+// directamente. Si esa subida fallaba (sin cobertura, servidor dormido,
+// lo que sea), el audio se tiraba sin mas: seis minutos de dictado
+// perdidos para siempre, sin ninguna copia. Ahora, EN CUANTO se para de
+// grabar y ANTES de intentar nada con el servidor, el audio se descarga
+// solo al movil. Si luego la transcripcion falla, se puede reintentar
+// las veces que haga falta sin grabar de nuevo, porque el fichero ya
+// esta a salvo en la carpeta de descargas.
+let ultimoAudioBlob = null, ultimoAudioNombre = '';
+
+function guardarCopiaLocal(blob, nombre) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 async function alternar() {
   const btn = document.getElementById('btnGrabar');
   if (grabador && grabador.state === 'recording') { grabador.stop(); return; }
@@ -281,7 +303,19 @@ async function alternar() {
       flujo.getTracks().forEach(t => t.stop());
       btn.textContent = '🎙️ Empezar a dictar';
       btn.className = 'verde';
-      enviar(new Blob(trozos, { type: grabador.mimeType || 'audio/webm' }), 'dictado.webm');
+
+      const blob = new Blob(trozos, { type: grabador.mimeType || 'audio/webm' });
+      const nombre = new Date().toISOString().replace(/[:.]/g, '-') + '.webm';
+      ultimoAudioBlob = blob;
+      ultimoAudioNombre = nombre;
+
+      // PRIMERO se guarda, PASE LO QUE PASE DESPUES.
+      guardarCopiaLocal(blob, nombre);
+      di('estadoDictado',
+        '💾 Audio guardado en Descargas (' + nombre + '). Transcribiendo…',
+        '#FACC15');
+
+      enviar(blob, nombre);
     };
     grabador.start();
     desde = Date.now();
@@ -302,6 +336,7 @@ function subir(f) { if (f) enviar(f, f.name); }
 
 async function enviar(blob, nombre) {
   di('estadoDictado', '⏳ Transcribiendo el dictado…', '#FACC15');
+  document.getElementById('btnReintentar').hidden = true;
   const fd = new FormData();
   fd.append('audio', blob, nombre);
   try {
@@ -311,8 +346,22 @@ async function enviar(blob, nombre) {
     document.getElementById('dictado').value = d.texto;
     di('estadoDictado', '✅ Transcrito. Léalo y corrija lo que haga falta antes de redactar.', '#4ADE80');
   } catch (e) {
-    di('estadoDictado', '❌ ' + e.message, '#F87171');
+    // El audio YA esta guardado en Descargas desde antes de llegar aqui,
+    // asi que un fallo de red o de servidor no cuesta la grabacion: solo
+    // hay que reintentar la transcripcion, no volver a dictar.
+    const conCopia = blob === ultimoAudioBlob;
+    di('estadoDictado',
+      '❌ ' + e.message +
+      (conCopia ? '\n💾 El audio está a salvo en Descargas (' + nombre + '). Puede reintentar sin grabar de nuevo.'
+                 : ''),
+      '#F87171');
+    if (conCopia) document.getElementById('btnReintentar').hidden = false;
   }
+}
+
+function reintentarEnvio() {
+  if (!ultimoAudioBlob) return;
+  enviar(ultimoAudioBlob, ultimoAudioNombre);
 }
 
 // ---------- fotos de daños ----------
