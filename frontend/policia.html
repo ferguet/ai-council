@@ -115,6 +115,11 @@
     <input type="file" id="fotos" accept="image/*" capture="environment" multiple
            style="display:none" onchange="elegirFotos(this.files)">
     <button class="gris" id="btnDescribir" onclick="describir()" disabled>🔍 Describir los daños</button>
+    <!-- Guardar las fotos NO depende de haber redactado nada.
+         Antes solo se guardaban de propina al guardar un documento, asi
+         que quien solo queria archivar unas fotos de unos daños no tenia
+         forma de hacerlo. -->
+    <button class="gris" id="btnGuardarFotos" onclick="guardarFotosEnGaleria()" disabled>🗂️ Guardar fotos en la galería</button>
     <div id="miniaturas" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"></div>
     <div class="estado" id="estadoFotos"></div>
     <div style="margin-top:12px" id="cajaDanos" hidden>
@@ -127,7 +132,14 @@
 
   <div class="panel">
     <div class="et"><span class="paso">4</span> Redactar</div>
-    <button class="morado" id="btnRedactar" onclick="redactar()" disabled>✍️ Redactar el documento</button>
+    <!-- NO nace desactivado a proposito.
+         Antes si lo estaba, y solo se encendia al elegir el tipo de
+         documento arriba. Si alguien grababa el audio y subia las fotos
+         pero no habia tocado el tipo, se encontraba un boton muerto que
+         no hacia nada NI EXPLICABA POR QUE. Ahora se puede pulsar
+         siempre: si falta algo, la propia funcion lo dice. Un boton que
+         te contesta es mejor que uno que te ignora. -->
+    <button class="morado" id="btnRedactar" onclick="redactar()">✍️ Redactar el documento</button>
     <div class="estado" id="estadoRedaccion"></div>
   </div>
 
@@ -138,7 +150,7 @@
     <button class="gris" id="btnCopiar" onclick="copiar()" disabled>📋 Copiar todo</button>
     <button class="gris" onclick="window.print()">🖨️ Imprimir</button>
     <button class="azul" id="btnCalificar" onclick="calificar()" disabled>⚖️ Orientación sobre el tipo penal</button>
-    <button class="morado" id="btnGuardarGaleria" onclick="guardarEnGaleria()" disabled>🗂️ Guardar en la galería</button>
+    <button class="morado" id="btnGuardarGaleria" onclick="guardarEnGaleria()">🗂️ Guardar en la galería</button>
     <div class="estado" id="estadoSalida"></div>
   </div>
 
@@ -441,6 +453,7 @@ function elegirFotos(lista) {
     c.appendChild(img);
   });
   document.getElementById('btnDescribir').disabled = fotosElegidas.length === 0;
+  document.getElementById('btnGuardarFotos').disabled = fotosElegidas.length === 0;
   di('estadoFotos', fotosElegidas.length
       ? fotosElegidas.length + ' foto(s) preparada(s). Se describen las 6 primeras.'
       : '');
@@ -619,32 +632,73 @@ async function borrarDe(almacen, id) {
   });
 }
 
+// Guardar fotos: NO hace falta haber redactado nada, y NO hace falta
+// que esten descritas. Si estan descritas se guarda tambien el texto,
+// pero unas fotos de unos daños ya valen por si solas.
+async function guardarFotosEnGaleria() {
+  if (!fotosElegidas.length) {
+    di('estadoFotos', 'No hay fotos que guardar. Añada alguna primero.', '#F87171');
+    return;
+  }
+  const b = document.getElementById('btnGuardarFotos');
+  b.disabled = true;
+  const ahora = new Date();
+  const desc = document.getElementById('danos').value.trim();
+  try {
+    let n = 0;
+    for (const f of fotosElegidas.slice(0, _MAX_FOTOS_GUARDAR)) {
+      const chica = await reducir(f);
+      await guardarEn('fotos', {
+        id: 'f' + ahora.getTime() + '_' + (n++) + Math.random().toString(36).slice(2, 6),
+        blob: chica,
+        descripcion: desc,
+        fecha: ahora.toISOString(),
+      });
+    }
+    di('estadoFotos', '🗂️ ' + n + ' foto(s) guardada(s) en la galería de este dispositivo.' +
+       (desc ? ' Con su descripción.' : ' Sin descripción: puede describirlas antes si quiere que se guarde también el texto.'),
+       '#4ADE80');
+    verGaleria('fotos');
+  } catch (e) {
+    di('estadoFotos', '❌ No se pudieron guardar: ' + e.message, '#F87171');
+  } finally {
+    b.disabled = false;
+  }
+}
+
+const _MAX_FOTOS_GUARDAR = 6;
+
 async function guardarEnGaleria() {
-  if (!documentoActual) return;
+  if (!documentoActual) {
+    di('estadoSalida', 'No hay ningún documento redactado que guardar.', '#F87171');
+    return;
+  }
   const ahora = new Date();
   try {
     await guardarEn('documentos', {
       id: 'd' + ahora.getTime(),
       tipo: tipo,
-      nombre: _NOMBRES_LOCAL[tipo] || tipo,
+      nombre: _NOMBRES_LOCAL[tipo] || tipo || 'Documento',
       texto: documentoActual,
       fecha: ahora.toISOString(),
     });
     // Si hay fotos descritas en esta sesion, se guardan junto al
     // documento: la foto sin su descripcion, o al reves, sirve de poco.
     const desc = document.getElementById('danos').value.trim();
+    let conFotos = 0;
     if (fotosElegidas.length && desc) {
-      for (const f of fotosElegidas.slice(0, 6)) {
+      for (const f of fotosElegidas.slice(0, _MAX_FOTOS_GUARDAR)) {
         const chica = await reducir(f);
         await guardarEn('fotos', {
-          id: 'f' + ahora.getTime() + '_' + Math.random().toString(36).slice(2, 7),
+          id: 'f' + ahora.getTime() + '_' + (conFotos++) + Math.random().toString(36).slice(2, 6),
           blob: chica,
           descripcion: desc,
           fecha: ahora.toISOString(),
         });
       }
     }
-    di('estadoSalida', '🗂️ Guardado en la galería de este dispositivo.', '#4ADE80');
+    di('estadoSalida', '🗂️ Documento guardado en la galería de este dispositivo.' +
+       (conFotos ? ' Y ' + conFotos + ' foto(s) con él.' : ''), '#4ADE80');
     verGaleria(galeriaActual);
   } catch (e) {
     di('estadoSalida', '❌ No se pudo guardar en la galería: ' + e.message, '#F87171');
