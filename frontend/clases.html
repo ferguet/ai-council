@@ -70,6 +70,7 @@
     <button class="verde" id="btnGrabar" onclick="alternarGrabacion()">🎙️ Empezar a grabar</button>
     <button class="azul" onclick="document.getElementById('fichero').click()">📂 Subir un audio</button>
     <input type="file" id="fichero" accept="audio/*" style="display:none" onchange="subirFichero(this.files[0])">
+    <button class="gris" id="btnReintentar" onclick="reintentarEnvio()" hidden>🔁 Reintentar transcripción (sin volver a grabar)</button>
     <div id="estado">Listo.</div>
   </div>
 
@@ -151,6 +152,31 @@ async function probar() {
 // ---------- grabar con el microfono del ordenador ----------
 let grabador = null, trozos = [], desde = 0, tic = null;
 
+// LA GRABACION NUNCA SE PIERDE, PASE LO QUE PASE.
+//
+// Antes, al parar de grabar se intentaba subir y transcribir de golpe.
+// Si esa subida fallaba (sin cobertura, servidor dormido, fichero
+// grande), el audio se tiraba sin mas y no quedaba copia en ningun
+// sitio: una clase entera perdida. Y una clase no se puede repetir.
+// Ahora, EN CUANTO se para y ANTES de tocar el servidor, el audio se
+// descarga solo. Si la transcripcion falla, se reintenta las veces que
+// haga falta sin volver a grabar nada.
+let ultimoAudioBlob = null, ultimoAudioNombre = '';
+
+function guardarCopiaLocal(blob, nombre) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function reintentarEnvio() {
+  if (!ultimoAudioBlob) return;
+  enviar(ultimoAudioBlob, ultimoAudioNombre);
+}
+
 async function alternarGrabacion() {
   const btn = document.getElementById('btnGrabar');
   if (grabador && grabador.state === 'recording') {
@@ -169,7 +195,18 @@ async function alternarGrabacion() {
       btn.textContent = '🎙️ Empezar a grabar';
       btn.className = 'verde';
       const blob = new Blob(trozos, { type: grabador.mimeType || 'audio/webm' });
-      enviar(blob, 'clase.webm');
+      const asig = (document.getElementById('asignatura').value || 'clase')
+                     .trim().replace(/[^\wáéíóúñÁÉÍÓÚÑ -]/g, '') || 'clase';
+      const nombre = asig + '_' +
+                     new Date().toISOString().replace(/[:.]/g, '-') + '.webm';
+      ultimoAudioBlob = blob;
+      ultimoAudioNombre = nombre;
+
+      // PRIMERO se guarda, PASE LO QUE PASE DESPUES.
+      guardarCopiaLocal(blob, nombre);
+      di('💾 Audio guardado en Descargas (' + nombre + '). Transcribiendo…', '#FACC15');
+
+      enviar(blob, nombre);
     };
     grabador.start();
     desde = Date.now();
@@ -192,6 +229,7 @@ async function enviar(blob, nombre) {
   const mb = (blob.size / 1048576).toFixed(1);
   di('⏳ Transcribiendo ' + nombre + ' (' + mb + ' MB)…\n' +
      'Las clases largas se parten en trozos, así que puede tardar varios minutos.', '#FACC15');
+  document.getElementById('btnReintentar').hidden = true;
   const fd = new FormData();
   fd.append('audio', blob, nombre);
   try {
@@ -207,7 +245,14 @@ async function enviar(blob, nombre) {
     di('✅ Transcrito y guardado (' + d.fichero + ')', '#4ADE80');
     cargarLista();
   } catch (e) {
-    di('❌ ' + e.message, '#F87171');
+    // El audio YA esta guardado en Descargas desde antes de llegar aqui:
+    // un fallo de red no cuesta la clase, solo hay que reintentar.
+    const conCopia = blob === ultimoAudioBlob;
+    di('❌ ' + e.message +
+       (conCopia ? '\n💾 El audio está a salvo en Descargas (' + nombre +
+                   '). Puede reintentar sin volver a grabar.' : ''),
+       '#F87171');
+    if (conCopia) document.getElementById('btnReintentar').hidden = false;
   }
 }
 
