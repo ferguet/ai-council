@@ -262,6 +262,24 @@ function alternarAjustes() {
   if (!p.hidden) p.scrollIntoView({ behavior: 'smooth' });
 }
 
+// LOS ASTERISCOS NO SON PARTE DE LOS APUNTES.
+//
+// La IA devuelve los titulos en formato markdown (**asi**), y al
+// pintarlos como texto plano salian los asteriscos a la vista:
+// "**Sesión Cultural**". Queda descuidado y encima ensucia el PDF y lo
+// que se copia. Aqui se convierten en negrita de verdad.
+//
+// Se escapa el HTML ANTES de convertir nada: el texto viene de un
+// modelo de IA y de una transcripcion, y meter eso en innerHTML sin
+// escapar es abrir la puerta a que un "<" cualquiera rompa la pagina.
+function mostrarTexto(t) {
+  const escapado = String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  salida.innerHTML = escapado
+    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|\n)\s*##+\s*(.+)/g, '$1<b>$2</b>');
+}
+
 function di(msg, color) {
   // Se escribe en los DOS sitios: arriba y junto a los botones de abajo.
   // La pagina es larga y el aviso quedaba fuera de la pantalla justo
@@ -376,7 +394,7 @@ async function enviar(blob, nombre) {
                           { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
-    salida.textContent = d.texto;
+    mostrarTexto(d.texto);
     pintarCabecera(d.fichero);
     seleccionar(d.fichero);
     document.getElementById('tituloImpreso').textContent = d.fichero;
@@ -419,7 +437,7 @@ async function resumir() {
     const r = await fetch(base() + '/clases/resumir/' + encodeURIComponent(ficheroVisible), { method: 'POST' });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
-    salida.textContent = d.resumen;
+    mostrarTexto(d.resumen);
     pintarCabecera(d.fichero);
     ficheroVisible = null;
     di('✅ Apuntes listos (' + d.fichero + ')' + (d.partes > 1 ? ' — resumido en ' + d.partes + ' partes' : ''), '#4ADE80');
@@ -466,7 +484,7 @@ async function cruzar(f) {
                           { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
-    salida.textContent = d.guia;
+    mostrarTexto(d.guia);
     pintarCabecera(d.fichero);
     di('✅ Guía de prioridades lista.\n' +
        d.resaltados + ' cosas resaltadas en ' + d.paginas + ' páginas, cruzadas con la clase en ' +
@@ -532,7 +550,7 @@ async function preguntas(f) {
     // servidor manda una cabecera fija que no depende de la IA, y va
     // DENTRO del texto como primera linea: se copia, se imprime y se
     // guarda siempre junto con las preguntas.
-    salida.textContent = (d.cabecera ? d.cabecera + '\n\n' : '') + d.preguntas;
+    mostrarTexto((d.cabecera ? d.cabecera + '\n\n' : '') + d.preguntas);
     pintarCabecera(d.fichero);
     let msg = '✅ Preguntas listas.';
     if (d.diario && d.diario.length) msg += '\n' + d.diario.join('\n');
@@ -667,10 +685,23 @@ function pintarLista(clases) {
         try {
           const r = await fetch(base() + '/clases/leer/' + encodeURIComponent(n));
           const d = await r.json();
-          salida.textContent = d.texto;
+          // Si el servidor da un error, d.texto no existe. Sin esta
+          // comprobacion se pintaba "undefined" y ademas se anunciaba
+          // "Mostrando:" tan tranquilo, como si hubiera ido bien.
+          if (!r.ok || typeof d.texto !== 'string')
+            throw new Error(d.detail || ('el servidor respondió ' + r.status));
+          mostrarTexto(d.texto);
           pintarCabecera(n);
           seleccionar(n);
           di('Mostrando: ' + info.nombre + ' — ' + claseBase.replace(/_/g, ' '));
+          // LLEVAR AL TEXTO, NO SOLO CARGARLO.
+          //
+          // La lista esta al final de la pagina y el texto se pinta
+          // arriba del todo. Al pulsar una clase desde abajo, el texto
+          // aparecia fuera de la pantalla: solo se veia el mensaje de
+          // "Mostrando…" y parecia que no habia pasado nada. Cargar algo
+          // donde no se ve es, para quien mira, no cargarlo.
+          document.getElementById('panelTexto').scrollIntoView({ behavior:'smooth', block:'start' });
         } catch (e) { di('❌ ' + enCristiano(e.message), '#F87171'); }
       };
 
