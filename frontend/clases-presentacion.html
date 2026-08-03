@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<!--
+  PAGINA DE PRESENTACION DE CLASES.
+
+  Para que sirve: se manda el enlace por WhatsApp a un compañero y en
+  treinta segundos entiende que es, para que sirve y como se usa, sin
+  que haya que explicarselo en persona.
+
+  Por que una pagina y no un video: un video hay que verlo entero y en
+  orden. Esto se ojea, se salta lo que no interesa, se lee en clase sin
+  sonido, y se actualiza cambiando una linea en vez de grabar otra vez.
+
+  NO LLEVA EL ESCUDO DE LA UNIVERSIDAD, a proposito: es una marca
+  registrada suya y ponerla aqui daria a entender que la universidad
+  respalda la aplicacion. No lo hace.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clases · Graba, entiende, aprueba</title>
+<meta name="theme-color" content="#0B1020">
+<style>
+  :root { --suave:#94A3B8; --linea:rgba(148,163,184,.18); }
+  * { box-sizing:border-box; }
+  body { margin:0; color:#EEF2F8; min-height:100vh; overflow-x:hidden;
+    background:
+      radial-gradient(1200px 700px at 15% -5%, rgba(59,130,246,.18), transparent 60%),
+      radial-gradient(900px 600px at 95% 8%, rgba(34,197,94,.14), transparent 60%),
+      radial-gradient(900px 900px at 50% 108%, rgba(124,58,168,.16), transparent 60%),
+      linear-gradient(175deg,#0B1020 0%,#0E1526 50%,#0B1020 100%);
+    background-attachment:fixed;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  body::before { content:''; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
+    background-image:repeating-linear-gradient(90deg, rgba(148,163,184,.045) 0 1px, transparent 1px 84px);
+    mask-image:radial-gradient(circle at 50% 25%, #000 0%, transparent 75%); }
+
+  .caja { max-width:860px; margin:0 auto; padding:44px 20px 90px; position:relative; z-index:1; }
+
+  .marca { display:flex; align-items:center; gap:12px; margin-bottom:34px; }
+  .simbolo { width:46px; height:46px; border-radius:14px; flex:0 0 auto;
+    background:linear-gradient(135deg,#22C55E,#16A34A); display:flex;
+    align-items:center; justify-content:center; box-shadow:0 8px 22px rgba(34,197,94,.32); }
+  .nombre { font-weight:800; font-size:16px; }
+  .lema { font-size:12px; color:var(--suave); letter-spacing:.05em; }
+
+  h1 { font-size:clamp(32px,6vw,50px); line-height:1.08; margin:0 0 16px;
+    letter-spacing:-.025em; font-weight:800;
+    background:linear-gradient(100deg,#FFFFFF 12%,#A7F3D0 52%,#93C5FD 88%);
+    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .entradilla { font-size:19px; line-height:1.6; color:#C9D2DE; max-width:620px; margin-bottom:12px; }
+  .apoyo { font-size:15px; color:var(--suave); margin-bottom:30px; }
+
+  h2 { font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#8FA0B8;
+       font-weight:700; margin:52px 0 18px; }
+
+  .cta { display:inline-block; text-decoration:none; color:#fff; font-weight:700; font-size:17px;
+    padding:17px 34px; border-radius:16px; background:linear-gradient(135deg,#16A34A,#0B7A3B);
+    box-shadow:0 12px 30px rgba(34,197,94,.3); transition:transform .16s, box-shadow .16s; }
+  .cta:hover { transform:translateY(-2px); box-shadow:0 18px 38px rgba(34,197,94,.38); }
+  .cta.sec { background:linear-gradient(135deg,rgba(51,65,85,.9),rgba(30,41,59,.9));
+    border:1px solid var(--linea); box-shadow:none; margin-left:10px; font-size:15px; padding:16px 26px; }
+
+  .rejilla { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; }
+  .tarjeta { background:rgba(28,38,58,.62); border:1px solid var(--linea); border-radius:20px;
+    padding:22px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    box-shadow:0 10px 30px rgba(0,0,0,.26); }
+  .tarjeta .ico { font-size:26px; margin-bottom:10px; }
+  .tarjeta .t { font-weight:750; font-size:16px; margin-bottom:6px; }
+  .tarjeta .d { font-size:14.5px; color:var(--suave); line-height:1.6; }
+
+  /* Pasos numerados */
+  .paso { display:flex; gap:18px; align-items:flex-start; margin-bottom:20px;
+    background:rgba(28,38,58,.5); border:1px solid var(--linea); border-radius:18px; padding:20px; }
+  .num { flex:0 0 auto; width:38px; height:38px; border-radius:12px; font-weight:800; font-size:16px;
+    display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg,#3B82F6,#1D4ED8); box-shadow:0 6px 16px rgba(59,130,246,.3); }
+  .paso .t { font-weight:700; font-size:16px; margin-bottom:5px; }
+  .paso .d { font-size:14.5px; color:var(--suave); line-height:1.62; }
+
+  .antes-despues { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:620px) { .antes-despues { grid-template-columns:1fr; } }
+  .col { border-radius:18px; padding:20px; border:1px solid var(--linea); }
+  .col.mal { background:rgba(153,27,27,.14); }
+  .col.bien { background:rgba(22,163,74,.14); }
+  .col h3 { margin:0 0 12px; font-size:14px; letter-spacing:.06em; text-transform:uppercase; }
+  .col ul { margin:0; padding-left:19px; font-size:14.5px; line-height:1.75; color:#C9D2DE; }
+
+  .honesto { background:rgba(10,16,30,.55); border:1px solid var(--linea);
+    border-left:4px solid #FACC15; border-radius:16px; padding:20px 22px;
+    font-size:14.5px; line-height:1.65; color:#C9D2DE; margin-top:14px; }
+
+  footer { margin-top:60px; padding-top:22px; border-top:1px solid var(--linea);
+    font-size:13px; color:#64748B; line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="caja">
+
+  <div class="marca">
+    <div class="simbolo">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#fff"
+           stroke-width="2.2" stroke-linecap="round">
+        <rect x="9" y="2" width="6" height="11" rx="3" fill="#fff" stroke="none"/>
+        <path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M8 21h8"/>
+      </svg>
+    </div>
+    <div>
+      <div class="nombre">Clases</div>
+      <div class="lema">GRABAR · ENTENDER · APROBAR</div>
+    </div>
+  </div>
+
+  <h1>Deja de elegir entre atender y tomar apuntes</h1>
+  <div class="entradilla">
+    Graba la clase. Al salir tienes la transcripción completa, los apuntes
+    ordenados por conceptos y preguntas de examen sobre lo que <b>de verdad
+    se ha dado</b> ese día.
+  </div>
+  <div class="apoyo">En español · Sin registro · Sin instalar nada · Funciona en el móvil</div>
+
+  <a class="cta" href="clases.html">Probarlo ahora</a>
+  <a class="cta sec" href="#como">Ver cómo funciona</a>
+
+  <h2>El problema de siempre</h2>
+  <div class="antes-despues">
+    <div class="col mal">
+      <h3>Sin esto</h3>
+      <ul>
+        <li>O escuchas, o escribes. Las dos no.</li>
+        <li>Apuntes con huecos donde te despistaste.</li>
+        <li>«¿Esto lo dijo o lo he copiado mal?»</li>
+        <li>Pedir los apuntes a alguien y estudiar de la letra de otro.</li>
+        <li>Estudiar el tema entero sin saber qué recalcó el profesor.</li>
+      </ul>
+    </div>
+    <div class="col bien">
+      <h3>Con Clases</h3>
+      <ul>
+        <li>Atiendes. La grabación se encarga del resto.</li>
+        <li>La clase entera, palabra por palabra.</li>
+        <li>Puedes volver a lo que dijo, literal.</li>
+        <li>Tus apuntes, de tu clase, con tu profesor.</li>
+        <li>Preguntas sobre lo que se dio, no sobre el temario genérico.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 id="como">Cómo se usa</h2>
+
+  <div class="paso">
+    <div class="num">1</div>
+    <div>
+      <div class="t">Dale a grabar al empezar la clase</div>
+      <div class="d">
+        Pon la asignatura si quieres (así luego las encuentras) y pulsa
+        <b>Empezar a grabar</b>. Deja el móvil en la mesa y atiende. Al
+        acabar, pulsa parar.
+      </div>
+    </div>
+  </div>
+
+  <div class="paso">
+    <div class="num">2</div>
+    <div>
+      <div class="t">Se transcribe sola</div>
+      <div class="d">
+        El audio se guarda en tu dispositivo nada más parar —aunque falle
+        la conexión no pierdes la clase— y se transcribe. Te queda el
+        texto completo, guardado y buscable.
+      </div>
+    </div>
+  </div>
+
+  <div class="paso">
+    <div class="num">3</div>
+    <div>
+      <div class="t">Conviértela en material de estudio</div>
+      <div class="d">
+        Con el texto delante: <b>Resumir en apuntes</b> te lo ordena por
+        conceptos. <b>Cruzar con las diapositivas</b> te dice qué explicó
+        el profesor de cada una. <b>Proponer preguntas de examen</b> te
+        saca preguntas de esa clase concreta.
+      </div>
+    </div>
+  </div>
+
+  <div class="paso">
+    <div class="num">4</div>
+    <div>
+      <div class="t">Llévatelo donde estudies</div>
+      <div class="d">
+        Imprimir o guardar en PDF, descargar como texto, o copiarlo a
+        Notion, Word o donde tengas tus apuntes.
+      </div>
+    </div>
+  </div>
+
+  <h2>Lo que lo hace distinto</h2>
+  <div class="rejilla">
+    <div class="tarjeta">
+      <div class="ico">🇪🇸</div>
+      <div class="t">Pensado en español</div>
+      <div class="d">Transcripción y apuntes en español, con el vocabulario de tu carrera. No es una herramienta traducida.</div>
+    </div>
+    <div class="tarjeta">
+      <div class="ico">📊</div>
+      <div class="t">Cruza clase y diapositivas</div>
+      <div class="d">Sube el PDF del profesor y ve qué dijo de cada diapositiva. Eso no lo hace una transcripción normal.</div>
+    </div>
+    <div class="tarjeta">
+      <div class="ico">❓</div>
+      <div class="t">Preguntas de tu clase</div>
+      <div class="d">No del temario oficial: de lo que se explicó ese día, que es de donde suele salir el examen.</div>
+    </div>
+    <div class="tarjeta">
+      <div class="ico">🔒</div>
+      <div class="t">Nada se pierde</div>
+      <div class="d">El audio se guarda en tu dispositivo antes de subirlo. Si algo falla, se reintenta sin volver a grabar.</div>
+    </div>
+    <div class="tarjeta">
+      <div class="ico">⚡</div>
+      <div class="t">Sin registro</div>
+      <div class="d">Se abre y se usa. Ni cuenta, ni correo, ni descargar nada.</div>
+    </div>
+    <div class="tarjeta">
+      <div class="ico">📲</div>
+      <div class="t">Con icono en el móvil</div>
+      <div class="d">Se añade a la pantalla de inicio como una app más, y se actualiza sola.</div>
+    </div>
+  </div>
+
+  <h2>Antes de que lo pruebes</h2>
+  <div class="honesto">
+    <b>Es una versión inicial, y prefiero decirlo.</b><br>
+    La primera vez que la abras puede tardar hasta un minuto: el servidor
+    se apaga cuando no se usa y tiene que arrancar. La transcripción es
+    buena pero no perfecta: con mucho ruido de fondo o varias personas
+    hablando a la vez, se le escapan cosas. Y los resúmenes y preguntas
+    los genera una IA, así que <b>hay que revisarlos</b> — son un punto de
+    partida para estudiar, no una verdad revelada.<br><br>
+    Si la pruebas y algo no funciona, dímelo: para eso está.
+  </div>
+
+  <div style="margin-top:34px">
+    <a class="cta" href="clases.html">Probarlo ahora</a>
+  </div>
+
+  <footer>
+    Clases es un proyecto independiente. No está asociado ni respaldado
+    por ninguna universidad ni institución educativa.<br>
+    Para clases y estudio. No introduzcas datos de pacientes ni información
+    confidencial.
+  </footer>
+
+</div>
+</body>
+</html>
