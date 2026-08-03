@@ -138,7 +138,30 @@
     <button class="gris" id="btnCopiar" onclick="copiar()" disabled>📋 Copiar todo</button>
     <button class="gris" onclick="window.print()">🖨️ Imprimir</button>
     <button class="azul" id="btnCalificar" onclick="calificar()" disabled>⚖️ Orientación sobre el tipo penal</button>
+    <button class="morado" id="btnGuardarGaleria" onclick="guardarEnGaleria()" disabled>🗂️ Guardar en la galería</button>
     <div class="estado" id="estadoSalida"></div>
+  </div>
+
+  <!-- ================= GALERIA =================
+       Todo lo de aqui vive EN ESTE DISPOSITIVO (IndexedDB del navegador),
+       no en el servidor. Es deliberado: el servidor esta en Estados
+       Unidos, y acumular alli documentos y fotos de trabajo seria una
+       transferencia internacional continua que nadie ha autorizado.
+       Guardandolo en local, no sale de aqui.
+       El precio a pagar: no se sincroniza entre dispositivos, y si se
+       borran los datos del navegador se pierde. Por eso hay boton de
+       exportar. -->
+  <div class="panel">
+    <div class="et">🗂️ Galería <span style="text-transform:none;letter-spacing:0">(guardada en este dispositivo)</span></div>
+    <div class="tipos" style="margin-bottom:14px">
+      <button class="gris elegido" id="g-documentos" onclick="verGaleria('documentos')">📄 Documentos</button>
+      <button class="gris" id="g-fotos" onclick="verGaleria('fotos')">📷 Fotos de daños</button>
+    </div>
+    <div id="listaGaleria" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div class="estado" id="estadoGaleria"></div>
+    <div style="margin-top:12px">
+      <button class="gris" onclick="exportarGaleria()">⬇️ Exportar copia de seguridad</button>
+    </div>
   </div>
 
   <div class="nota">
@@ -149,7 +172,11 @@
     <b>La calificación penal es orientativa.</b> Un artículo citado por una IA puede
     estar mal aunque suene seguro. Verifíquelo siempre.<br><br>
     <b>Las fórmulas legales no las escribe la IA.</b> La advertencia de los artículos
-    433 LECrim y 456/457/458 CP se inserta literal desde plantilla.
+    433 LECrim y 456/457/458 CP se inserta literal desde plantilla.<br><br>
+    <b>La galería se guarda solo en este dispositivo.</b> No se sube a ningún
+    servidor. Eso significa dos cosas: que no sale de aquí, y que si borra
+    los datos del navegador o desinstala la app, <b>se pierde</b>. Exporte de
+    vez en cuando.
   </div>
 
   <div class="nota" style="border-left-color:#1D4ED8" id="avisoInstalar" hidden>
@@ -483,7 +510,7 @@ async function redactar() {
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     documentoActual = d.documento;
     document.getElementById('salida').textContent = d.documento;
-    ['btnDescargar','btnCopiar','btnCalificar'].forEach(x =>
+    ['btnDescargar','btnCopiar','btnCalificar','btnGuardarGaleria'].forEach(x =>
       document.getElementById(x).disabled = false);
     di('estadoRedaccion', '✅ ' + d.nombre + ' redactado. Revíselo antes de usarlo.', '#4ADE80');
   } catch (e) {
@@ -525,6 +552,212 @@ function descargar() {
   a.click();
   di('estadoSalida', '💾 Descargado. Cópielo al pendrive desde su carpeta de descargas.', '#4ADE80');
 }
+
+// =====================================================================
+// GALERIA — TODO EN ESTE DISPOSITIVO
+// =====================================================================
+//
+// POR QUE EN LOCAL Y NO EN EL SERVIDOR.
+//
+// Guardar esto en el servidor seria mas comodo (se veria desde
+// cualquier dispositivo), pero ese servidor esta fuera de España y
+// acabaria acumulando documentos de trabajo y fotografias de
+// intervenciones de forma indefinida. Eso es una transferencia
+// internacional continua de datos, y ademas crea un archivo paralelo
+// fuera de los sistemas oficiales. En local, nada de esto sale del
+// telefono.
+//
+// LO QUE HAY QUE SABER, Y POR ESO SE DICE EN PANTALLA:
+// si se borran los datos del navegador o se desinstala la app, la
+// galeria se va con ellos. De ahi el boton de exportar.
+
+const DB_NOMBRE = 'policia_galeria';
+let _db = null;
+
+function abrirDB() {
+  if (_db) return Promise.resolve(_db);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NOMBRE, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('documentos'))
+        db.createObjectStore('documentos', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('fotos'))
+        db.createObjectStore('fotos', { keyPath: 'id' });
+    };
+    req.onsuccess = () => { _db = req.result; resolve(_db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function guardarEn(almacen, objeto) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(almacen, 'readwrite');
+    tx.objectStore(almacen).put(objeto);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function leerTodo(almacen) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(almacen, 'readonly').objectStore(almacen).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function borrarDe(almacen, id) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(almacen, 'readwrite');
+    tx.objectStore(almacen).delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function guardarEnGaleria() {
+  if (!documentoActual) return;
+  const ahora = new Date();
+  try {
+    await guardarEn('documentos', {
+      id: 'd' + ahora.getTime(),
+      tipo: tipo,
+      nombre: _NOMBRES_LOCAL[tipo] || tipo,
+      texto: documentoActual,
+      fecha: ahora.toISOString(),
+    });
+    // Si hay fotos descritas en esta sesion, se guardan junto al
+    // documento: la foto sin su descripcion, o al reves, sirve de poco.
+    const desc = document.getElementById('danos').value.trim();
+    if (fotosElegidas.length && desc) {
+      for (const f of fotosElegidas.slice(0, 6)) {
+        const chica = await reducir(f);
+        await guardarEn('fotos', {
+          id: 'f' + ahora.getTime() + '_' + Math.random().toString(36).slice(2, 7),
+          blob: chica,
+          descripcion: desc,
+          fecha: ahora.toISOString(),
+        });
+      }
+    }
+    di('estadoSalida', '🗂️ Guardado en la galería de este dispositivo.', '#4ADE80');
+    verGaleria(galeriaActual);
+  } catch (e) {
+    di('estadoSalida', '❌ No se pudo guardar en la galería: ' + e.message, '#F87171');
+  }
+}
+
+const _NOMBRES_LOCAL = {
+  parte: 'Parte de intervención',
+  denuncia: 'Denuncia de víctima',
+  comparecencia: 'Comparecencia de funcionarios',
+};
+
+let galeriaActual = 'documentos';
+
+async function verGaleria(cual) {
+  galeriaActual = cual;
+  ['documentos','fotos'].forEach(x =>
+    document.getElementById('g-' + x).classList.toggle('elegido', x === cual));
+  const c = document.getElementById('listaGaleria');
+  c.innerHTML = '';
+  let filas;
+  try {
+    filas = await leerTodo(cual);
+  } catch (e) {
+    di('estadoGaleria', '❌ No se pudo leer la galería: ' + e.message, '#F87171');
+    return;
+  }
+  filas.sort((a, b) => b.fecha.localeCompare(a.fecha));
+  if (!filas.length) {
+    di('estadoGaleria', cual === 'documentos'
+        ? 'Todavía no hay documentos guardados. Redacte uno y pulse «Guardar en la galería».'
+        : 'Todavía no hay fotos guardadas.');
+    return;
+  }
+  di('estadoGaleria', filas.length + (cual === 'documentos' ? ' documento(s).' : ' foto(s).'));
+
+  filas.forEach(x => {
+    const caja = document.createElement('div');
+    caja.style.cssText = 'background:#131B27;border-radius:10px;padding:12px';
+    const cuando = new Date(x.fecha).toLocaleString('es-ES');
+
+    if (cual === 'documentos') {
+      caja.innerHTML =
+        '<div style="font-size:14px;font-weight:600">' + x.nombre + '</div>' +
+        '<div style="font-size:12px;color:#7E8AA0;margin:2px 0 8px">' + cuando + '</div>' +
+        '<div style="font-size:13px;color:#9AA4B2;max-height:52px;overflow:hidden">' +
+          x.texto.slice(0, 220).replace(/</g, '&lt;') + '…</div>';
+      const abrir = document.createElement('button');
+      abrir.className = 'gris'; abrir.textContent = '👁️ Abrir';
+      abrir.onclick = () => {
+        documentoActual = x.texto;
+        document.getElementById('salida').textContent = x.texto;
+        ['btnDescargar','btnCopiar','btnCalificar','btnGuardarGaleria'].forEach(b =>
+          document.getElementById(b).disabled = false);
+        document.getElementById('panelSalida').scrollIntoView({ behavior:'smooth' });
+      };
+      caja.appendChild(abrir);
+    } else {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(x.blob);
+      img.style.cssText = 'width:100%;max-width:280px;border-radius:8px;display:block';
+      caja.appendChild(img);
+      const pie = document.createElement('div');
+      pie.style.cssText = 'font-size:12px;color:#7E8AA0;margin:6px 0 4px';
+      pie.textContent = cuando;
+      caja.appendChild(pie);
+      const txt = document.createElement('div');
+      txt.style.cssText = 'font-size:13px;color:#9AA4B2;line-height:1.5';
+      txt.textContent = (x.descripcion || '').slice(0, 300);
+      caja.appendChild(txt);
+    }
+
+    const borrar = document.createElement('button');
+    borrar.className = 'gris'; borrar.textContent = '🗑️ Borrar';
+    borrar.onclick = async () => {
+      if (!confirm('¿Borrar esto de la galería? No se puede deshacer.')) return;
+      await borrarDe(cual, x.id);
+      verGaleria(cual);
+    };
+    caja.appendChild(borrar);
+    c.appendChild(caja);
+  });
+}
+
+// COPIA DE SEGURIDAD.
+//
+// La galeria vive en el navegador, y los navegadores borran datos: al
+// limpiar el almacenamiento, al desinstalar, o por falta de espacio.
+// Sin una forma de sacarlo, un dia desaparece y ya esta. Esto lo saca
+// como fichero de texto legible.
+async function exportarGaleria() {
+  try {
+    const docs = await leerTodo('documentos');
+    if (!docs.length) {
+      di('estadoGaleria', 'No hay documentos que exportar.', '#F87171');
+      return;
+    }
+    docs.sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const texto = docs.map(d =>
+      '='.repeat(60) + '\n' + d.nombre + ' — ' +
+      new Date(d.fecha).toLocaleString('es-ES') + '\n' + '='.repeat(60) +
+      '\n\n' + d.texto).join('\n\n\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([texto], { type:'text/plain;charset=utf-8' }));
+    a.download = 'galeria_' + new Date().toISOString().slice(0,10) + '.txt';
+    a.click();
+    di('estadoGaleria', '⬇️ Exportados ' + docs.length + ' documento(s) a Descargas.', '#4ADE80');
+  } catch (e) {
+    di('estadoGaleria', '❌ ' + e.message, '#F87171');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => verGaleria('documentos'));
 
 async function copiar() {
   const b = document.getElementById('btnCopiar');
