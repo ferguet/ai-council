@@ -1,5 +1,15 @@
 """
-PARTIR LAS CLASES LARGAS PARA PODER TRANSCRIBIRLAS ENTERAS.
+PREPARAR EL AUDIO PARA QUE SE PUEDA TRANSCRIBIR DE VERDAD.
+
+LO PRIMERO DE TODO: NORMALIZAR
+
+Todo audio que entra se recodifica antes de nada (ver `normalizar`). Lo
+que graba el navegador en el movil viene sin duracion en la cabecera, y
+eso hace que Whisper no lo lea bien y devuelva "gracias por ver el
+video" repetido en vez de avisar de que no ha entendido nada. Esa es la
+correccion mas importante de este fichero.
+
+DESPUES: PARTIR LAS CLASES LARGAS
 
 EL PROBLEMA
 
@@ -71,6 +81,65 @@ SEGUNDOS_DE_SOLAPE = 3
 def _ffmpeg() -> str:
     import imageio_ffmpeg
     return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def normalizar(ruta: Path, carpeta: Path) -> Path:
+    """Reescribe el audio a un fichero limpio antes de tocarlo para nada.
+
+    ESTA ES LA CAUSA DEL FAMOSO "gracias por ver el video" x100.
+
+    El navegador graba con MediaRecorder, y lo que sale de ahi es un webm
+    "de streaming": se va escribiendo mientras se graba, asi que la
+    cabecera se cierra sin saber cuanto va a durar. Resultado: el fichero
+    dice que dura "N/A". Comprobado con ffmpeg, un webm normal informa de
+    "Duration: 00:00:30.01" y uno recien salido del navegador informa de
+    "Duration: N/A".
+
+    Eso rompe dos cosas a la vez, y en silencio:
+
+    1. Aqui, `_duracion_segundos` devolvia None, asi que `partir` se
+       rendia y mandaba el audio entero sin trocear.
+    2. Y peor: al otro lado, Whisper no consigue recorrer bien un
+       contenedor asi, se encuentra con lo que interpreta como silencio,
+       y RELLENA. Whisper se entreno con montañas de video, asi que
+       cuando no reconoce nada escupe despedidas de YouTube: "gracias por
+       ver el video", una y otra vez. No es que entienda mal lo dictado:
+       es que no esta oyendo nada y no lo dice.
+
+    La solucion es recodificar SIEMPRE antes de nada. Cuesta unos
+    segundos de CPU y a cambio el fichero pasa a tener cabecera correcta,
+    duracion real y un formato que Whisper decodifica seguro. Ademas se
+    baja a mono y 16 kHz, que es exactamente lo que Whisper usa por
+    dentro: no se pierde nada de calidad util y el fichero pesa bastante
+    menos, con lo que caben trozos mas largos por debajo del limite.
+
+    Si la recodificacion falla, se devuelve el original: es mejor
+    intentar transcribir algo imperfecto que no intentarlo.
+    """
+    destino = carpeta / "normalizado.m4a"
+    try:
+        subprocess.run(
+            [
+                _ffmpeg(), "-y", "-loglevel", "error",
+                "-i", str(ruta),
+                "-vn",                 # por si el fichero trae video, fuera
+                "-ac", "1",            # mono
+                "-ar", "16000",        # 16 kHz, lo que Whisper usa
+                "-b:a", "48k",
+                str(destino),
+            ],
+            capture_output=True, timeout=900, check=True,
+        )
+        if destino.exists() and destino.stat().st_size > 1000:
+            return destino
+    except Exception:
+        pass
+    return ruta
+
+
+async def normalizar_en_hilo(ruta: Path, carpeta: Path) -> Path:
+    """ffmpeg bloquea; fuera del hilo principal."""
+    return await asyncio.to_thread(normalizar, ruta, carpeta)
 
 
 def _duracion_segundos(ruta: Path) -> float | None:
@@ -170,6 +239,24 @@ async def duracion_en_hilo(ruta: Path) -> float | None:
 
 def carpeta_temporal() -> tempfile.TemporaryDirectory:
     return tempfile.TemporaryDirectory(prefix="clase_")
+
+
+_TIPOS = {
+    ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".mp3": "audio/mpeg",
+    ".wav": "audio/wav", ".webm": "audio/webm", ".ogg": "audio/ogg",
+    ".opus": "audio/ogg", ".flac": "audio/flac",
+}
+
+
+def tipo_mime(ruta: Path) -> str:
+    """El tipo real del fichero que se va a mandar.
+
+    Importa porque despues de normalizar el fichero ya no es el que
+    subio el navegador: seguir anunciando "audio/webm" cuando en realidad
+    va un m4a es justo el tipo de detalle que hace que el decodificador
+    del otro lado se lie.
+    """
+    return _TIPOS.get(ruta.suffix.lower(), "audio/mp4")
 
 
 # Frases con las que Whisper suele "rellenar" cuando no reconoce nada

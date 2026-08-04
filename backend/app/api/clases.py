@@ -247,8 +247,13 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
         original = carpeta / f"entera{sufijo}"
         original.write_bytes(contenido)
 
-        duracion = await clases_audio.duracion_en_hilo(original)
-        trozos = await clases_audio.partir_en_hilo(original, carpeta)
+        # SIEMPRE se recodifica primero: lo que graba el movil viene con
+        # la cabecera incompleta y Whisper lo lee como silencio. Ver la
+        # explicacion larga en clases_audio.normalizar.
+        limpio = await clases_audio.normalizar_en_hilo(original, carpeta)
+
+        duracion = await clases_audio.duracion_en_hilo(limpio)
+        trozos = await clases_audio.partir_en_hilo(limpio, carpeta)
         partes: list[str] = []
 
         for i, trozo in enumerate(trozos, start=1):
@@ -265,8 +270,12 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
                     resp = await client.post(
                         _GROQ_TRANSCRIBE_URL,
                         headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-                        files={"file": (trozo.name, datos, audio.content_type or "audio/mp4")},
-                        data={"model": _MODELO, "response_format": "text"},
+                        # El tipo se deduce del fichero que se manda de
+                        # verdad, no del que subio el navegador: despues de
+                        # normalizar ya no es el mismo formato.
+                        files={"file": (trozo.name, datos, clases_audio.tipo_mime(trozo))},
+                        data={"model": _MODELO, "response_format": "text",
+                              "language": "es"},
                     )
             except httpx.RequestError as e:
                 raise HTTPException(502, f"No se pudo contactar con Groq: {e}")

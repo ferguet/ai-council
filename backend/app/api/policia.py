@@ -271,8 +271,13 @@ async def dictar(audio: UploadFile = File(...)):
         original = carpeta / f"entero{sufijo}"
         original.write_bytes(contenido)
 
-        duracion = await clases_audio.duracion_en_hilo(original)
-        trozos = await clases_audio.partir_en_hilo(original, carpeta)
+        # SIEMPRE se recodifica primero: lo que graba el movil viene con
+        # la cabecera incompleta y Whisper lo lee como silencio. Ver la
+        # explicacion larga en clases_audio.normalizar.
+        limpio = await clases_audio.normalizar_en_hilo(original, carpeta)
+
+        duracion = await clases_audio.duracion_en_hilo(limpio)
+        trozos = await clases_audio.partir_en_hilo(limpio, carpeta)
         partes: list[str] = []
 
         for i, trozo in enumerate(trozos, start=1):
@@ -282,8 +287,12 @@ async def dictar(audio: UploadFile = File(...)):
                     resp = await client.post(
                         _GROQ_TRANSCRIBE_URL,
                         headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                        # El tipo se deduce del fichero que se manda de
+                        # verdad, no del que subio el navegador: despues
+                        # de normalizar ya no es el mismo formato, y
+                        # anunciar uno que no es despista al decodificador.
                         files={"file": (trozo.name, datos,
-                                        audio.content_type or "audio/mp4")},
+                                        clases_audio.tipo_mime(trozo))},
                         data={"model": _MODELO_AUDIO, "response_format": "text",
                               "language": "es",
                               # Da contexto y vocabulario al modelo, para que
