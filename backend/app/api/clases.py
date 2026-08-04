@@ -810,15 +810,17 @@ async def audio_podcast(fichero: str):
         audio = await clases_podcast.sintetizar(guion)
     except ImportError:
         raise HTTPException(
-            503, "El servidor no tiene instalado el generador de voz. "
+            503, "El servidor no tiene instalados los generadores de voz. "
                  "El guion sí está: puede leerlo o pegarlo en otra herramienta.")
     except Exception as e:
-        # NUNCA dejar al usuario sin saber que ha pasado. El guion ya lo
-        # tiene, asi que esto no es perderlo todo: es no poder oirlo.
+        # Aquí solo se llega si han fallado los DOS motores de voz (el
+        # bueno y el de respaldo). NUNCA dejar al usuario sin saber que ha
+        # pasado. El guion ya lo tiene, asi que esto no es perderlo todo:
+        # es no poder oirlo, de momento.
         raise HTTPException(
-            502, f"No se pudo generar la voz ({type(e).__name__}). "
+            502, f"No se pudo generar la voz por ningún medio ({type(e).__name__}). "
                  f"El guion sigue guardado y puede leerlo o pegarlo en otra "
-                 f"herramienta de audio.")
+                 f"herramienta de audio. Puede volver a intentarlo más tarde.")
 
     nombre_mp3 = fichero.rsplit(".", 1)[0] + ".mp3"
     return Response(

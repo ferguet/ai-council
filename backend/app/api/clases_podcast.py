@@ -27,14 +27,27 @@ del coche y sigue con la pantalla apagada.
 
 SOBRE LA VOZ
 
-Se usa edge-tts, que da voces neuronales en español de España, gratis y
-sin clave de API. Si ese servicio falla, NO se deja al usuario sin
-nada: se le devuelve igualmente el guion escrito, que ya es util por si
-solo y ademas se puede pegar en otra herramienta que lo lea.
+Se usa edge-tts, que da voces neuronales en español de España -dos
+voces distintas, una por persona- gratis y sin clave de API. El
+problema: usa un servicio no oficial de Microsoft que de vez en cuando
+se cae o bloquea peticiones durante horas seguidas (es un fallo
+conocido y documentado del propio proyecto, no algo que se pueda
+arreglar desde aqui).
+
+Por eso hay un segundo motor de respaldo: gTTS (la voz de Google
+Traductor). Es mucho mas estable, pero solo da una voz por idioma, asi
+que si se usa este respaldo el podcast se oye con la misma voz para
+las dos personas -se pierde el efecto de dialogo, pero se recupera el
+audio en vez de quedarse solo con el guion escrito-.
+
+Si NINGUNO de los dos funciona, se devuelve igualmente el guion
+escrito, que ya es util por si solo y ademas se puede pegar en otra
+herramienta que lo lea.
 """
 from __future__ import annotations
 
 import asyncio
+import io
 import re
 import tempfile
 from pathlib import Path
@@ -132,18 +145,30 @@ def partir_en_turnos(guion: str) -> list[tuple[str, str]]:
 
 
 async def sintetizar(guion: str) -> bytes:
-    """Convierte el guion en un mp3 con las dos voces alternando.
+    """Convierte el guion en un mp3, probando dos motores de voz.
 
-    Se sintetiza turno a turno y se concatenan los bytes. Los mp3 se
-    pueden pegar uno detras de otro sin recodificar, que es justo lo que
-    hace falta aqui: no hay que abrir ningun editor de audio ni cargar
-    todo en memoria de golpe.
+    Primero edge-tts, que da dos voces distintas (suena a dialogo de
+    verdad) pero depende de un servicio de Microsoft que falla a ratos.
+    Si eso falla por cualquier motivo, se cae a gTTS: una sola voz, pero
+    mucho mas fiable. Es mejor un podcast con una sola voz que ningun
+    podcast.
     """
-    import edge_tts
-
     turnos = partir_en_turnos(guion)
     if not turnos:
         raise ValueError("El guion no tiene ninguna línea que leer")
+
+    try:
+        return await _sintetizar_edge(turnos)
+    except Exception:
+        return await _sintetizar_gtts(turnos)
+
+
+async def _sintetizar_edge(turnos: list[tuple[str, str]]) -> bytes:
+    """Dos voces neuronales alternando. Se sintetiza turno a turno y se
+    concatenan los bytes: los mp3 se pueden pegar uno detras de otro sin
+    recodificar, no hace falta abrir ningun editor de audio.
+    """
+    import edge_tts
 
     trozos: list[bytes] = []
     for voz, texto in turnos:
@@ -156,5 +181,31 @@ async def sintetizar(guion: str) -> bytes:
             trozos.append(bytes(buf))
 
     if not trozos:
-        raise ValueError("No se pudo generar audio de ningún turno")
+        raise ValueError("No se pudo generar audio de ningún turno con edge-tts")
+    return b"".join(trozos)
+
+
+async def _sintetizar_gtts(turnos: list[tuple[str, str]]) -> bytes:
+    """Respaldo con la voz de Google Traductor: una sola voz para las
+    dos personas, pero mucho mas estable que el servicio de Microsoft.
+
+    gTTS hace una petición de red bloqueante (no es async), así que se
+    ejecuta en un hilo aparte para no congelar el resto del servidor
+    mientras se genera.
+    """
+    from gtts import gTTS
+
+    def _turno_a_mp3(texto: str) -> bytes:
+        buf = io.BytesIO()
+        gTTS(text=texto, lang="es", tld="es").write_to_fp(buf)
+        return buf.getvalue()
+
+    trozos: list[bytes] = []
+    for _voz, texto in turnos:
+        datos = await asyncio.to_thread(_turno_a_mp3, texto)
+        if datos:
+            trozos.append(datos)
+
+    if not trozos:
+        raise ValueError("No se pudo generar audio de ningún turno con gTTS")
     return b"".join(trozos)
