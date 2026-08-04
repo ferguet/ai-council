@@ -105,7 +105,7 @@
       Si el microfono estaba tapado o el audio salio mal, uno se enteraba
       cuando ya tenia delante una transcripcion inservible. Ahora el audio
       se queda aqui, se puede escuchar, y solo se manda cuando el agente
-      dice que si. Se sigue guardando la copia en Descargas igual.
+      dice que si. La grabacion se guarda en el telefono igual.
     -->
     <div id="revision" hidden style="margin-top:12px;background:#161C29;border-radius:12px;padding:14px">
       <div style="font-size:13px;color:#9AA4B2;margin-bottom:10px">
@@ -120,6 +120,14 @@
     </div>
 
     <div class="estado" id="estadoDictado">Puede dictar, subir un audio, o escribir directamente abajo.</div>
+
+    <!-- Las grabaciones, guardadas en el propio telefono. -->
+    <div style="margin-top:16px">
+      <label style="font-size:12px;color:#7E8AA0;display:block;margin-bottom:8px">
+        GRABACIONES GUARDADAS EN ESTE TELÉFONO
+      </label>
+      <div id="listaAudios"></div>
+    </div>
     <div style="margin-top:14px">
       <label style="font-size:12px;color:#7E8AA0;display:block;margin-bottom:6px">
         LO QUE SE HA ENTENDIDO — revíselo antes de redactar
@@ -331,23 +339,98 @@ let grabador = null, trozos = [], desde = 0, tic = null;
 
 // EL AUDIO GRABADO NUNCA SE PIERDE, PASE LO QUE PASE.
 //
-// Antes, en cuanto se paraba de grabar, se intentaba subir y transcribir
-// directamente. Si esa subida fallaba (sin cobertura, servidor dormido,
-// lo que sea), el audio se tiraba sin mas: seis minutos de dictado
-// perdidos para siempre, sin ninguna copia. Ahora, EN CUANTO se para de
-// grabar y ANTES de intentar nada con el servidor, el audio se descarga
-// solo al movil. Si luego la transcripcion falla, se puede reintentar
-// las veces que haga falta sin grabar de nuevo, porque el fichero ya
-// esta a salvo en la carpeta de descargas.
+// Primera version: al parar de grabar se lanzaba una descarga automatica
+// del fichero. En el ordenador funciona. EN EL MOVIL NO, y ese es
+// justamente el sitio donde se graba: instalada como app, sin barra del
+// navegador, la descarga automatica de un fichero que la pagina se
+// inventa esta bloqueada -en iOS siempre, en Android segun el caso-. Asi
+// que el aviso decia "guardado en Descargas" y en Descargas no habia
+// nada. Peor que no guardar: guardar en falso.
+//
+// Ahora se guarda DENTRO de la app, en la base de datos del propio
+// navegador (IndexedDB), que es lo unico que funciona igual en los dos
+// sistemas y sin permisos. Desde la lista de abajo se puede reproducir,
+// reintentar la transcripcion, o sacarlo al telefono cuando uno quiera
+// -ahi si, porque entonces lo pide la persona y no la pagina sola-.
 let ultimoAudioBlob = null, ultimoAudioNombre = '';
 
-function guardarCopiaLocal(blob, nombre) {
+async function guardarCopiaLocal(blob, nombre) {
+  try {
+    await guardarEn('audios', {
+      id: 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      nombre: nombre,
+      cuando: new Date().toISOString(),
+      bytes: blob.size,
+      blob: blob,
+    });
+    verAudios();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Sacar el audio de la app al telefono. Se intenta primero el menu de
+// compartir del sistema, que es lo que de verdad funciona en movil y
+// deja elegir Archivos, WhatsApp, correo... Si no existe, se cae a la
+// descarga de toda la vida, que en ordenador si vale.
+async function sacarAudio(id) {
+  const filas = await leerTodo('audios');
+  const x = filas.find(f => f.id === id);
+  if (!x) return;
+  const fichero = new File([x.blob], x.nombre, { type: x.blob.type || 'audio/webm' });
+  if (navigator.canShare && navigator.canShare({ files: [fichero] })) {
+    try {
+      await navigator.share({ files: [fichero], title: x.nombre });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;   // lo ha cancelado el usuario
+    }
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = nombre;
+  a.href = URL.createObjectURL(x.blob);
+  a.download = x.nombre;
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+async function reintentarAudio(id) {
+  const filas = await leerTodo('audios');
+  const x = filas.find(f => f.id === id);
+  if (x) ofrecerRevision(x.blob, x.nombre);
+}
+
+async function borrarAudio(id) {
+  if (!confirm('¿Borrar esta grabación? No se puede deshacer.')) return;
+  await borrarDe('audios', id);
+  verAudios();
+}
+
+async function verAudios() {
+  const caja = document.getElementById('listaAudios');
+  if (!caja) return;
+  let filas = [];
+  try { filas = await leerTodo('audios'); } catch (e) { }
+  filas.sort((a, b) => (b.cuando || '').localeCompare(a.cuando || ''));
+
+  if (!filas.length) {
+    caja.innerHTML = '<div style="color:#7E8AA0;font-size:13px">' +
+      'Aquí se guardan las grabaciones. No se envían a ningún sitio: se quedan en este teléfono.</div>';
+    return;
+  }
+  caja.innerHTML = filas.map(x => {
+    const mb = (x.bytes / 1048576).toFixed(1);
+    const cuando = (x.cuando || '').replace('T', ' ').slice(0, 16);
+    return '<div style="background:#161C29;border-radius:10px;padding:12px;margin-bottom:8px">' +
+      '<div style="font-size:13px;margin-bottom:6px">🎙️ ' + cuando + ' · ' + mb + ' MB</div>' +
+      '<audio controls preload="none" style="width:100%" src="' + URL.createObjectURL(x.blob) + '"></audio>' +
+      '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="verde" onclick="reintentarAudio(\'' + x.id + '\')">📝 Transcribir</button>' +
+        '<button class="azul" onclick="sacarAudio(\'' + x.id + '\')">📤 Guardar o enviar</button>' +
+        '<button class="gris" onclick="borrarAudio(\'' + x.id + '\')">🗑️</button>' +
+      '</div></div>';
+  }).join('');
 }
 
 async function alternar() {
@@ -370,11 +453,12 @@ async function alternar() {
       ultimoAudioBlob = blob;
       ultimoAudioNombre = nombre;
 
-      // PRIMERO se guarda, PASE LO QUE PASE DESPUES.
-      guardarCopiaLocal(blob, nombre);
-
-      // Y AHORA NO SE MANDA SOLO: se ofrece escucharlo primero.
-      ofrecerRevision(blob, nombre);
+      // PRIMERO se guarda, PASE LO QUE PASE DESPUES. Y solo se dice que
+      // esta guardado si de verdad lo esta: antes se afirmaba sin
+      // comprobarlo y en el movil no era cierto.
+      guardarCopiaLocal(blob, nombre).then(ok => {
+        ofrecerRevision(blob, nombre, ok);
+      });
     };
     grabador.start();
     desde = Date.now();
@@ -397,7 +481,7 @@ function subir(f) { if (f) ofrecerRevision(f, f.name); }
 
 let urlReproductor = null;
 
-function ofrecerRevision(blob, nombre) {
+function ofrecerRevision(blob, nombre, guardado) {
   ultimoAudioBlob = blob;
   ultimoAudioNombre = nombre;
 
@@ -408,9 +492,17 @@ function ofrecerRevision(blob, nombre) {
 
   document.getElementById('revision').hidden = false;
   document.getElementById('btnReintentar').hidden = true;
-  di('estadoDictado',
-     '💾 Audio guardado en Descargas (' + nombre + '). Escúchelo y, si está bien, pulse «transcribir».',
-     '#FACC15');
+
+  if (guardado === false) {
+    di('estadoDictado',
+       '⚠️ No se ha podido guardar la grabación en el teléfono. Escúchela y, ' +
+       'si está bien, transcríbala AHORA: si cierra la app se perderá.',
+       '#F87171');
+  } else {
+    di('estadoDictado',
+       '💾 Grabación guardada en este teléfono. Escúchela y, si está bien, pulse «transcribir».',
+       '#FACC15');
+  }
 }
 
 function transcribirRevisado() {
@@ -421,15 +513,14 @@ function transcribirRevisado() {
 }
 
 function descartarRevision() {
-  // Solo se quita de la pantalla: la copia en Descargas se queda, que
-  // para eso se guardo. Descartar aqui no puede significar borrar el
-  // audio del movil.
+  // Solo se quita de la pantalla: la grabacion se queda guardada abajo,
+  // que para eso se guardo. Descartar aqui no puede significar borrarla.
   const rep = document.getElementById('reproductor');
   rep.pause();
   rep.removeAttribute('src');
   document.getElementById('revision').hidden = true;
   di('estadoDictado',
-     'Descartado. El audio sigue en Descargas (' + ultimoAudioNombre + ') por si lo necesita.',
+     'Descartado. La grabación sigue guardada abajo por si la necesita.',
      '#9AA4B2');
 }
 
@@ -449,13 +540,13 @@ async function enviar(blob, nombre) {
       di('estadoDictado', '✅ Transcrito. Léalo y corrija lo que haga falta antes de redactar.', '#4ADE80');
     }
   } catch (e) {
-    // El audio YA esta guardado en Descargas desde antes de llegar aqui,
-    // asi que un fallo de red o de servidor no cuesta la grabacion: solo
-    // hay que reintentar la transcripcion, no volver a dictar.
+    // La grabacion YA esta guardada en el telefono desde antes de llegar
+    // aqui, asi que un fallo de red o de servidor no la cuesta: solo hay
+    // que reintentar la transcripcion, no volver a dictar.
     const conCopia = blob === ultimoAudioBlob;
     di('estadoDictado',
       '❌ ' + e.message +
-      (conCopia ? '\n💾 El audio está a salvo en Descargas (' + nombre + '). Puede reintentar sin grabar de nuevo.'
+      (conCopia ? '\n💾 La grabación está guardada abajo. Puede reintentar sin grabar de nuevo.'
                  : ''),
       '#F87171');
     if (conCopia) document.getElementById('btnReintentar').hidden = false;
@@ -654,13 +745,19 @@ let _db = null;
 function abrirDB() {
   if (_db) return Promise.resolve(_db);
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NOMBRE, 1);
+    // Version 2: se añade el almacen de audios. Al subir de version,
+    // onupgradeneeded se ejecuta tambien en los moviles que ya tenian la
+    // base creada con la version 1, y ahi es donde se crea el almacen
+    // nuevo sin tocar lo que ya hubiera guardado.
+    const req = indexedDB.open(DB_NOMBRE, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('documentos'))
         db.createObjectStore('documentos', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('fotos'))
         db.createObjectStore('fotos', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('audios'))
+        db.createObjectStore('audios', { keyPath: 'id' });
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
@@ -875,7 +972,7 @@ async function exportarGaleria() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => verGaleria('documentos'));
+document.addEventListener('DOMContentLoaded', () => { verGaleria('documentos'); verAudios(); });
 
 async function copiar() {
   const b = document.getElementById('btnCopiar');
