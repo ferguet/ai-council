@@ -513,7 +513,11 @@ async function enviar(blob, nombre) {
     pintarCabecera(d.fichero);
     seleccionar(d.fichero);
     document.getElementById('tituloImpreso').textContent = d.fichero;
-    di('✅ Transcrito y guardado (' + d.fichero + ')', '#4ADE80');
+    if (d.aviso) {
+      di('⚠️ Transcrito y guardado (' + d.fichero + '), pero: ' + d.aviso, '#FACC15');
+    } else {
+      di('✅ Transcrito y guardado (' + d.fichero + ')', '#4ADE80');
+    }
     cargarLista();
   } catch (e) {
     // El audio YA esta guardado en Descargas desde antes de llegar aqui:

@@ -247,6 +247,7 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
         original = carpeta / f"entera{sufijo}"
         original.write_bytes(contenido)
 
+        duracion = await clases_audio.duracion_en_hilo(original)
         trozos = await clases_audio.partir_en_hilo(original, carpeta)
         partes: list[str] = []
 
@@ -295,6 +296,7 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
         "fichero": nombre,
         "asignatura": asignatura,
         "fecha": ahora.isoformat(),
+        "aviso": clases_audio.transcripcion_sospechosa(texto, duracion),
     }
 
 

@@ -271,6 +271,7 @@ async def dictar(audio: UploadFile = File(...)):
         original = carpeta / f"entero{sufijo}"
         original.write_bytes(contenido)
 
+        duracion = await clases_audio.duracion_en_hilo(original)
         trozos = await clases_audio.partir_en_hilo(original, carpeta)
         partes: list[str] = []
 
@@ -284,7 +285,16 @@ async def dictar(audio: UploadFile = File(...)):
                         files={"file": (trozo.name, datos,
                                         audio.content_type or "audio/mp4")},
                         data={"model": _MODELO_AUDIO, "response_format": "text",
-                              "language": "es"},
+                              "language": "es",
+                              # Da contexto y vocabulario al modelo, para que
+                              # arranque ya "sabiendo" que esto es un dictado
+                              # policial y no otra cosa. No evita la
+                              # alucinacion sobre silencio, pero ayuda con
+                              # terminos como atestado, comparecencia o
+                              # indicativo que si no a veces desconoce.
+                              "prompt": "Dictado policial: parte de intervención, "
+                                        "comparecencia, denuncia, atestado, "
+                                        "matrícula, indicativo, dotación."},
                     )
             except httpx.RequestError as e:
                 raise HTTPException(502, f"No se pudo contactar con Groq: {e}")
@@ -300,7 +310,9 @@ async def dictar(audio: UploadFile = File(...)):
 
             partes.append(resp.text.strip())
 
-    return {"texto": "\n\n".join(partes)}
+    texto = "\n\n".join(partes)
+    aviso = clases_audio.transcripcion_sospechosa(texto, duracion)
+    return {"texto": texto, "aviso": aviso}
 
 
 @router.post("/redactar")

@@ -383,7 +383,11 @@ async function enviar(blob, nombre) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     document.getElementById('dictado').value = d.texto;
-    di('estadoDictado', '✅ Transcrito. Léalo y corrija lo que haga falta antes de redactar.', '#4ADE80');
+    if (d.aviso) {
+      di('estadoDictado', '⚠️ ' + d.aviso, '#FACC15');
+    } else {
+      di('estadoDictado', '✅ Transcrito. Léalo y corrija lo que haga falta antes de redactar.', '#4ADE80');
+    }
   } catch (e) {
     // El audio YA esta guardado en Descargas desde antes de llegar aqui,
     // asi que un fallo de red o de servidor no cuesta la grabacion: solo
