@@ -714,8 +714,22 @@ async function calificar() {
 
 function descargar() {
   const hoy = new Date().toISOString().slice(0,10);
+
+  // SALTOS DE LINEA DE WINDOWS, NO DE NAVEGADOR.
+  //
+  // El navegador separa lineas con \n a secas. Windows espera \r\n, y
+  // los programas antiguos -que es lo que hay en las comisarias- al
+  // abrir un .txt con solo \n lo enseñan TODO SEGUIDO, como un churro
+  // sin parrafos. El texto era correcto: lo que estaba mal era el
+  // fichero. Se convierte aqui antes de guardarlo.
+  //
+  // El BOM del principio es para que se vean bien las tildes y las eñes
+  // al abrirlo en Windows; sin el, salen simbolos raros.
+  const texto = documentoActual.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+  const bom = '﻿';
+
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([documentoActual], { type:'text/plain;charset=utf-8' }));
+  a.href = URL.createObjectURL(new Blob([bom + texto], { type:'text/plain;charset=utf-8' }));
   a.download = hoy + '_' + tipo + '.txt';
   a.click();
   di('estadoSalida', '💾 Descargado. Cópielo al pendrive desde su carpeta de descargas.', '#4ADE80');

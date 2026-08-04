@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -379,7 +380,7 @@ async def redactar(
         ChatMessage(role="system", content=_INSTRUCCIONES[tipo]),
         ChatMessage(role="user", content=entrada),
     ])
-    cuerpo = cuerpo.strip()
+    cuerpo = _limpiar_cuerpo(cuerpo, tipo)
 
     # Las formulas fijas se pegan AQUI, en codigo, no las escribe la IA.
     if tipo == "denuncia":
@@ -410,36 +411,93 @@ async def redactar(
 
 
 # =====================================================================
+# DEJAR EL TEXTO COMO TIENE QUE IR, NO COMO LO ESCUPE EL MODELO
+# =====================================================================
+#
+# A la instruccion se le dice claramente que no ponga encabezados, ni
+# markdown, ni presentaciones. Cumple casi siempre... y "casi siempre" no
+# vale para un documento que se pega en SIDENPOL. Un "Claro, aqui tienes
+# el parte:" colado arriba, o unos asteriscos de negrita que en SIDENPOL
+# se ven como asteriscos, obligan a limpiar a mano justo cuando uno esta
+# acabando el turno.
+#
+# Asi que se limpia aqui, en codigo. Lo que depende de que un modelo se
+# porte bien no es un formato: es una probabilidad.
+
+_PREAMBULOS = re.compile(
+    r"^\s*(claro|por supuesto|aqu[ií] tienes?|aqu[ií] est[aá]|desde luego|"
+    r"a continuaci[oó]n)\b[^\n]*[:.]\s*\n+",
+    re.IGNORECASE,
+)
+
+
+def _limpiar_cuerpo(texto: str, tipo: str) -> str:
+    """Quita lo que el modelo añade de su cosecha y no debe ir al documento."""
+    t = texto.strip()
+
+    # Presentacion del tipo "Claro, aqui tienes el parte:" al principio.
+    t = _PREAMBULOS.sub("", t)
+
+    # Vallado de codigo, que algunos modelos ponen alrededor del texto.
+    t = re.sub(r"^\s*```[a-z]*\s*\n|\n\s*```\s*$", "", t)
+
+    # Markdown: negritas, cursivas, titulos. En SIDENPOL se verian tal cual.
+    t = re.sub(r"\*\*(.+?)\*\*", r"\1", t, flags=re.DOTALL)
+    t = re.sub(r"(?<!\w)_(.+?)_(?!\w)", r"\1", t, flags=re.DOTALL)
+    t = re.sub(r"^\s{0,3}#{1,6}\s*", "", t, flags=re.MULTILINE)
+
+    # Espacios sobrantes al final de cada linea y lineas en blanco de mas.
+    t = re.sub(r"[ \t]+$", "", t, flags=re.MULTILINE)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+
+    # En denuncia y comparecencia CADA parrafo va con "-- " delante. Si el
+    # modelo se ha saltado alguno, se le pone aqui en vez de devolver un
+    # documento a medio formatear.
+    if tipo in ("denuncia", "comparecencia"):
+        arreglados = []
+        for parrafo in t.split("\n"):
+            p = parrafo.strip()
+            if not p:
+                continue
+            if not p.startswith("--"):
+                p = "-- " + p
+            arreglados.append(p)
+        t = "\n".join(arreglados)
+
+    return t.strip()
+
+
+# =====================================================================
 # CALIFICACION PENAL: SUGERENCIA, NUNCA CONCLUSION
 # =====================================================================
+# El agente que usa esto ya sabe de derecho penal: no necesita que le
+# expliquen por que un hurto es un hurto. Lo que necesita es el numero de
+# articulo a mano para no ir a buscarlo. Por eso la respuesta es una
+# lista escueta y nada mas: antes venia un informe de varios parrafos por
+# cada figura y era mas rapido mirarlo en el codigo que leerse aquello.
 _INSTRUCCION_CALIFICACION = (
-    "Eres un apoyo para un agente de Policía Nacional que está "
-    "redactando un documento. Te da un relato de hechos y le orientas "
-    "sobre qué figuras del Código Penal español podrían encajar.\n\n"
+    "Eres un apoyo para un agente de Policía Nacional. Te da un relato de "
+    "hechos y le dices qué figuras del Código Penal español encajan.\n\n"
 
-    "ESTO ES UN BORRADOR PARA QUE UNA PERSONA LO VERIFIQUE, no un "
-    "dictamen. Redacta en consecuencia.\n\n"
+    "FORMATO DE RESPUESTA. Una línea por figura, exactamente así:\n"
+    "Art. 234.1 CP — Hurto\n"
+    "Art. 147.1 CP — Lesiones\n\n"
 
-    "Para cada figura que propongas:\n"
-    "1. Nombre del tipo penal y artículo concreto.\n"
-    "2. QUÉ HECHO del relato te lleva ahí, citando la parte del relato. "
-    "Si no puedes señalar el hecho concreto, no propongas la figura.\n"
-    "3. Qué haría falta acreditar para que esa calificación se sostenga, "
-    "y qué falta ahora mismo en el relato.\n\n"
+    "NADA MÁS. Sin explicaciones, sin justificar por qué, sin decir qué "
+    "haría falta probar, sin introducción y sin conclusión. Solo las "
+    "líneas de artículo y nombre.\n\n"
 
     "REGLAS:\n"
-    "- Si no estás seguro del número exacto de un artículo, DILO en vez "
-    "de arriesgar una cifra. Un artículo mal citado con aplomo es peor "
-    "que no citar ninguno: parece verificado y no lo está.\n"
-    "- Distingue lo comprobado de lo manifestado. Si un hecho solo "
-    "consta porque alguien lo dice, señálalo: la calificación descansa "
-    "sobre una manifestación, no sobre una comprobación.\n"
-    "- Si el relato admite varias calificaciones, dilas todas con sus "
-    "diferencias, en vez de elegir una.\n"
-    "- Si el relato es demasiado escaso para calificar, dilo y ya está.\n"
+    "- Si el relato admite varias figuras, ponlas todas, una por línea, "
+    "de la más probable a la menos.\n"
+    "- Si no estás seguro del número exacto del artículo, escribe el "
+    "nombre del delito y «(artículo por confirmar)» en lugar del número. "
+    "Un artículo inventado con aplomo es peor que no citarlo: parece "
+    "verificado y no lo está.\n"
+    "- Si el relato no da para calificar nada, responde únicamente: "
+    "«El relato no da para calificar.»\n"
     "- Termina SIEMPRE con esta línea literal:\n"
-    "«Esto es una orientación generada automáticamente y puede contener "
-    "errores. La calificación corresponde al instructor.»"
+    "«Orientación automática, puede contener errores. Califica el instructor.»"
 )
 
 
