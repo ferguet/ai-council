@@ -30,7 +30,7 @@ pymupdf==1.24.10
 # (ver clases_podcast.py), por eso hay un segundo motor de respaldo justo
 # debajo. Si los dos fallan, la app sigue dando el guion escrito: se
 # pierde el audio, no el trabajo.
-edge-tts==6.1.12
+edge-tts==7.2.8
 # Respaldo del anterior: la voz de Google Traductor. Solo una voz por
 # idioma (no hay dos personas distintas), pero es mucho mas estable.
 gTTS==2.5.4
