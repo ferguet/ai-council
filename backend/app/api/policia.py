@@ -513,7 +513,42 @@ async def calificar(relato: str = Form(...)):
         ChatMessage(role="user", content="=== RELATO DE LOS HECHOS ===\n" + relato[:15000]),
     ], temperatura=0.1)
 
-    return {"calificacion": texto.strip()}
+    return {"calificacion": _solo_articulos(texto)}
+
+
+# Se le pide al modelo una lista escueta de articulos... y a veces
+# obedece, y a veces se arranca a explicar. Pedirlo por las buenas no
+# basta cuando el resultado tiene que ser corto SIEMPRE: aqui se recorta
+# por codigo y se acabo la discusion.
+_LINEA_ARTICULO = re.compile(
+    r"^\s*[-*•]?\s*(art[íi]?c?u?l?o?\.?\s*\d|.*\(art[íi]culo por confirmar\))",
+    re.IGNORECASE,
+)
+_CIERRE_CALIFICACION = "Orientación automática, puede contener errores. Califica el instructor."
+
+
+def _solo_articulos(texto: str) -> str:
+    """Deja unicamente las lineas de «Art. X — Delito» y el cierre."""
+    t = re.sub(r"\*\*(.+?)\*\*", r"\1", texto)          # negritas fuera
+    lineas = []
+    for linea in t.splitlines():
+        l = linea.strip().lstrip("-*• ").strip()
+        if not l or l.startswith(_CIERRE_CALIFICACION[:20]):
+            continue
+        if _LINEA_ARTICULO.match(l):
+            # Si el modelo ha añadido la explicacion detras del nombre
+            # separada por punto, se corta ahi: el nombre del delito no
+            # lleva punto dentro, la explicacion empieza justo despues.
+            corte = re.split(r"(?<=[a-záéíóúñ])\.\s+[A-ZÁÉÍÓÚ]", l, maxsplit=1)[0]
+            lineas.append(corte.rstrip(".").strip())
+
+    if not lineas:
+        # No ha salido ni una linea con formato de articulo: puede que
+        # haya dicho que no da para calificar, y eso si hay que enseñarlo.
+        primera = next((x.strip() for x in t.splitlines() if x.strip()), "")
+        lineas = [primera[:200]] if primera else ["El relato no da para calificar."]
+
+    return "\n".join(lineas) + "\n\n" + _CIERRE_CALIFICACION
 
 
 # =====================================================================

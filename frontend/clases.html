@@ -223,6 +223,7 @@
       <audio id="reproductor" controls style="width:100%"></audio>
       <div style="margin-top:12px">
         <button class="verde" onclick="transcribirRevisado()">✅ Está bien, transcribir</button>
+        <button class="azul" onclick="guardarAudioActual()">💾 Guardar el audio</button>
         <button class="gris" onclick="descartarRevision()">🗑️ Descartar</button>
       </div>
     </div>
@@ -531,7 +532,12 @@ function ofrecerRevision(blob, nombre) {
 
   document.getElementById('revision').hidden = false;
   document.getElementById('btnReintentar').hidden = true;
-  di('💾 Audio guardado en Descargas (' + nombre + '). Escúchelo y, si está bien, pulse «transcribir».', '#FACC15');
+  // NO se afirma que este "guardado en Descargas": en el movil, con la
+  // app instalada, esa descarga automatica esta bloqueada y el fichero
+  // no aparece por ningun lado. Se dice lo que es verdad, y se ofrece el
+  // boton de guardar, que si funciona.
+  di('🎧 Grabación lista. Escúchela y, si está bien, pulse «transcribir». ' +
+     'Si quiere conservarla, use «Guardar el audio».', '#FACC15');
 }
 
 function transcribirRevisado() {
@@ -541,29 +547,98 @@ function transcribirRevisado() {
   enviar(ultimoAudioBlob, ultimoAudioNombre);
 }
 
+// Sacar la grabacion a donde uno quiera. Va por el menu de compartir del
+// sistema, que es lo unico que funciona de verdad en movil: la descarga
+// automatica esta bloqueada cuando la app va instalada. En ordenador se
+// cae a la descarga de siempre.
+async function guardarAudioActual() {
+  if (!ultimoAudioBlob) return;
+  const fichero = new File([ultimoAudioBlob], ultimoAudioNombre,
+                           { type: ultimoAudioBlob.type || 'audio/webm' });
+  if (navigator.canShare && navigator.canShare({ files: [fichero] })) {
+    try {
+      await navigator.share({ files: [fichero], title: ultimoAudioNombre });
+      di('✅ Audio guardado.', '#4ADE80');
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(ultimoAudioBlob);
+  a.download = ultimoAudioNombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  di('✅ Audio guardado.', '#4ADE80');
+}
+
 function descartarRevision() {
-  // Solo se quita de la pantalla: la copia en Descargas se queda.
+  // Solo se quita de la pantalla.
   // Descartar aqui no puede significar borrar el audio del movil.
   const rep = document.getElementById('reproductor');
   rep.pause();
   rep.removeAttribute('src');
   document.getElementById('revision').hidden = true;
-  di('Descartado. El audio sigue en Descargas (' + ultimoAudioNombre + ') por si lo necesita.', '#9AA4B2');
+  di('Descartado.', '#9AA4B2');
+}
+
+// =====================================================================
+// SUBIR SABIENDO POR DONDE VA
+// =====================================================================
+//
+// fetch() no dice cuanto lleva subido: o esta pendiente, o ha acabado.
+// Una clase de una hora son varios minutos de pantalla quieta, sin poder
+// distinguir "va lento" de "se ha colgado". XMLHttpRequest es mas viejo
+// y mas feo, pero SI avisa del progreso: por eso se usa aqui.
+
+function _tam(bytes) {
+  if (bytes > 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+  return Math.round(bytes / 1024) + ' KB';
+}
+
+function subirConProgreso(url, formData, alProgresar) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable || !alProgresar) return;
+      alProgresar(Math.round((e.loaded / e.total) * 100), _tam(e.loaded), _tam(e.total));
+    };
+    // Subida terminada pero el servidor sigue trabajando. Hay que
+    // decirlo: si no, el 100% quieto parece un cuelgue, y justo esa es
+    // la parte que mas tarda.
+    xhr.upload.onload = () => { if (alProgresar) alProgresar(100, '', ''); };
+
+    xhr.onload = () => {
+      let d = {};
+      try { d = JSON.parse(xhr.responseText); } catch (e) { }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(d);
+      reject(new Error(d.detail || ('error ' + xhr.status)));
+    };
+    xhr.onerror = () => reject(new Error('Failed to fetch'));
+    xhr.ontimeout = () => reject(new Error('timeout'));
+    xhr.send(formData);
+  });
 }
 
 async function enviar(blob, nombre) {
-  const mb = (blob.size / 1048576).toFixed(1);
-  di('⏳ Transcribiendo ' + nombre + ' (' + mb + ' MB)…\n' +
-     'Las clases largas se parten en trozos, así que puede tardar varios minutos.', '#FACC15');
+  di('⏳ Preparando el envío…', '#FACC15');
   document.getElementById('btnReintentar').hidden = true;
   const fd = new FormData();
   fd.append('audio', blob, nombre);
   try {
-    const r = await fetch(base() + '/clases/transcribir?asignatura=' +
-                          encodeURIComponent(document.getElementById('asignatura').value || 'sin_asignatura'),
-                          { method: 'POST', body: fd });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    const d = await subirConProgreso(
+      base() + '/clases/transcribir?asignatura=' +
+        encodeURIComponent(document.getElementById('asignatura').value || 'sin_asignatura'),
+      fd,
+      (pct, subido, total) => {
+        di(pct < 100
+             ? '⬆️ Enviando la clase… ' + pct + '%  (' + subido + ' de ' + total + ')'
+             : '⏳ Clase enviada. Transcribiendo…\nLas clases largas se parten en trozos, así que puede tardar varios minutos.',
+           '#FACC15');
+      });
     mostrarTexto(d.texto);
     pintarCabecera(d.fichero);
     seleccionar(d.fichero);
@@ -575,12 +650,12 @@ async function enviar(blob, nombre) {
     }
     cargarLista();
   } catch (e) {
-    // El audio YA esta guardado en Descargas desde antes de llegar aqui:
-    // un fallo de red no cuesta la clase, solo hay que reintentar.
+    // La grabacion sigue en memoria: un fallo de red no cuesta la clase,
+    // solo hay que reintentar.
     const conCopia = blob === ultimoAudioBlob;
     di('❌ ' + enCristiano(e.message) +
-       (conCopia ? '\n💾 El audio está a salvo en Descargas (' + nombre +
-                   '). Puede reintentar sin volver a grabar.' : ''),
+       (conCopia ? '\n💾 La grabación sigue aquí. Puede reintentar sin volver a grabar, ' +
+                   'o guardarla con el botón «Guardar el audio».' : ''),
        '#F87171');
     if (conCopia) document.getElementById('btnReintentar').hidden = false;
   }

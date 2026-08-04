@@ -115,6 +115,7 @@
       <audio id="reproductor" controls style="width:100%"></audio>
       <div style="margin-top:12px">
         <button class="verde" onclick="transcribirRevisado()">✅ Está bien, transcribir</button>
+        <button class="azul" onclick="guardarAudioActual()">💾 Guardar el audio</button>
         <button class="gris" onclick="descartarRevision()">🗑️ Descartar y repetir</button>
       </div>
     </div>
@@ -512,6 +513,32 @@ function transcribirRevisado() {
   enviar(ultimoAudioBlob, ultimoAudioNombre);
 }
 
+// Sacar la grabacion del telefono a donde uno quiera: Archivos, correo,
+// WhatsApp... Va por el menu de compartir del sistema, que es lo unico
+// que funciona de verdad en movil (la descarga directa esta bloqueada
+// cuando la app va instalada). En ordenador se cae a la descarga normal.
+async function guardarAudioActual() {
+  if (!ultimoAudioBlob) return;
+  const fichero = new File([ultimoAudioBlob], ultimoAudioNombre,
+                           { type: ultimoAudioBlob.type || 'audio/webm' });
+  if (navigator.canShare && navigator.canShare({ files: [fichero] })) {
+    try {
+      await navigator.share({ files: [fichero], title: ultimoAudioNombre });
+      di('estadoDictado', '✅ Audio guardado.', '#4ADE80');
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(ultimoAudioBlob);
+  a.download = ultimoAudioNombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  di('estadoDictado', '✅ Audio guardado.', '#4ADE80');
+}
+
 function descartarRevision() {
   // Solo se quita de la pantalla: la grabacion se queda guardada abajo,
   // que para eso se guardo. Descartar aqui no puede significar borrarla.
@@ -525,14 +552,24 @@ function descartarRevision() {
 }
 
 async function enviar(blob, nombre) {
-  di('estadoDictado', '⏳ Transcribiendo el dictado…', '#FACC15');
+  di('estadoDictado', '⏳ Preparando el envío…', '#FACC15');
   document.getElementById('btnReintentar').hidden = true;
   const fd = new FormData();
   fd.append('audio', blob, nombre);
   try {
-    const r = await fetch(base() + '/policia/dictar', { method:'POST', body: fd });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    const d = await subirConProgreso(
+      base() + '/policia/dictar', fd,
+      (pct, subido, total) => {
+        if (pct < 100) {
+          di('estadoDictado',
+             '⬆️ Enviando el audio… ' + pct + '%  (' + subido + ' de ' + total + ')',
+             '#FACC15');
+        } else {
+          di('estadoDictado',
+             '⏳ Audio enviado. Transcribiendo… (esto tarda más cuanto más largo sea)',
+             '#FACC15');
+        }
+      });
     document.getElementById('dictado').value = d.texto;
     if (d.aviso) {
       di('estadoDictado', '⚠️ ' + d.aviso, '#FACC15');
@@ -556,6 +593,55 @@ async function enviar(blob, nombre) {
 function reintentarEnvio() {
   if (!ultimoAudioBlob) return;
   enviar(ultimoAudioBlob, ultimoAudioNombre);
+}
+
+// =====================================================================
+// SUBIR SABIENDO POR DONDE VA
+// =====================================================================
+//
+// fetch() no dice cuanto lleva subido: o esta pendiente, o ha acabado.
+// Con un audio de diez minutos desde la calle eso son varios minutos de
+// pantalla quieta, sin forma de distinguir "va lento" de "se ha
+// colgado". Y lo que hace uno ante una pantalla quieta es volver a
+// darle al boton, que es justo lo peor.
+//
+// XMLHttpRequest es mas viejo y mas feo, pero SI avisa del progreso de
+// subida. Por eso se usa aqui: no es nostalgia, es la unica forma de
+// enseñar un porcentaje que sea verdad.
+
+function _tam(bytes) {
+  if (bytes > 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+  return Math.round(bytes / 1024) + ' KB';
+}
+
+function subirConProgreso(url, formData, alProgresar) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable || !alProgresar) return;
+      const pct = Math.round((e.loaded / e.total) * 100);
+      alProgresar(pct, _tam(e.loaded), _tam(e.total));
+    };
+
+    // La subida ha terminado, pero el servidor aun esta trabajando. Es
+    // importante decirlo: si no, el 100% parece un cuelgue cuando en
+    // realidad es la parte que mas tarda.
+    xhr.upload.onload = () => { if (alProgresar) alProgresar(100, '', ''); };
+
+    xhr.onload = () => {
+      let d = {};
+      try { d = JSON.parse(xhr.responseText); } catch (e) { }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(d);
+      reject(new Error(d.detail || ('error ' + xhr.status)));
+    };
+    xhr.onerror = () => reject(new Error(
+      'No se ha podido conectar con el servidor. Compruebe la cobertura.'));
+    xhr.ontimeout = () => reject(new Error('El servidor ha tardado demasiado.'));
+
+    xhr.send(formData);
+  });
 }
 
 // ---------- fotos de daños ----------
@@ -630,11 +716,17 @@ async function describir() {
     bytes += chica.size;
     fd.append('fotos', chica, (f.name || 'foto') + '.jpg');
   }
-  di('estadoFotos', '⏳ Enviando ' + Math.round(bytes/1024) + ' KB y describiendo…', '#FACC15');
+  di('estadoFotos', '⏳ Preparando el envío…', '#FACC15');
   try {
-    const r = await fetch(base() + '/policia/danos', { method:'POST', body: fd });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    const d = await subirConProgreso(
+      base() + '/policia/danos', fd,
+      (pct, subido, total) => {
+        di('estadoFotos',
+           pct < 100
+             ? '⬆️ Enviando las fotos… ' + pct + '%  (' + subido + ' de ' + total + ')'
+             : '⏳ Fotos enviadas. Describiendo lo que se ve…',
+           '#FACC15');
+      });
     document.getElementById('cajaDanos').hidden = false;
     document.getElementById('danos').value = d.descripcion;
     let msg = '✅ Descritas ' + d.descritas + ' de ' + d.recibidas + ' fotos.';
