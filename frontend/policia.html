@@ -97,6 +97,28 @@
     <button class="azul" onclick="document.getElementById('audio').click()">📂 Subir un audio</button>
     <input type="file" id="audio" accept="audio/*" style="display:none" onchange="subir(this.files[0])">
     <button class="gris" id="btnReintentar" onclick="reintentarEnvio()" hidden>🔁 Reintentar transcripción (sin volver a grabar)</button>
+
+    <!--
+      ESCUCHAR ANTES DE TRANSCRIBIR.
+
+      Antes, al parar de grabar se enviaba solo, sin dar opcion a oirlo.
+      Si el microfono estaba tapado o el audio salio mal, uno se enteraba
+      cuando ya tenia delante una transcripcion inservible. Ahora el audio
+      se queda aqui, se puede escuchar, y solo se manda cuando el agente
+      dice que si. Se sigue guardando la copia en Descargas igual.
+    -->
+    <div id="revision" hidden style="margin-top:12px;background:#161C29;border-radius:12px;padding:14px">
+      <div style="font-size:13px;color:#9AA4B2;margin-bottom:10px">
+        Escuche la grabación antes de transcribirla. Si no se oye bien, es mejor
+        repetirla ahora que descubrirlo en el documento.
+      </div>
+      <audio id="reproductor" controls style="width:100%"></audio>
+      <div style="margin-top:12px">
+        <button class="verde" onclick="transcribirRevisado()">✅ Está bien, transcribir</button>
+        <button class="gris" onclick="descartarRevision()">🗑️ Descartar y repetir</button>
+      </div>
+    </div>
+
     <div class="estado" id="estadoDictado">Puede dictar, subir un audio, o escribir directamente abajo.</div>
     <div style="margin-top:14px">
       <label style="font-size:12px;color:#7E8AA0;display:block;margin-bottom:6px">
@@ -350,11 +372,9 @@ async function alternar() {
 
       // PRIMERO se guarda, PASE LO QUE PASE DESPUES.
       guardarCopiaLocal(blob, nombre);
-      di('estadoDictado',
-        '💾 Audio guardado en Descargas (' + nombre + '). Transcribiendo…',
-        '#FACC15');
 
-      enviar(blob, nombre);
+      // Y AHORA NO SE MANDA SOLO: se ofrece escucharlo primero.
+      ofrecerRevision(blob, nombre);
     };
     grabador.start();
     desde = Date.now();
@@ -371,7 +391,47 @@ async function alternar() {
   }
 }
 
-function subir(f) { if (f) enviar(f, f.name); }
+// Un audio subido a mano tambien se ofrece escuchar antes: puede venir
+// de otra grabadora y estar peor de lo que uno recuerda.
+function subir(f) { if (f) ofrecerRevision(f, f.name); }
+
+let urlReproductor = null;
+
+function ofrecerRevision(blob, nombre) {
+  ultimoAudioBlob = blob;
+  ultimoAudioNombre = nombre;
+
+  const rep = document.getElementById('reproductor');
+  if (urlReproductor) URL.revokeObjectURL(urlReproductor);
+  urlReproductor = URL.createObjectURL(blob);
+  rep.src = urlReproductor;
+
+  document.getElementById('revision').hidden = false;
+  document.getElementById('btnReintentar').hidden = true;
+  di('estadoDictado',
+     '💾 Audio guardado en Descargas (' + nombre + '). Escúchelo y, si está bien, pulse «transcribir».',
+     '#FACC15');
+}
+
+function transcribirRevisado() {
+  if (!ultimoAudioBlob) return;
+  document.getElementById('reproductor').pause();
+  document.getElementById('revision').hidden = true;
+  enviar(ultimoAudioBlob, ultimoAudioNombre);
+}
+
+function descartarRevision() {
+  // Solo se quita de la pantalla: la copia en Descargas se queda, que
+  // para eso se guardo. Descartar aqui no puede significar borrar el
+  // audio del movil.
+  const rep = document.getElementById('reproductor');
+  rep.pause();
+  rep.removeAttribute('src');
+  document.getElementById('revision').hidden = true;
+  di('estadoDictado',
+     'Descartado. El audio sigue en Descargas (' + ultimoAudioNombre + ') por si lo necesita.',
+     '#9AA4B2');
+}
 
 async function enviar(blob, nombre) {
   di('estadoDictado', '⏳ Transcribiendo el dictado…', '#FACC15');
