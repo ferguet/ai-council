@@ -1081,10 +1081,19 @@ INSTRUCCION_DUDA = (
 )
 
 
-@router.post("/preguntar/{fichero}")
-async def preguntar(fichero: str, duda: str = Form(...), buscar: bool = Form(True)):
+@router.post("/preguntar")
+async def preguntar(duda: str = Form(...), fichero: str = Form(""),
+                     buscar: bool = Form(True)):
     """
     Responde una duda del alumno.
+
+    LA CLASE ES OPCIONAL, Y ESO IMPORTA.
+
+    Antes hacia falta tener una clase abierta para poder preguntar nada:
+    la ruta llevaba el fichero dentro y sin el no habia forma de llamar.
+    Pero las dudas no esperan a que uno haya abierto la clase correcta
+    -muchas surgen estudiando de un libro, o antes de grabar nada-. Si
+    hay clase, se usa de contexto; si no, se responde igual.
 
     La clase es la REFERENCIA, no la frontera. La primera version decia
     "eres el profesor de esta clase" y el modelo se lo tomo al pie de la
@@ -1092,13 +1101,16 @@ async def preguntar(fichero: str, duda: str = Form(...), buscar: bool = Form(Tru
     hubiera tocado, que es justo cuando mas falta hace preguntar. Ahora
     responde siempre, y ademas puede mirar en internet.
     """
-    if "/" in fichero or "\\" in fichero:
-        raise HTTPException(404, "No existe esa clase")
     if len(duda.strip()) < 3:
         raise HTTPException(400, "Escriba la duda")
-    clase = await clases_store.leer(fichero)
-    if clase is None:
-        raise HTTPException(404, "No existe esa clase")
+
+    clase = ""
+    if fichero:
+        if "/" in fichero or "\\" in fichero:
+            raise HTTPException(404, "No existe esa clase")
+        # Si la clase no aparece NO se corta: se contesta sin ella. Que
+        # el contexto falle no es motivo para dejar sin respuesta.
+        clase = await clases_store.leer(fichero) or ""
 
     registro = ProviderRegistry(get_settings())
     duda = duda.strip()[:1500]
@@ -1115,7 +1127,14 @@ async def preguntar(fichero: str, duda: str = Form(...), buscar: bool = Form(Tru
             except Exception:
                 hallado, fuentes = "", []
 
-    entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:18000]
+    if clase.strip():
+        entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:18000]
+    else:
+        # Sin clase abierta no se calla nada: se dice que no hay contexto
+        # de clase para que no se invente que el profesor dijo algo.
+        entrada = ("(No hay ninguna clase abierta como contexto. Responde "
+                   "con tu conocimiento y con lo que se te dé de internet, "
+                   "sin atribuir nada a ningún profesor.)")
     if hallado.strip():
         entrada += ("\n\n=== INFORMACION DE INTERNET SOBRE LA DUDA ===\n"
                     "(usala si la clase no cubre la duda; si contradice a la "

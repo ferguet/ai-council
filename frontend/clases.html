@@ -110,6 +110,27 @@
   table.comparativa th { background:rgba(167,243,208,.10); color:#A7F3D0;
                          font-weight:600; }
   table.comparativa tr:nth-child(even) td { background:rgba(255,255,255,.03); }
+
+  /* LA CAJA DE PREGUNTAR.
+     Campo y boton pegados en una sola pieza, como una barra de busqueda:
+     asi se lee como "una cosa que se usa" y no como dos controles
+     sueltos entre los demas botones. En movil se apilan, porque un campo
+     de texto estrecho no se puede escribir comodo. */
+  .cajaPregunta { display:flex; gap:0; align-items:stretch;
+                  border:1px solid var(--linea); border-radius:14px;
+                  overflow:hidden; background:rgba(8,13,25,.65);
+                  transition:border-color .2s, box-shadow .2s; }
+  .cajaPregunta:focus-within { border-color:var(--acento);
+                               box-shadow:0 0 0 3px rgba(139,92,246,.18); }
+  .cajaPregunta input { flex:1; margin:0; border:none; background:transparent;
+                        border-radius:0; font-size:16px; padding:16px 18px; }
+  .cajaPregunta input:focus { outline:none; }
+  .cajaPregunta button { margin:0; border-radius:0; white-space:nowrap;
+                         padding-left:22px; padding-right:22px; }
+  @media (max-width:560px) {
+    .cajaPregunta { flex-direction:column; }
+    .cajaPregunta button { width:100%; }
+  }
   .lista button { display:block; width:100%; text-align:left; font-weight:400; font-size:14px; }
   #crono { font-size:42px; font-variant-numeric:tabular-nums; font-weight:700;
            letter-spacing:.02em; }
@@ -306,26 +327,36 @@
     <button class="gris" id="btnTablasPdf" onclick="document.getElementById('pdfTablas').click()" disabled>📎 Tablas, con las diapositivas</button>
     <input type="file" id="pdfTablas" accept="application/pdf" style="display:none" onchange="hacerTablas(this.files[0])">
 
-    <!--
-      PREGUNTARLE UNA DUDA A LA CLASE.
-
-      Buscar la duda fuera devuelve la respuesta del libro, que muchas
-      veces NO es la que dio el profesor -y en el examen se corrige lo
-      que dijo el profesor-. Esto responde siguiendo el hilo de la clase
-      abierta, y avisa cuando algo no se trato en ella.
-    -->
-    <div id="cajaDuda" style="margin-top:14px" hidden>
-      <label style="font-size:12px;color:#9AA4B2;display:block;margin-bottom:6px">
-        ¿ALGUNA DUDA? — responde con la clase como referencia, y busca en internet lo que no se vio
-      </label>
-      <input type="text" id="duda" placeholder="Ej.: ¿por qué en ese caso se da el primer fármaco y no el otro?"
-             onkeydown="if(event.key==='Enter')preguntarDuda()">
-      <button class="verde" id="btnDuda" onclick="preguntarDuda()">💬 Preguntar</button>
-      <div id="respuestaDuda" style="margin-top:10px"></div>
-    </div>
     <button class="morado" id="btnPodcast" onclick="hacerPodcast()" disabled>🎧 Convertir en pódcast</button>
     <button class="verde" id="btnAudio" onclick="bajarAudio()" hidden>⬇️ Descargar el audio (mp3)</button>
     <div id="estado2" style="margin-top:12px;font-size:14px;white-space:pre-line;color:#9AA4B2"></div>
+  </div>
+
+  <!--
+    PREGUNTAR, EN SU PROPIO SITIO.
+
+    Antes esto estaba escondido entre los botones de la clase y encima
+    apagado hasta abrir una: dos trabas para lo que mas se usa. Las dudas
+    no esperan a que uno haya abierto la clase correcta -muchas surgen
+    estudiando de un libro, o antes de grabar nada-. Ahora es un panel
+    propio, siempre disponible: si hay clase abierta la usa de contexto,
+    y si no, responde igual.
+  -->
+  <div class="panel" id="panelDuda">
+    <div class="et">Preguntar</div>
+    <div style="color:#9AA4B2;font-size:14px;margin-bottom:12px">
+      Cualquier duda. Si tiene una clase abierta la usa como referencia y
+      sigue el hilo del profesor; lo que no se vio en clase lo busca en internet.
+    </div>
+    <div id="contextoDuda" style="font-size:12px;color:#9AA4B2;margin-bottom:10px">
+      📕 Sin clase abierta — responderá por su cuenta
+    </div>
+    <div class="cajaPregunta">
+      <input type="text" id="duda" placeholder="Escriba aquí su duda…"
+             onkeydown="if(event.key==='Enter')preguntarDuda()">
+      <button class="verde" id="btnDuda" onclick="preguntarDuda()">💬 Preguntar</button>
+    </div>
+    <div id="respuestaDuda" style="margin-top:12px"></div>
   </div>
 
   <div class="panel">
@@ -1293,25 +1324,30 @@ async function hacerTablas(f) {
 // se corrige lo que dijo el profesor. Si algo no se trato en clase, el
 // servidor lo dice explicitamente en vez de mezclarlo.
 async function preguntarDuda() {
-  const cual = baseSeleccionada || ficheroVisible;
-  if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
+  // La clase es opcional: si hay una abierta se usa de contexto, y si
+  // no, se pregunta igual. Antes esto exigia tener una abierta y era la
+  // traba mas absurda de la app: las dudas no esperan.
+  const cual = baseSeleccionada || ficheroVisible || '';
   const campo = document.getElementById('duda');
   const texto = campo.value.trim();
   const caja = document.getElementById('respuestaDuda');
   if (texto.length < 3) {
     caja.innerHTML = '<div style="color:#FACC15;font-size:14px">Escriba la duda primero.</div>';
+    campo.focus();
     return;
   }
   const b = document.getElementById('btnDuda');
   const original = b.textContent;
   b.disabled = true;
   b.textContent = '⏳ Pensando…';
-  caja.innerHTML = '<div style="color:#9AA4B2;font-size:14px">⏳ Buscando la respuesta en la clase y en internet…</div>';
+  caja.innerHTML = '<div style="color:#9AA4B2;font-size:14px">⏳ ' +
+    (cual ? 'Buscando la respuesta en la clase y en internet…'
+          : 'Buscando la respuesta en internet…') + '</div>';
   try {
     const fd = new FormData();
     fd.append('duda', texto);
-    const r = await fetch(base() + '/clases/preguntar/' + encodeURIComponent(cual),
-                          { method: 'POST', body: fd });
+    if (cual) fd.append('fichero', cual);
+    const r = await fetch(base() + '/clases/preguntar', { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
     // Las fuentes de internet, si las ha usado: para poder comprobar lo
@@ -1555,10 +1591,16 @@ function seleccionar(n) {
   if (bt) bt.disabled = false;
   const btp = document.getElementById('btnTablasPdf');
   if (btp) btp.disabled = false;
-  // La caja de dudas solo tiene sentido con una clase abierta: suelta,
-  // sin saber sobre que se pregunta, no responderia nada util.
-  const cd = document.getElementById('cajaDuda');
-  if (cd) cd.hidden = false;
+  // La caja de preguntar NO se enciende ni se apaga: funciona siempre.
+  // Lo unico que cambia es el aviso de que clase se usara de contexto,
+  // para que no haya que adivinarlo.
+  const cx = document.getElementById('contextoDuda');
+  if (cx) {
+    const d = describir(n);
+    cx.innerHTML = '📗 Usando como referencia: <b>' +
+      escaparHtml(d.asig || nombreBase(n).replace(/_/g, ' ')) + '</b>' +
+      (d.cuando ? ' <span style="opacity:.7">(' + d.cuando + ')</span>' : '');
+  }
   const rd = document.getElementById('respuestaDuda');
   if (rd) rd.innerHTML = '';   // la respuesta era de la clase anterior
   // Cambiar de clase deja atras la lista de la clase anterior: verla
