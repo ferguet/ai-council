@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from app.api import (clases_audio, clases_diapositivas, clases_ocr,
@@ -930,6 +930,172 @@ async def importancia(fichero: str, pdf: list[UploadFile] | None = File(None), b
         "fuentes": fuentes,
         "diario": diario,
     }
+
+
+# =====================================================================
+# TABLAS COMPARATIVAS
+# =====================================================================
+#
+# En medicina lo que mas se confunde -y lo que mas se pregunta- son cosas
+# que se parecen: dos anemias, tres shocks, cuatro glomerulonefritis. En
+# un texto corrido esas diferencias quedan repartidas en parrafos
+# distintos y hay que ir juntandolas mentalmente. En una tabla se ven de
+# golpe. Por eso esto es un boton aparte y no parte del resumen: no toda
+# clase tiene material comparable, y forzar tablas donde no las hay solo
+# produce tablas vacias de relleno.
+#
+# Si se suben las diapositivas, se cruzan: lo que el profesor resalta
+# marca que columnas le importan de verdad.
+
+INSTRUCCION_TABLAS = (
+    "Eres un profesor de medicina que prepara material de repaso para un "
+    "alumno. A partir de una clase transcrita, construyes TABLAS "
+    "COMPARATIVAS de lo que se presta a confusion.\n\n"
+
+    "QUE COMPARAR: cosas del mismo tipo que el alumno pueda mezclar "
+    "-enfermedades parecidas, tipos de un mismo sindrome, farmacos de la "
+    "misma familia, pruebas diagnosticas alternativas, criterios que se "
+    "confunden entre si-.\n\n"
+
+    "FORMATO: tablas en markdown, con | y guiones. La primera columna es "
+    "lo que se compara; las siguientes, los criterios que de verdad las "
+    "distinguen (clinica, diagnostico, tratamiento, pronostico... lo que "
+    "aplique en cada caso).\n\n"
+    "Antes de cada tabla, un titulo corto con ## diciendo que compara.\n"
+    "Despues de cada tabla, UNA sola linea empezando por 'Clave:' con lo "
+    "unico que hay que recordar para no confundirlas.\n\n"
+
+    "REGLAS:\n"
+    "- SOLO con lo que aparece en la clase. Si de un elemento no se dijo "
+    "un dato, escribe 'no se dijo en clase' en esa celda. NO lo completes "
+    "con lo que sabes: el alumno tiene que poder distinguir lo que entra "
+    "de lo que no.\n"
+    "- Si la clase no da para ninguna comparacion clara, dilo en una "
+    "linea y no te inventes tablas de relleno.\n"
+    "- Celdas cortas, de pocas palabras. Una tabla que no se lee de un "
+    "vistazo no sirve para lo que sirve una tabla.\n"
+    "- Entre 2 y 6 tablas. Mejor pocas y utiles que muchas y forzadas.\n"
+    "- Nada de introduccion ni de despedida: empieza directamente por el "
+    "primer titulo."
+)
+
+
+@router.post("/tablas/{fichero}")
+async def tablas(fichero: str, pdf: UploadFile | None = File(None)):
+    """
+    Tablas comparativas de la clase. Si se suben las diapositivas, se
+    usan para saber que aspectos resalta el profesor.
+    """
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    clase = await clases_store.leer(fichero)
+    if clase is None:
+        raise HTTPException(404, "No existe esa clase")
+
+    registro = ProviderRegistry(get_settings())
+    diario: list[str] = []
+    cabecera_diapos = ""
+
+    if pdf is not None and pdf.filename:
+        datos = await pdf.read()
+        if not datos:
+            diario.append(f"El PDF «{pdf.filename}» llegó vacío.")
+        else:
+            try:
+                extraido = await asyncio.to_thread(clases_diapositivas.extraer, datos)
+                resaltados = extraido["resaltados"][:80]
+                if resaltados:
+                    cabecera_diapos = (
+                        "=== LO QUE EL PROFESOR RESALTA EN SUS DIAPOSITIVAS ===\n"
+                        "(dale mas peso a estos aspectos al elegir las columnas)\n"
+                        + "\n".join(f"- {r}" for r in resaltados) + "\n\n"
+                    )
+                    diario.append(
+                        f"Leídas las diapositivas «{pdf.filename}» "
+                        f"({extraido['paginas']} páginas, {len(resaltados)} elementos resaltados)."
+                    )
+                else:
+                    diario.append(
+                        f"«{pdf.filename}» se ha leído pero no tiene nada resaltado "
+                        f"que aprovechar."
+                    )
+            except Exception as e:
+                diario.append(f"No se pudo leer «{pdf.filename}»: {e}")
+
+    texto = await _pedir_a_la_ia(registro, [
+        ChatMessage(role="system", content=INSTRUCCION_TABLAS),
+        ChatMessage(role="user", content=(
+            cabecera_diapos + "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:20000]
+        )),
+    ], temperatura=0.3)
+
+    nombre = fichero.rsplit(".", 1)[0] + "_tablas.txt"
+    await clases_store.guardar(nombre, texto)
+
+    return {"tablas": texto, "fichero": nombre, "diario": diario}
+
+
+# =====================================================================
+# PREGUNTARLE UNA DUDA A LA CLASE
+# =====================================================================
+#
+# Estudiando surgen dudas concretas -"¿por que en ese caso se da el
+# farmaco X y no el Y?"- y buscarlas fuera devuelve la respuesta general
+# del libro, que muchas veces NO es la que dio el profesor. Y en un
+# examen se corrige lo que dijo el profesor.
+#
+# Por eso esto responde SIGUIENDO EL HILO DE LA CLASE: usa el enfoque,
+# el criterio y hasta las palabras del profesor. Si la duda toca algo que
+# no se explico, lo dice y lo separa claramente en vez de mezclarlo, para
+# que el alumno sepa siempre que parte viene de clase y que parte no.
+
+INSTRUCCION_DUDA = (
+    "Eres el profesor de esta clase, respondiendo a un alumno que te "
+    "pregunta una duda al acabar.\n\n"
+
+    "TIENES la transcripcion de lo que TU mismo has explicado hoy. "
+    "Responde SIGUIENDO TU PROPIO HILO: usa el mismo enfoque, los mismos "
+    "criterios y los mismos ejemplos que has usado en clase. Si en clase "
+    "has dicho que ante X se hace Y, tu respuesta parte de ahi -aunque "
+    "existan otros enfoques igual de validos en la literatura-.\n\n"
+
+    "COMO RESPONDER:\n"
+    "- Directo y breve. Es una duda concreta, no una leccion.\n"
+    "- Enlaza con lo que se dijo en clase: «como comentamos al hablar "
+    "de...». El alumno tiene que poder situar la respuesta.\n"
+    "- Si algo de la duda NO se trato en clase, dilo con estas palabras: "
+    "«Esto no lo vimos en clase». Y solo entonces, si aporta, añade la "
+    "explicacion general, dejando claro que es material de fuera.\n"
+    "- NO afirmes que el profesor dijo algo que no esta en la "
+    "transcripcion. Es lo mas grave que puedes hacer aqui: el alumno "
+    "estudiara para un examen que corrige ese profesor.\n"
+    "- Si la duda no tiene nada que ver con la clase, dilo y responde "
+    "brevemente, avisando de que va por libre.\n"
+    "- Nada de despedidas ni de ofrecerte a seguir ayudando."
+)
+
+
+@router.post("/preguntar/{fichero}")
+async def preguntar(fichero: str, duda: str = Form(...)):
+    """Responde una duda del alumno tomando como referencia la clase."""
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    if len(duda.strip()) < 3:
+        raise HTTPException(400, "Escriba la duda")
+    clase = await clases_store.leer(fichero)
+    if clase is None:
+        raise HTTPException(404, "No existe esa clase")
+
+    registro = ProviderRegistry(get_settings())
+    respuesta = await _pedir_a_la_ia(registro, [
+        ChatMessage(role="system", content=INSTRUCCION_DUDA),
+        ChatMessage(role="user", content=(
+            "=== LO QUE EXPLICASTE EN CLASE ===\n" + clase[:20000] +
+            "\n\n=== DUDA DEL ALUMNO ===\n" + duda.strip()[:1500]
+        )),
+    ], temperatura=0.3)
+
+    return {"respuesta": respuesta.strip()}
 
 
 @router.delete("/borrar/{fichero}")

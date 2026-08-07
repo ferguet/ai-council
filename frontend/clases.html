@@ -99,6 +99,17 @@
            background:rgba(8,13,25,.65); border:1px solid var(--linea);
            border-radius:16px; padding:22px; min-height:120px; }
   #texto b { color:#A7F3D0; }
+  /* Las tablas van fuera del pre-wrap del contenedor: si heredan el
+     salto de linea literal, cada celda se separa sola y se deshace la
+     rejilla. */
+  table.comparativa { white-space:normal; border-collapse:collapse; width:100%;
+                      margin:14px 0; font-size:14px; display:block; overflow-x:auto; }
+  table.comparativa th, table.comparativa td {
+    border:1px solid var(--linea); padding:8px 10px; text-align:left;
+    vertical-align:top; }
+  table.comparativa th { background:rgba(167,243,208,.10); color:#A7F3D0;
+                         font-weight:600; }
+  table.comparativa tr:nth-child(even) td { background:rgba(255,255,255,.03); }
   .lista button { display:block; width:100%; text-align:left; font-weight:400; font-size:14px; }
   #crono { font-size:42px; font-variant-numeric:tabular-nums; font-weight:700;
            letter-spacing:.02em; }
@@ -258,12 +269,12 @@
     <button class="azul" id="btnDiapos" onclick="document.getElementById('pdf').click()" disabled>📊 Cruzar con las diapositivas (PDF)</button>
     <input type="file" id="pdf" accept="application/pdf" style="display:none" onchange="cruzar(this.files[0])">
     <button class="verde" id="btnExamen" onclick="preguntas(null)" disabled>❓ Proponer preguntas de examen</button>
-    <button class="gris" id="btnExamenPdf" onclick="document.getElementById('pdfex').click()" disabled>📎 …usando exámenes que yo suba</button>
+    <button class="gris" id="btnExamenPdf" onclick="document.getElementById('pdfex').click()" disabled>📎 Preguntas, con mis exámenes</button>
     <!-- multiple: los examenes de una asignatura se tienen por años, en
          ficheros separados. Admitir solo uno obligaba a tirar el resto. -->
     <input type="file" id="pdfex" accept="application/pdf" multiple style="display:none" onchange="preguntas(this.files)">
     <button class="verde" id="btnImportancia" onclick="verImportancia(null)" disabled>🚦 Qué es importante</button>
-    <button class="gris" id="btnImportanciaPdf" onclick="document.getElementById('pdfimp').click()" disabled>📎 …usando exámenes que yo suba</button>
+    <button class="gris" id="btnImportanciaPdf" onclick="document.getElementById('pdfimp').click()" disabled>📎 Importancia, con mis exámenes</button>
     <input type="file" id="pdfimp" accept="application/pdf" multiple style="display:none" onchange="verImportancia(this.files)">
     <!--
       SOLO VISUAL, A PROPOSITO.
@@ -275,6 +286,27 @@
       archivar-.
     -->
     <div id="listaImportancia" style="margin-top:10px"></div>
+    <button class="azul" id="btnTablas" onclick="hacerTablas(null)" disabled>📋 Tablas comparativas</button>
+    <button class="gris" id="btnTablasPdf" onclick="document.getElementById('pdfTablas').click()" disabled>📎 Tablas, con las diapositivas</button>
+    <input type="file" id="pdfTablas" accept="application/pdf" style="display:none" onchange="hacerTablas(this.files[0])">
+
+    <!--
+      PREGUNTARLE UNA DUDA A LA CLASE.
+
+      Buscar la duda fuera devuelve la respuesta del libro, que muchas
+      veces NO es la que dio el profesor -y en el examen se corrige lo
+      que dijo el profesor-. Esto responde siguiendo el hilo de la clase
+      abierta, y avisa cuando algo no se trato en ella.
+    -->
+    <div id="cajaDuda" style="margin-top:14px" hidden>
+      <label style="font-size:12px;color:#9AA4B2;display:block;margin-bottom:6px">
+        ¿ALGUNA DUDA DE ESTA CLASE?
+      </label>
+      <input type="text" id="duda" placeholder="Ej.: ¿por qué en ese caso se da el primer fármaco y no el otro?"
+             onkeydown="if(event.key==='Enter')preguntarDuda()">
+      <button class="verde" id="btnDuda" onclick="preguntarDuda()">💬 Preguntar sobre la clase</button>
+      <div id="respuestaDuda" style="margin-top:10px"></div>
+    </div>
     <button class="morado" id="btnPodcast" onclick="hacerPodcast()" disabled>🎧 Convertir en pódcast</button>
     <button class="verde" id="btnAudio" onclick="bajarAudio()" hidden>⬇️ Descargar el audio (mp3)</button>
     <div id="estado2" style="margin-top:12px;font-size:14px;white-space:pre-line;color:#9AA4B2"></div>
@@ -459,11 +491,47 @@ function escaparHtml(t) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function mostrarTexto(t) {
-  const escapado = escaparHtml(t);
-  salida.innerHTML = escapado
+// LAS TABLAS, COMO TABLAS.
+//
+// Las comparativas vienen en markdown, con barras verticales. Sin esto
+// se veian como un amasijo de "|" y guiones, que es justo lo contrario
+// de para lo que sirve una tabla: verlo todo alineado de un vistazo.
+// La linea de guiones que separa la cabecera se descarta -es sintaxis,
+// no contenido-.
+function tablasAHtml(txt) {
+  const lineas = txt.split('\n');
+  const salida = [];
+  let i = 0;
+  while (i < lineas.length) {
+    const esFila = l => /^\s*\|.*\|\s*$/.test(l);
+    if (esFila(lineas[i]) && esFila(lineas[i + 1] || '') &&
+        /^[\s|:-]+$/.test(lineas[i + 1])) {
+      const celdas = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const cab = celdas(lineas[i]);
+      i += 2;                                   // salta cabecera y separador
+      const filas = [];
+      while (i < lineas.length && esFila(lineas[i])) { filas.push(celdas(lineas[i])); i++; }
+      salida.push(
+        '<table class="comparativa"><thead><tr>' +
+        cab.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' +
+        filas.map(f => '<tr>' + f.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') +
+        '</tbody></table>');
+    } else {
+      salida.push(lineas[i]);
+      i++;
+    }
+  }
+  return salida.join('\n');
+}
+
+function conFormato(t) {
+  return tablasAHtml(escaparHtml(t))
     .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
     .replace(/(^|\n)\s*##+\s*(.+)/g, '$1<b>$2</b>');
+}
+
+function mostrarTexto(t) {
+  salida.innerHTML = conFormato(t);
 }
 
 function di(msg, color) {
@@ -1036,6 +1104,94 @@ function pintarImportancia(conceptos, origen) {
     '</div>' + filas;
 }
 
+// =====================================================================
+// TABLAS COMPARATIVAS
+// =====================================================================
+//
+// Lo que mas se confunde en medicina son cosas que se parecen. En un
+// texto corrido esas diferencias quedan repartidas en parrafos y hay que
+// ir juntandolas mentalmente; en una tabla se ven de golpe.
+async function hacerTablas(f) {
+  const cual = baseSeleccionada || ficheroVisible;
+  if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
+  const b1 = document.getElementById('btnTablas'), b2 = document.getElementById('btnTablasPdf');
+  b1.disabled = b2.disabled = true;
+  const textoOriginal = f ? b2.textContent : b1.textContent;
+  let punto = 0;
+  const late = setInterval(() => {
+    punto = (punto + 1) % 4;
+    (f ? b2 : b1).textContent = '⏳ Trabajando' + '.'.repeat(punto);
+  }, 600);
+  di(f ? '⏳ Leyendo las diapositivas y montando las tablas…'
+       : '⏳ Buscando qué se presta a confusión y montando las tablas…', '#FACC15');
+  try {
+    const fd = new FormData();
+    if (f) fd.append('pdf', f, f.name);
+    fd.append('_', '1');   // un formulario vacio no es un cuerpo valido
+    const r = await fetch(base() + '/clases/tablas/' + encodeURIComponent(cual),
+                          { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    mostrarTexto(d.tablas);
+    pintarCabecera(d.fichero);
+    let msg = '✅ Tablas listas.';
+    if (d.diario && d.diario.length) msg += '\n' + d.diario.join('\n');
+    di(msg, '#4ADE80');
+    document.getElementById('panelTexto').scrollIntoView({ behavior:'smooth', block:'start' });
+    cargarLista();
+  } catch (e) {
+    di('❌ ' + enCristiano(e.message), '#F87171');
+  } finally {
+    clearInterval(late);
+    (f ? b2 : b1).textContent = textoOriginal;
+    b1.disabled = b2.disabled = false;
+    document.getElementById('pdfTablas').value = '';
+  }
+}
+
+// =====================================================================
+// PREGUNTARLE UNA DUDA A LA CLASE
+// =====================================================================
+//
+// Responde siguiendo el hilo del profesor, no el del libro: en el examen
+// se corrige lo que dijo el profesor. Si algo no se trato en clase, el
+// servidor lo dice explicitamente en vez de mezclarlo.
+async function preguntarDuda() {
+  const cual = baseSeleccionada || ficheroVisible;
+  if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
+  const campo = document.getElementById('duda');
+  const texto = campo.value.trim();
+  const caja = document.getElementById('respuestaDuda');
+  if (texto.length < 3) {
+    caja.innerHTML = '<div style="color:#FACC15;font-size:14px">Escriba la duda primero.</div>';
+    return;
+  }
+  const b = document.getElementById('btnDuda');
+  const original = b.textContent;
+  b.disabled = true;
+  b.textContent = '⏳ Pensando…';
+  caja.innerHTML = '<div style="color:#9AA4B2;font-size:14px">⏳ Buscando la respuesta en la clase…</div>';
+  try {
+    const fd = new FormData();
+    fd.append('duda', texto);
+    const r = await fetch(base() + '/clases/preguntar/' + encodeURIComponent(cual),
+                          { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    caja.innerHTML =
+      '<div style="background:rgba(255,255,255,.04);border-left:4px solid #4ADE80;' +
+      'border-radius:10px;padding:12px 14px;font-size:15px;line-height:1.6;' +
+      'white-space:pre-wrap">' + conFormato(d.respuesta) + '</div>';
+    di('✅ Respondido.', '#4ADE80');
+  } catch (e) {
+    caja.innerHTML = '';
+    di('❌ ' + enCristiano(e.message), '#F87171');
+  } finally {
+    b.disabled = false;
+    b.textContent = original;
+  }
+}
+
 // Fecha legible a partir del nombre "2026-08-01_1637_Oftalmologia.txt"
 function describir(n) {
   const info = queEs(n);
@@ -1115,13 +1271,17 @@ async function cargarLista(avisar) {
 // Un icono no explica nada por si solo. Ahora cada clase es un bloque y
 // dentro se dice CON PALABRAS que es cada cosa.
 function nombreBase(n) {
-  return n.replace(/_resumen\.txt$/, '').replace(/_prioridades\.txt$/, '').replace(/_examen\.txt$/, '').replace(/\.txt$/, '');
+  return n.replace(/_resumen\.txt$/, '').replace(/_prioridades\.txt$/, '')
+          .replace(/_examen\.txt$/, '').replace(/_tablas\.txt$/, '')
+          .replace(/_podcast\.txt$/, '').replace(/\.txt$/, '');
 }
 
 function queEs(n) {
   if (n.endsWith('_resumen.txt'))     return { icono: '📝', nombre: 'Apuntes resumidos',      pista: 'La clase ordenada por conceptos' };
   if (n.endsWith('_prioridades.txt')) return { icono: '📊', nombre: 'Qué estudiar primero',   pista: 'Cruce con las diapositivas del profesor' };
   if (n.endsWith('_examen.txt'))      return { icono: '❓', nombre: 'Posibles preguntas',      pista: 'Preguntas tipo examen sobre esta clase' };
+  if (n.endsWith('_tablas.txt'))      return { icono: '📋', nombre: 'Tablas comparativas',     pista: 'Lo que se presta a confusión, enfrentado' };
+  if (n.endsWith('_podcast.txt'))     return { icono: '🎧', nombre: 'Guion del pódcast',       pista: 'La clase en forma de conversación' };
   return                                     { icono: '🎙️', nombre: 'Grabación transcrita',  pista: 'Lo que se dijo, palabra por palabra' };
 }
 
@@ -1209,7 +1369,9 @@ function pintarLista(clases) {
 let baseSeleccionada = null;
 
 function seleccionar(n) {
-  const derivado = n.endsWith('_resumen.txt') || n.endsWith('_prioridades.txt') || n.endsWith('_examen.txt');
+  const derivado = n.endsWith('_resumen.txt') || n.endsWith('_prioridades.txt') ||
+                   n.endsWith('_examen.txt') || n.endsWith('_tablas.txt') ||
+                   n.endsWith('_podcast.txt');
   baseSeleccionada = derivado ? nombreBase(n) + '.txt' : n;
   ficheroVisible = derivado ? null : n;          // resumir solo tiene sentido sobre la transcripcion
   btnResumir.disabled = derivado;
@@ -1242,6 +1404,16 @@ function seleccionar(n) {
   if (bi) bi.disabled = false;
   const bip = document.getElementById('btnImportanciaPdf');
   if (bip) bip.disabled = false;
+  const bt = document.getElementById('btnTablas');
+  if (bt) bt.disabled = false;
+  const btp = document.getElementById('btnTablasPdf');
+  if (btp) btp.disabled = false;
+  // La caja de dudas solo tiene sentido con una clase abierta: suelta,
+  // sin saber sobre que se pregunta, no responderia nada util.
+  const cd = document.getElementById('cajaDuda');
+  if (cd) cd.hidden = false;
+  const rd = document.getElementById('respuestaDuda');
+  if (rd) rd.innerHTML = '';   // la respuesta era de la clase anterior
   // Cambiar de clase deja atras la lista de la clase anterior: verla
   // puesta encima de una clase distinta a la que se genero seria confuso.
   const li = document.getElementById('listaImportancia');
