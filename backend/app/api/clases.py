@@ -566,9 +566,68 @@ INSTRUCCION_EXAMEN = (
 )
 
 
+# Tope de texto de examenes que se manda a la IA. Con VARIOS examenes hay
+# que repartirlo entre todos: si no, el primero se comeria el presupuesto
+# entero y los demas no pintarian nada aunque se hayan subido.
+_TOPE_EXAMENES = 18000
+
+
+async def _leer_un_examen(
+    registro: ProviderRegistry, pdf: UploadFile, diario: list[str],
+) -> tuple[str, str]:
+    """Saca el texto de UN examen. Devuelve (texto, como_describirlo).
+
+    Texto vacio si no se ha podido leer -y en ese caso el motivo queda
+    anotado en el diario, que es lo que luego se enseña en pantalla.
+    """
+    datos = await pdf.read()
+    if not datos:
+        diario.append(f"El PDF «{pdf.filename}» llegó vacío.")
+        return "", ""
+
+    kb = len(datos) // 1024
+    try:
+        extraido = await asyncio.to_thread(clases_diapositivas.extraer, datos)
+        texto_pdf = extraido["texto"].strip()
+        if texto_pdf:
+            diario.append(
+                f"Leído «{pdf.filename}» ({kb} KB, {extraido['paginas']} páginas): "
+                f"{len(texto_pdf)} caracteres de texto."
+            )
+            return texto_pdf, f"{pdf.filename} ({extraido['paginas']} páginas)"
+
+        # ES UN ESCANEO. Se lee con vision en vez de rendirse: los
+        # examenes de una asignatura casi siempre llegan asi, y son justo
+        # los que mas valen.
+        diario.append(
+            f"«{pdf.filename}» no tiene texto (es un escaneo). "
+            f"Leyéndolo página a página con reconocimiento de imagen…"
+        )
+        leido = await _leer_escaneado(registro, datos, pdf.filename or "examen.pdf")
+        if leido["texto"].strip():
+            diario.append(
+                f"Leídas {leido['paginas_leidas']} páginas del escaneo de «{pdf.filename}»"
+                + (f" (de {leido['paginas_totales']} en total; el resto no se ha "
+                   f"mirado para no disparar el gasto)"
+                   if leido["paginas_totales"] > leido["paginas_leidas"] else "")
+                + f": {len(leido['texto'])} caracteres."
+            )
+            if leido["fallos"]:
+                diario.append(f"{leido['fallos']} páginas de «{pdf.filename}» no se pudieron leer.")
+            return leido["texto"], f"{pdf.filename} (escaneado, {leido['paginas_leidas']} páginas)"
+
+        diario.append(
+            f"No se ha podido sacar texto del escaneo «{pdf.filename}». "
+            f"Puede que la calidad sea muy baja."
+        )
+    except Exception as e:
+        diario.append(f"No se pudo leer «{pdf.filename}»: {e}")
+    return "", ""
+
+
 async def _reunir_material_examenes(
     registro: ProviderRegistry, clase: str,
-    pdf: UploadFile | None, buscar: bool,
+    pdfs: list[UploadFile] | None, buscar: bool,
 ) -> tuple[str, str, list[dict], list[str]]:
     """
     Consigue preguntas de examenes anteriores para dar de contexto real,
@@ -580,10 +639,13 @@ async def _reunir_material_examenes(
     otras veces no se tienen: los del MIR son publicos y estan en internet,
     pero los de una asignatura concreta a menudo no estan en ningun sitio.
 
-    Si se sube un PDF, se usa. Si no, se busca en internet lo que haya
-    sobre esos temas. Y si tampoco hay nada, se sigue adelante solo con la
-    clase -que sigue siendo util-, diciendolo claramente. Lo que no se
-    hace nunca es fingir que hay una fuente que no existe.
+    Si se suben PDFs, se usan TODOS -antes solo se admitia uno, y quien
+    tiene los examenes de una asignatura los tiene por años, en ficheros
+    separados: obligar a elegir uno solo es tirar la mitad del material
+    que la persona ya tenia-. Si no hay ninguno, se busca en internet. Y
+    si tampoco hay nada, se sigue adelante solo con la clase, diciendolo
+    claramente. Lo que no se hace nunca es fingir que hay una fuente que
+    no existe.
 
     Compartida entre /examen y /importancia: las dos necesitan exactamente
     lo mismo, y tenerlo en dos sitios es tenerlo desincronizado tarde o
@@ -600,55 +662,28 @@ async def _reunir_material_examenes(
     # la persona se quedaba sin saber si su fichero se habia usado o no.
     diario: list[str] = []
 
-    # 1. Examenes subidos a mano, si los hay.
-    if pdf is not None:
-        datos = await pdf.read()
-        if not datos:
-            diario.append(f"El PDF «{pdf.filename}» llegó vacío.")
-        else:
-            kb = len(datos) // 1024
-            try:
-                extraido = await asyncio.to_thread(clases_diapositivas.extraer, datos)
-                texto_pdf = extraido["texto"].strip()
-                if texto_pdf:
-                    material_examenes = texto_pdf[:18000]
-                    origen = f"los exámenes que ha subido ({pdf.filename}, {extraido['paginas']} páginas)"
-                    diario.append(
-                        f"Leído «{pdf.filename}» ({kb} KB, {extraido['paginas']} páginas): "
-                        f"{len(texto_pdf)} caracteres de texto, se usan los primeros "
-                        f"{len(material_examenes)}."
-                    )
-                else:
-                    # ES UN ESCANEO. Se lee con vision en vez de rendirse:
-                    # los examenes de una asignatura casi siempre llegan
-                    # asi, y son justo los que mas valen.
-                    diario.append(
-                        f"«{pdf.filename}» no tiene texto (es un escaneo). "
-                        f"Leyéndolo página a página con reconocimiento de imagen…"
-                    )
-                    leido = await _leer_escaneado(registro, datos, pdf.filename or "examen.pdf")
-                    if leido["texto"].strip():
-                        material_examenes = leido["texto"][:18000]
-                        origen = (
-                            f"los exámenes escaneados que ha subido "
-                            f"({pdf.filename}, {leido['paginas_leidas']} páginas leídas)"
-                        )
-                        diario.append(
-                            f"Leídas {leido['paginas_leidas']} páginas del escaneo"
-                            + (f" (de {leido['paginas_totales']} en total; "
-                               f"el resto no se ha mirado para no disparar el gasto)"
-                               if leido["paginas_totales"] > leido["paginas_leidas"] else "")
-                            + f": {len(leido['texto'])} caracteres."
-                        )
-                        if leido["fallos"]:
-                            diario.append(f"{leido['fallos']} páginas no se pudieron leer.")
-                    else:
-                        diario.append(
-                            "No se ha podido sacar texto del escaneo. "
-                            "Puede que la calidad sea muy baja."
-                        )
-            except Exception as e:
-                diario.append(f"No se pudo leer «{pdf.filename}»: {e}")
+    # 1. Examenes subidos a mano, si los hay. Se leen todos.
+    reales = [p for p in (pdfs or []) if p is not None and p.filename]
+    if reales:
+        textos: list[str] = []
+        nombres: list[str] = []
+        for pdf in reales:
+            texto, como = await _leer_un_examen(registro, pdf, diario)
+            if texto:
+                textos.append(f"--- {pdf.filename} ---\n{texto}")
+                nombres.append(como)
+
+        if textos:
+            # El presupuesto se reparte a partes iguales, para que un
+            # examen muy largo no deje sin sitio a los demas.
+            porcion = max(1500, _TOPE_EXAMENES // len(textos))
+            material_examenes = "\n\n".join(t[:porcion] for t in textos)[:_TOPE_EXAMENES]
+            origen = (f"los exámenes que ha subido ({', '.join(nombres)})"
+                      if len(nombres) == 1
+                      else f"los {len(nombres)} exámenes que ha subido ({', '.join(nombres)})")
+            diario.append(
+                f"Se usan {len(textos)} examen(es), hasta {porcion} caracteres de cada uno."
+            )
 
     # 2. Si no hay examenes propios utilizables, se busca en internet.
     if not material_examenes and buscar:
@@ -677,7 +712,7 @@ async def _reunir_material_examenes(
 
 
 @router.post("/examen/{fichero}")
-async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool = True):
+async def examen(fichero: str, pdf: list[UploadFile] | None = File(None), buscar: bool = True):
     """
     Propone preguntas tipo examen sobre una clase. Ver
     `_reunir_material_examenes` para de donde sale el material de apoyo.
@@ -855,7 +890,7 @@ def _parsear_conceptos(bruto: str) -> list[dict]:
 
 
 @router.post("/importancia/{fichero}")
-async def importancia(fichero: str, pdf: UploadFile | None = File(None), buscar: bool = True):
+async def importancia(fichero: str, pdf: list[UploadFile] | None = File(None), buscar: bool = True):
     """
     Lista visual de conceptos de la clase, coloreados segun lo probable
     que sea que caigan en examen. Ver el bloque de comentarios de arriba

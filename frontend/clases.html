@@ -259,10 +259,12 @@
     <input type="file" id="pdf" accept="application/pdf" style="display:none" onchange="cruzar(this.files[0])">
     <button class="verde" id="btnExamen" onclick="preguntas(null)" disabled>❓ Proponer preguntas de examen</button>
     <button class="gris" id="btnExamenPdf" onclick="document.getElementById('pdfex').click()" disabled>📎 …usando exámenes que yo suba</button>
-    <input type="file" id="pdfex" accept="application/pdf" style="display:none" onchange="preguntas(this.files[0])">
+    <!-- multiple: los examenes de una asignatura se tienen por años, en
+         ficheros separados. Admitir solo uno obligaba a tirar el resto. -->
+    <input type="file" id="pdfex" accept="application/pdf" multiple style="display:none" onchange="preguntas(this.files)">
     <button class="verde" id="btnImportancia" onclick="verImportancia(null)" disabled>🚦 Qué es importante</button>
     <button class="gris" id="btnImportanciaPdf" onclick="document.getElementById('pdfimp').click()" disabled>📎 …usando exámenes que yo suba</button>
-    <input type="file" id="pdfimp" accept="application/pdf" style="display:none" onchange="verImportancia(this.files[0])">
+    <input type="file" id="pdfimp" accept="application/pdf" multiple style="display:none" onchange="verImportancia(this.files)">
     <!--
       SOLO VISUAL, A PROPOSITO.
 
@@ -899,7 +901,10 @@ async function cruzar(f) {
 // buscan en internet los del MIR sobre esos temas. Y si tampoco hay
 // nada, se generan solo con la clase, DICIENDOLO -sirve para repasar
 // igual, pero la persona tiene que saber que van sin respaldo-.
+// f puede ser null (buscar en internet) o una lista de ficheros elegidos.
 async function preguntas(f) {
+  const ficheros = f ? Array.from(f) : [];
+  f = ficheros.length ? ficheros : null;
   const cual = baseSeleccionada || ficheroVisible;
   if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
   const b1 = document.getElementById('btnExamen'), b2 = document.getElementById('btnExamenPdf');
@@ -914,12 +919,14 @@ async function preguntas(f) {
     punto = (punto + 1) % 4;
     (f ? b2 : b1).textContent = '⏳ Trabajando' + '.'.repeat(punto);
   }, 600);
-  di(f ? '⏳ Leyendo sus exámenes y preparando preguntas…'
+  di(f ? '⏳ Leyendo ' + ficheros.length + ' examen(es) y preparando preguntas…'
        : '⏳ Buscando preguntas del MIR sobre estos temas y preparando el test…\n' +
          'Puede tardar un minuto.', '#FACC15');
   try {
     const fd = new FormData();
-    if (f) fd.append('pdf', f, f.name);
+    // Todos con el MISMO nombre de campo: asi es como se manda una lista
+    // de ficheros, y como el servidor la espera.
+    ficheros.forEach(x => fd.append('pdf', x, x.name));
     // Un formulario SIN NINGUN campo no es un cuerpo valido, y el
     // servidor contestaba "error parsing the body" al pedir preguntas sin
     // subir examenes -que es justo el caso normal-. Con un campo suelto
@@ -970,7 +977,10 @@ const _COLOR_IMPORTANCIA = {
   verde:    { fondo: '#14532D', borde: '#4ADE80', punto: '#4ADE80' },
 };
 
+// f puede ser null (buscar en internet) o una lista de ficheros elegidos.
 async function verImportancia(f) {
+  const ficheros = f ? Array.from(f) : [];
+  f = ficheros.length ? ficheros : null;
   const cual = baseSeleccionada || ficheroVisible;
   if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
   const b1 = document.getElementById('btnImportancia'), b2 = document.getElementById('btnImportanciaPdf');
@@ -982,12 +992,12 @@ async function verImportancia(f) {
     punto = (punto + 1) % 4;
     (f ? b2 : b1).textContent = '⏳ Trabajando' + '.'.repeat(punto);
   }, 600);
-  di(f ? '⏳ Leyendo sus exámenes y valorando qué insiste más el profesor…'
+  di(f ? '⏳ Leyendo ' + ficheros.length + ' examen(es) y valorando qué insiste más el profesor…'
        : '⏳ Buscando exámenes del MIR sobre estos temas y valorando la clase…\nPuede tardar un minuto.',
      '#FACC15');
   try {
     const fd = new FormData();
-    if (f) fd.append('pdf', f, f.name);
+    ficheros.forEach(x => fd.append('pdf', x, x.name));
     fd.append('_', '1');   // un formulario vacio no es un cuerpo valido
     const r = await fetch(base() + '/clases/importancia/' + encodeURIComponent(cual),
                           { method: 'POST', body: fd });
