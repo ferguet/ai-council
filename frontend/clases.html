@@ -316,11 +316,11 @@
     -->
     <div id="cajaDuda" style="margin-top:14px" hidden>
       <label style="font-size:12px;color:#9AA4B2;display:block;margin-bottom:6px">
-        ¿ALGUNA DUDA DE ESTA CLASE?
+        ¿ALGUNA DUDA? — responde con la clase como referencia, y busca en internet lo que no se vio
       </label>
       <input type="text" id="duda" placeholder="Ej.: ¿por qué en ese caso se da el primer fármaco y no el otro?"
              onkeydown="if(event.key==='Enter')preguntarDuda()">
-      <button class="verde" id="btnDuda" onclick="preguntarDuda()">💬 Preguntar sobre la clase</button>
+      <button class="verde" id="btnDuda" onclick="preguntarDuda()">💬 Preguntar</button>
       <div id="respuestaDuda" style="margin-top:10px"></div>
     </div>
     <button class="morado" id="btnPodcast" onclick="hacerPodcast()" disabled>🎧 Convertir en pódcast</button>
@@ -1306,7 +1306,7 @@ async function preguntarDuda() {
   const original = b.textContent;
   b.disabled = true;
   b.textContent = '⏳ Pensando…';
-  caja.innerHTML = '<div style="color:#9AA4B2;font-size:14px">⏳ Buscando la respuesta en la clase…</div>';
+  caja.innerHTML = '<div style="color:#9AA4B2;font-size:14px">⏳ Buscando la respuesta en la clase y en internet…</div>';
   try {
     const fd = new FormData();
     fd.append('duda', texto);
@@ -1314,10 +1314,21 @@ async function preguntarDuda() {
                           { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    // Las fuentes de internet, si las ha usado: para poder comprobar lo
+    // que viene de fuera de la clase en vez de tener que fiarse.
+    let pie = '';
+    if (d.fuentes && d.fuentes.length) {
+      pie = '<div style="margin-top:10px;font-size:12px;color:#9AA4B2">' +
+        'Consultado también en internet:<br>' +
+        d.fuentes.map(x =>
+          '• <a href="' + encodeURI(x.url) + '" target="_blank" rel="noopener" ' +
+          'style="color:#7FB0FF">' + escaparHtml(x.titulo) + '</a>').join('<br>') +
+        '</div>';
+    }
     caja.innerHTML =
       '<div style="background:rgba(255,255,255,.04);border-left:4px solid #4ADE80;' +
       'border-radius:10px;padding:12px 14px;font-size:15px;line-height:1.6;' +
-      'white-space:pre-wrap">' + conFormato(d.respuesta) + '</div>';
+      'white-space:pre-wrap">' + conFormato(d.respuesta) + pie + '</div>';
     di('✅ Respondido.', '#4ADE80');
   } catch (e) {
     caja.innerHTML = '';

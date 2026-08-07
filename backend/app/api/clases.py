@@ -1050,34 +1050,48 @@ async def tablas(fichero: str, pdf: UploadFile | None = File(None)):
 # que el alumno sepa siempre que parte viene de clase y que parte no.
 
 INSTRUCCION_DUDA = (
-    "Eres el profesor de esta clase, respondiendo a un alumno que te "
-    "pregunta una duda al acabar.\n\n"
+    "Eres un profesor de medicina resolviendo la duda de un alumno. "
+    "RESPONDE SIEMPRE a lo que se te pregunta.\n\n"
 
-    "TIENES la transcripcion de lo que TU mismo has explicado hoy. "
-    "Responde SIGUIENDO TU PROPIO HILO: usa el mismo enfoque, los mismos "
-    "criterios y los mismos ejemplos que has usado en clase. Si en clase "
-    "has dicho que ante X se hace Y, tu respuesta parte de ahi -aunque "
-    "existan otros enfoques igual de validos en la literatura-.\n\n"
+    "Tienes delante la transcripcion de una clase que el alumno acaba de "
+    "ver, y a veces tambien informacion de internet. La clase es tu "
+    "PUNTO DE PARTIDA, no tu limite.\n\n"
 
-    "COMO RESPONDER:\n"
-    "- Directo y breve. Es una duda concreta, no una leccion.\n"
-    "- Enlaza con lo que se dijo en clase: «como comentamos al hablar "
-    "de...». El alumno tiene que poder situar la respuesta.\n"
-    "- Si algo de la duda NO se trato en clase, dilo con estas palabras: "
-    "«Esto no lo vimos en clase». Y solo entonces, si aporta, añade la "
-    "explicacion general, dejando claro que es material de fuera.\n"
-    "- NO afirmes que el profesor dijo algo que no esta en la "
-    "transcripcion. Es lo mas grave que puedes hacer aqui: el alumno "
-    "estudiara para un examen que corrige ese profesor.\n"
-    "- Si la duda no tiene nada que ver con la clase, dilo y responde "
-    "brevemente, avisando de que va por libre.\n"
-    "- Nada de despedidas ni de ofrecerte a seguir ayudando."
+    "COMO USAR CADA COSA:\n"
+    "- Si la duda se trato en clase: responde siguiendo el hilo del "
+    "profesor -su enfoque, sus criterios, sus ejemplos-, porque es lo "
+    "que se corregira en el examen. Enlazalo: «como se comento al hablar "
+    "de...».\n"
+    "- Si la duda NO se trato en clase, o se trato de pasada: "
+    "RESPONDELA IGUAL, con tu conocimiento y con lo que se te haya dado "
+    "de internet. Avisa en una linea con «Esto no se vio en clase» y "
+    "sigue. Nunca te niegues a contestar por eso.\n"
+    "- Si la duda no tiene que ver con la clase: contestala tambien. El "
+    "alumno pregunta lo que necesita, no lo que toca.\n\n"
+
+    "LO QUE NO PUEDES HACER:\n"
+    "- NO atribuyas al profesor nada que no este en la transcripcion. "
+    "Esto es lo mas grave: el alumno estudia para un examen que corrige "
+    "ese profesor. Si no lo dijo, se dice que no lo dijo.\n"
+    "- NO empieces negandote ni diciendo de que puedes hablar. Ve "
+    "directo a la respuesta.\n\n"
+
+    "ESTILO: directo y breve, es una duda concreta y no una leccion. "
+    "Nada de despedidas ni de ofrecerte a seguir ayudando."
 )
 
 
 @router.post("/preguntar/{fichero}")
-async def preguntar(fichero: str, duda: str = Form(...)):
-    """Responde una duda del alumno tomando como referencia la clase."""
+async def preguntar(fichero: str, duda: str = Form(...), buscar: bool = Form(True)):
+    """
+    Responde una duda del alumno.
+
+    La clase es la REFERENCIA, no la frontera. La primera version decia
+    "eres el profesor de esta clase" y el modelo se lo tomo al pie de la
+    letra: se negaba a contestar cualquier cosa que el profesor no
+    hubiera tocado, que es justo cuando mas falta hace preguntar. Ahora
+    responde siempre, y ademas puede mirar en internet.
+    """
     if "/" in fichero or "\\" in fichero:
         raise HTTPException(404, "No existe esa clase")
     if len(duda.strip()) < 3:
@@ -1087,15 +1101,34 @@ async def preguntar(fichero: str, duda: str = Form(...)):
         raise HTTPException(404, "No existe esa clase")
 
     registro = ProviderRegistry(get_settings())
+    duda = duda.strip()[:1500]
+
+    # Busqueda en internet sobre la duda. Si falla o no esta configurada,
+    # se contesta igual con la clase y el conocimiento del modelo: quedar
+    # sin respuesta por no haber internet seria peor que la respuesta.
+    hallado, fuentes = "", []
+    if buscar:
+        buscador = WebSearchClient(get_settings().tavily_api_key)
+        if buscador.is_configured():
+            try:
+                hallado, fuentes = await buscador.search_con_fuentes(duda)
+            except Exception:
+                hallado, fuentes = "", []
+
+    entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:18000]
+    if hallado.strip():
+        entrada += ("\n\n=== INFORMACION DE INTERNET SOBRE LA DUDA ===\n"
+                    "(usala si la clase no cubre la duda; si contradice a la "
+                    "clase, di las dos cosas y señala cual es cual)\n"
+                    + hallado[:6000])
+    entrada += "\n\n=== DUDA DEL ALUMNO ===\n" + duda
+
     respuesta = await _pedir_a_la_ia(registro, [
         ChatMessage(role="system", content=INSTRUCCION_DUDA),
-        ChatMessage(role="user", content=(
-            "=== LO QUE EXPLICASTE EN CLASE ===\n" + clase[:20000] +
-            "\n\n=== DUDA DEL ALUMNO ===\n" + duda.strip()[:1500]
-        )),
+        ChatMessage(role="user", content=entrada),
     ], temperatura=0.3)
 
-    return {"respuesta": respuesta.strip()}
+    return {"respuesta": respuesta.strip(), "fuentes": fuentes}
 
 
 @router.delete("/borrar/{fichero}")
