@@ -217,7 +217,8 @@ async def _leer_escaneado(registro, datos: bytes, nombre: str) -> dict:
 
 
 @router.post("/transcribir")
-async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asignatura"):
+async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asignatura",
+                       propietario: str = ""):
     """
     Recibe un fichero de audio, lo manda a Groq/Whisper, y guarda el texto
     resultante en un fichero de texto con la fecha. Devuelve el texto para
@@ -298,7 +299,7 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
 
     ahora = datetime.now(timezone.utc)
     nombre = f"{ahora.strftime('%Y-%m-%d_%H%M')}_{_sanear(asignatura)}.txt"
-    await clases_store.guardar(nombre, texto)
+    await clases_store.guardar(nombre, texto, propietario)
 
     return {
         "texto": texto,
@@ -310,10 +311,11 @@ async def transcribir(audio: UploadFile = File(...), asignatura: str = "sin_asig
 
 
 @router.get("/listar")
-async def listar():
-    """Las clases ya transcritas, mas recientes primero."""
+async def listar(propietario: str = ""):
+    """Las clases de este aparato, mas recientes primero -y de propina,
+    las que quedaron sin dueño de antes de separar por aparato."""
     return {
-        "clases": await clases_store.listar(),
+        "clases": await clases_store.listar(propietario),
         "guardado_en": await clases_store.donde_se_guarda(),
     }
 
@@ -739,9 +741,10 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
 
 
 @router.delete("/borrar/{fichero}")
-async def borrar(fichero: str):
+async def borrar(fichero: str, propietario: str = ""):
     """
-    Borra una clase concreta, solo la que se pida.
+    Borra una clase concreta, solo la que se pida y solo si es tuya (o si
+    quedo sin dueño de antes de separar por aparato).
 
     Existe porque acumular grabaciones de prueba junto a las de verdad
     acaba haciendo la lista inservible, y no tener forma de limpiar
@@ -749,8 +752,8 @@ async def borrar(fichero: str):
     """
     if "/" in fichero or "\\" in fichero:
         raise HTTPException(404, "No existe esa clase")
-    if not await clases_store.borrar(fichero):
-        raise HTTPException(404, "No existe esa clase")
+    if not await clases_store.borrar(fichero, propietario):
+        raise HTTPException(404, "No existe esa clase, o no es suya")
     return {"borrado": fichero}
 
 

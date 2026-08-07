@@ -229,6 +229,14 @@
     </div>
 
     <div id="estado">Listo.</div>
+
+    <!-- Las grabaciones, guardadas en este dispositivo. -->
+    <div style="margin-top:16px">
+      <label style="font-size:12px;color:#9AA4B2;display:block;margin-bottom:8px">
+        GRABACIONES GUARDADAS EN ESTE DISPOSITIVO
+      </label>
+      <div id="listaAudios"></div>
+    </div>
   </div>
 
   <div class="panel" id="panelTexto">
@@ -304,6 +312,29 @@ function base() {
   return v;
 }
 
+// CADA APARATO, LO SUYO.
+//
+// Sin esto, compartir la app entre varios compañeros mezcla los apuntes
+// de todos en una sola lista y cualquiera puede borrar los de otro. No
+// hay usuarios ni contraseñas -es mas de lo que esto necesita-: cada
+// navegador se pone a si mismo un identificador la primera vez que abre
+// la app, lo recuerda, y ese identificador es lo que separa "lo mio" de
+// "lo de los demas" en el servidor. No es seguridad de verdad -alguien
+// que sepa lo que hace podria copiar el identificador de otro-, es solo
+// para que un grupo de confianza no se pise los apuntes sin querer.
+function idDispositivo() {
+  let id = localStorage.getItem('clases_dispositivo');
+  if (!id) {
+    id = 'd_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('clases_dispositivo', id);
+  }
+  return id;
+}
+
+function conDispositivo(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'propietario=' + encodeURIComponent(idDispositivo());
+}
+
 const estado = document.getElementById('estado');
 const salida = document.getElementById('texto');
 const btnResumir = document.getElementById('btnResumir');
@@ -345,7 +376,7 @@ async function despertarServidor() {
   }, 1200);
 
   try {
-    const r = await fetch(base() + '/clases/listar');
+    const r = await fetch(conDispositivo(base() + '/clases/listar'));
     const d = await r.json();
     servidorDespierto = true;
     pintarLista(d.clases || []);
@@ -429,7 +460,7 @@ function di(msg, color) {
 async function probar() {
   di('⏳ Probando ' + base() + ' …\n(si el servidor estaba dormido tarda hasta un minuto)', '#FACC15');
   try {
-    const r = await fetch(base() + '/clases/listar');
+    const r = await fetch(conDispositivo(base() + '/clases/listar'));
     if (!r.ok) throw new Error('El servidor respondió ' + r.status);
     const d = await r.json();
     di('✅ El servidor contesta.\n' + base() +
@@ -446,22 +477,115 @@ let grabador = null, trozos = [], desde = 0, tic = null;
 
 // LA GRABACION NUNCA SE PIERDE, PASE LO QUE PASE.
 //
-// Antes, al parar de grabar se intentaba subir y transcribir de golpe.
-// Si esa subida fallaba (sin cobertura, servidor dormido, fichero
-// grande), el audio se tiraba sin mas y no quedaba copia en ningun
-// sitio: una clase entera perdida. Y una clase no se puede repetir.
-// Ahora, EN CUANTO se para y ANTES de tocar el servidor, el audio se
-// descarga solo. Si la transcripcion falla, se reintenta las veces que
-// haga falta sin volver a grabar nada.
+// Primera version: al parar de grabar se lanzaba una descarga automatica.
+// En el ordenador vale. EN EL MOVIL NO -que es donde mas falta hace-:
+// instalada como app, esa descarga esta bloqueada, siempre en iOS y a
+// menudo en Android. El aviso decia "guardado" y no habia nada guardado
+// en ningun sitio. Ahora se guarda DENTRO de la app, en la base de datos
+// del propio navegador (IndexedDB), que funciona igual en los dos
+// sistemas. Desde la lista de abajo se puede reproducir, reintentar la
+// transcripcion, sacarla al telefono, o borrarla.
 let ultimoAudioBlob = null, ultimoAudioNombre = '';
 
-function guardarCopiaLocal(blob, nombre) {
+const DB_AUDIOS = 'clases_audios';
+let _dbAudios = null;
+
+function abrirDBAudios() {
+  if (_dbAudios) return Promise.resolve(_dbAudios);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_AUDIOS, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains('audios'))
+        req.result.createObjectStore('audios', { keyPath: 'id' });
+    };
+    req.onsuccess = () => { _dbAudios = req.result; resolve(_dbAudios); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function guardarCopiaLocal(blob, nombre) {
+  try {
+    const db = await abrirDBAudios();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('audios', 'readwrite');
+      tx.objectStore('audios').put({
+        id: 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        nombre, cuando: new Date().toISOString(), bytes: blob.size, blob,
+      });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    verAudios();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function _audiosGuardados() {
+  try {
+    const db = await abrirDBAudios();
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction('audios', 'readonly').objectStore('audios').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+async function sacarAudio(id) {
+  const x = (await _audiosGuardados()).find(f => f.id === id);
+  if (!x) return;
+  const fichero = new File([x.blob], x.nombre, { type: x.blob.type || 'audio/webm' });
+  if (navigator.canShare && navigator.canShare({ files: [fichero] })) {
+    try { await navigator.share({ files: [fichero], title: x.nombre }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = nombre;
+  a.href = URL.createObjectURL(x.blob);
+  a.download = x.nombre;
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+async function reintentarAudio(id) {
+  const x = (await _audiosGuardados()).find(f => f.id === id);
+  if (x) ofrecerRevision(x.blob, x.nombre);
+}
+
+async function borrarAudio(id) {
+  if (!confirm('¿Borrar esta grabación? No se puede deshacer.')) return;
+  const db = await abrirDBAudios();
+  db.transaction('audios', 'readwrite').objectStore('audios').delete(id);
+  verAudios();
+}
+
+async function verAudios() {
+  const caja = document.getElementById('listaAudios');
+  if (!caja) return;
+  const filas = (await _audiosGuardados())
+    .sort((a, b) => (b.cuando || '').localeCompare(a.cuando || ''));
+
+  if (!filas.length) {
+    caja.innerHTML = '<div style="color:#9AA4B2;font-size:13px">' +
+      'Aquí se guardan las grabaciones. No se envían a ningún sitio: se quedan en este dispositivo.</div>';
+    return;
+  }
+  caja.innerHTML = filas.map(x => {
+    const mb = (x.bytes / 1048576).toFixed(1);
+    const cuando = (x.cuando || '').replace('T', ' ').slice(0, 16);
+    return '<div style="background:rgba(255,255,255,.04);border-radius:10px;padding:12px;margin-bottom:8px">' +
+      '<div style="font-size:13px;margin-bottom:6px">🎙️ ' + cuando + ' · ' + mb + ' MB</div>' +
+      '<audio controls preload="none" style="width:100%" src="' + URL.createObjectURL(x.blob) + '"></audio>' +
+      '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="verde" onclick="reintentarAudio(\'' + x.id + '\')">📝 Transcribir</button>' +
+        '<button class="azul" onclick="sacarAudio(\'' + x.id + '\')">📤 Guardar o enviar</button>' +
+        '<button class="gris" onclick="borrarAudio(\'' + x.id + '\')">🗑️</button>' +
+      '</div></div>';
+  }).join('');
 }
 
 function reintentarEnvio() {
@@ -494,11 +618,9 @@ async function alternarGrabacion() {
       ultimoAudioBlob = blob;
       ultimoAudioNombre = nombre;
 
-      // PRIMERO se guarda, PASE LO QUE PASE DESPUES.
-      guardarCopiaLocal(blob, nombre);
-
-      // Y AHORA NO SE MANDA SOLO: se ofrece escucharlo primero.
-      ofrecerRevision(blob, nombre);
+      // PRIMERO se guarda, PASE LO QUE PASE DESPUES. Y solo se dice que
+      // esta guardado si de verdad lo esta.
+      guardarCopiaLocal(blob, nombre).then(ok => ofrecerRevision(blob, nombre, ok));
     };
     grabador.start();
     desde = Date.now();
@@ -521,7 +643,7 @@ function subirFichero(f) { if (f) ofrecerRevision(f, f.name); }
 
 let urlReproductor = null;
 
-function ofrecerRevision(blob, nombre) {
+function ofrecerRevision(blob, nombre, guardado) {
   ultimoAudioBlob = blob;
   ultimoAudioNombre = nombre;
 
@@ -532,12 +654,14 @@ function ofrecerRevision(blob, nombre) {
 
   document.getElementById('revision').hidden = false;
   document.getElementById('btnReintentar').hidden = true;
-  // NO se afirma que este "guardado en Descargas": en el movil, con la
-  // app instalada, esa descarga automatica esta bloqueada y el fichero
-  // no aparece por ningun lado. Se dice lo que es verdad, y se ofrece el
-  // boton de guardar, que si funciona.
-  di('🎧 Grabación lista. Escúchela y, si está bien, pulse «transcribir». ' +
-     'Si quiere conservarla, use «Guardar el audio».', '#FACC15');
+
+  if (guardado === false) {
+    di('⚠️ No se ha podido guardar la grabación en este dispositivo. Escúchela y, ' +
+       'si está bien, transcríbala AHORA: si cierra la página se perderá.', '#F87171');
+  } else {
+    di('🎧 Grabación guardada en este dispositivo. Escúchela y, si está bien, pulse «transcribir».',
+       '#FACC15');
+  }
 }
 
 function transcribirRevisado() {
@@ -630,8 +754,8 @@ async function enviar(blob, nombre) {
   fd.append('audio', blob, nombre);
   try {
     const d = await subirConProgreso(
-      base() + '/clases/transcribir?asignatura=' +
-        encodeURIComponent(document.getElementById('asignatura').value || 'sin_asignatura'),
+      conDispositivo(base() + '/clases/transcribir?asignatura=' +
+        encodeURIComponent(document.getElementById('asignatura').value || 'sin_asignatura')),
       fd,
       (pct, subido, total) => {
         di(pct < 100
@@ -876,7 +1000,7 @@ async function cargarLista(avisar) {
   // la lista se repinta igual que estaba y no se ve ningun cambio.
   if (avisar) di('⏳ Consultando la lista…', '#FACC15');
   try {
-    const r = await fetch(base() + '/clases/listar');
+    const r = await fetch(conDispositivo(base() + '/clases/listar'));
     if (!r.ok) throw new Error('el servidor respondió ' + r.status);
     const d = await r.json();
     pintarLista(d.clases);
@@ -960,9 +1084,11 @@ function pintarLista(clases) {
       x.style.cssText = 'width:52px;flex:0 0 auto';
       x.onclick = async (ev) => {
         ev.stopPropagation();
-        if (!confirm('¿Borrar «' + info.nombre + '» de ' + base.replace(/_/g, ' ') + '?\n\nEsto no se puede deshacer.')) return;
+        if (!confirm('¿Borrar «' + info.nombre + '» de ' + claseBase.replace(/_/g, ' ') + '?\n\nEsto no se puede deshacer.')) return;
         try {
-          const r = await fetch(base() + '/clases/borrar/' + encodeURIComponent(n), { method: 'DELETE' });
+          const r = await fetch(
+            conDispositivo(base() + '/clases/borrar/' + encodeURIComponent(n)),
+            { method: 'DELETE' });
           if (!r.ok) throw new Error('el servidor respondió ' + r.status);
           di('🗑️ Borrado.', '#9AA4B2');
           cargarLista();
@@ -1131,6 +1257,7 @@ if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
 }
 
 despertarServidor();
+verAudios();
 </script>
 </body>
 </html>
