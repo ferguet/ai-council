@@ -93,6 +93,16 @@
   <div class="panel">
     <div class="et"><span class="paso">2</span> Dictado</div>
     <div id="crono"></div>
+
+    <!-- ¿Se esta oyendo? Saberlo mientras se dicta, no al acabar. -->
+    <div id="medidor" hidden style="margin:10px 0 4px">
+      <div style="background:#161C29;border-radius:6px;height:10px;overflow:hidden">
+        <div id="medidorBarra" style="height:100%;width:0%;background:#4ADE80;
+             transition:width .12s linear,background .3s"></div>
+      </div>
+      <div id="medidorTexto" style="font-size:13px;margin-top:6px">Midiendo…</div>
+    </div>
+
     <button class="verde" id="btnGrabar" onclick="alternar()">🎙️ Empezar a dictar</button>
     <button class="azul" onclick="document.getElementById('audio').click()">📂 Subir un audio</button>
     <input type="file" id="audio" accept="audio/*" style="display:none" onchange="subir(this.files[0])">
@@ -445,6 +455,10 @@ async function alternar() {
     grabador.onstop = () => {
       clearInterval(tic);
       document.getElementById('crono').textContent = '';
+      // El veredicto se saca ANTES de parar el medidor: pararlo borra
+      // las cuentas.
+      const aviso = veredictoNivel();
+      pararMedidor();
       flujo.getTracks().forEach(t => t.stop());
       btn.textContent = '🎙️ Empezar a dictar';
       btn.className = 'verde';
@@ -458,10 +472,11 @@ async function alternar() {
       // esta guardado si de verdad lo esta: antes se afirmaba sin
       // comprobarlo y en el movil no era cierto.
       guardarCopiaLocal(blob, nombre).then(ok => {
-        ofrecerRevision(blob, nombre, ok);
+        ofrecerRevision(blob, nombre, ok, aviso);
       });
     };
     grabador.start();
+    arrancarMedidor(flujo);
     desde = Date.now();
     tic = setInterval(() => {
       const s = Math.floor((Date.now() - desde) / 1000);
@@ -472,8 +487,100 @@ async function alternar() {
     btn.className = 'rojo';
     di('estadoDictado', '🔴 Dictando…', '#F87171');
   } catch (e) {
+    pararMedidor();
     di('estadoDictado', '❌ No se pudo usar el micrófono: ' + e.message, '#F87171');
   }
+}
+
+// =====================================================================
+// ¿SE ESTA OYENDO LO SUFICIENTE? SABERLO DURANTE, NO DESPUES
+// =====================================================================
+//
+// Un dictado que no se entiende obliga a repetirlo entero, y muchas
+// veces se dicta justo cuando no hay tiempo para repetir nada. Se mide
+// el volumen real del microfono (RMS) mientras se graba, para poder
+// acercarselo a la boca en el segundo dos en vez de descubrirlo al
+// final.
+let _audioCtx = null, _analizador = null, _medidorTic = null;
+let _muestras = 0, _muestrasFlojas = 0;
+
+const _NIVEL_FLOJO = 0.010;
+const _NIVEL_BUENO = 0.030;
+
+function arrancarMedidor(flujo) {
+  const caja = document.getElementById('medidor');
+  if (!caja) return;
+  try {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const fuente = _audioCtx.createMediaStreamSource(flujo);
+    _analizador = _audioCtx.createAnalyser();
+    _analizador.fftSize = 1024;
+    fuente.connect(_analizador);
+  } catch (e) {
+    caja.hidden = true;   // sin medidor, pero se graba igual
+    return;
+  }
+
+  _muestras = _muestrasFlojas = 0;
+  caja.hidden = false;
+  const datos = new Uint8Array(_analizador.fftSize);
+  const barra = document.getElementById('medidorBarra');
+  const texto = document.getElementById('medidorTexto');
+
+  _medidorTic = setInterval(() => {
+    _analizador.getByteTimeDomainData(datos);
+    let suma = 0;
+    for (let i = 0; i < datos.length; i++) {
+      const v = (datos[i] - 128) / 128;
+      suma += v * v;
+    }
+    const rms = Math.sqrt(suma / datos.length);
+
+    _muestras++;
+    if (rms < _NIVEL_FLOJO) _muestrasFlojas++;
+
+    // Escala logaritmica, como el oido: en lineal toda la voz normal se
+    // amontonaria en el primer 10% de la barra.
+    const pct = Math.min(100, Math.max(0, (Math.log10(rms + 1e-6) + 3) * 45));
+    barra.style.width = pct.toFixed(0) + '%';
+
+    if (rms >= _NIVEL_BUENO) {
+      barra.style.background = '#4ADE80';
+      texto.textContent = '✅ Se oye bien';
+      texto.style.color = '#4ADE80';
+    } else if (rms >= _NIVEL_FLOJO) {
+      barra.style.background = '#FACC15';
+      texto.textContent = '⚠️ Justo — acérquese el micrófono';
+      texto.style.color = '#FACC15';
+    } else {
+      barra.style.background = '#F87171';
+      texto.textContent = '🔴 Demasiado flojo — así no se entenderá';
+      texto.style.color = '#F87171';
+    }
+  }, 150);
+}
+
+function pararMedidor() {
+  clearInterval(_medidorTic);
+  _medidorTic = null;
+  if (_audioCtx) { try { _audioCtx.close(); } catch (e) { } _audioCtx = null; }
+  _analizador = null;
+  const caja = document.getElementById('medidor');
+  if (caja) caja.hidden = true;
+}
+
+// Solo se avisa cuando hay algo que avisar: null si el nivel estuvo bien.
+function veredictoNivel() {
+  if (_muestras < 20) return null;         // demasiado corto para juzgar
+  const flojas = _muestrasFlojas / _muestras;
+  if (flojas > 0.75) {
+    return '🔴 Durante casi todo el dictado el sonido ha sido muy flojo. ' +
+           'Es probable que no se transcriba bien. Escúchelo antes de seguir.';
+  }
+  if (flojas > 0.40) {
+    return '⚠️ Buena parte del dictado ha sonado flojo. Puede que haya trozos que no se entiendan.';
+  }
+  return null;
 }
 
 // Un audio subido a mano tambien se ofrece escuchar antes: puede venir
@@ -482,7 +589,7 @@ function subir(f) { if (f) ofrecerRevision(f, f.name); }
 
 let urlReproductor = null;
 
-function ofrecerRevision(blob, nombre, guardado) {
+function ofrecerRevision(blob, nombre, guardado, avisoNivel) {
   ultimoAudioBlob = blob;
   ultimoAudioNombre = nombre;
 
@@ -494,16 +601,19 @@ function ofrecerRevision(blob, nombre, guardado) {
   document.getElementById('revision').hidden = false;
   document.getElementById('btnReintentar').hidden = true;
 
+  // El aviso de que se ha oido mal va PRIMERO y en rojo: es lo que
+  // decide si merece la pena seguir o repetir el dictado.
+  let msg = '', color = '#FACC15';
+  if (avisoNivel) { msg = avisoNivel + '\n'; color = '#F87171'; }
+
   if (guardado === false) {
-    di('estadoDictado',
-       '⚠️ No se ha podido guardar la grabación en el teléfono. Escúchela y, ' +
-       'si está bien, transcríbala AHORA: si cierra la app se perderá.',
-       '#F87171');
+    msg += '⚠️ No se ha podido guardar la grabación en el teléfono. Escúchela y, ' +
+           'si está bien, transcríbala AHORA: si cierra la app se perderá.';
+    color = '#F87171';
   } else {
-    di('estadoDictado',
-       '💾 Grabación guardada en este teléfono. Escúchela y, si está bien, pulse «transcribir».',
-       '#FACC15');
+    msg += '💾 Grabación guardada en este teléfono. Escúchela y, si está bien, pulse «transcribir».';
   }
+  di('estadoDictado', msg, color);
 }
 
 function transcribirRevisado() {

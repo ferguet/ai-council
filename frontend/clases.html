@@ -214,6 +214,22 @@
     <div class="et">Nueva clase</div>
     <input type="text" id="asignatura" placeholder="Asignatura (opcional)">
     <div id="crono"></div>
+
+    <!--
+      ¿SE ESTA OYENDO? SABERLO DURANTE, NO DESPUES.
+
+      Grabar dos horas y descubrir en casa que no se entiende nada es el
+      peor fallo posible: esa clase no se repite. Con esto se ve al
+      momento si hay que acercarse mas al profesor.
+    -->
+    <div id="medidor" hidden style="margin:10px 0 4px">
+      <div style="background:rgba(255,255,255,.08);border-radius:6px;height:10px;overflow:hidden">
+        <div id="medidorBarra" style="height:100%;width:0%;background:#4ADE80;
+             transition:width .12s linear,background .3s"></div>
+      </div>
+      <div id="medidorTexto" style="font-size:13px;margin-top:6px">Midiendo…</div>
+    </div>
+
     <button class="verde" id="btnGrabar" onclick="alternarGrabacion()">🎙️ Empezar a grabar</button>
     <button class="azul" onclick="document.getElementById('fichero').click()">📂 Subir un audio</button>
     <input type="file" id="fichero" accept="audio/*" style="display:none" onchange="subirFichero(this.files[0])">
@@ -680,6 +696,114 @@ function reintentarEnvio() {
   enviar(ultimoAudioBlob, ultimoAudioNombre);
 }
 
+// =====================================================================
+// ¿SE ESTA OYENDO LO SUFICIENTE? SABERLO DURANTE, NO DESPUES
+// =====================================================================
+//
+// El peor fallo posible de esta app no es que se caiga: es grabar dos
+// horas de clase, llegar a casa, y descubrir que el movil estaba
+// demasiado lejos y no se entiende nada. Esa clase no se repite.
+//
+// Whisper necesita voz audible. Con el microfono a diez filas del
+// profesor lo que llega es ruido de fondo con algo de voz debajo, y de
+// ahi salen transcripciones inventadas -el mismo "gracias por ver el
+// video" que perseguimos antes-.
+//
+// Asi que se mide EN VIVO, mientras se graba. No es un adorno: es la
+// diferencia entre cambiarse de sitio en el minuto dos, o perder la
+// clase entera. Se mide el volumen real del microfono (RMS), que es lo
+// que se corresponde con lo alto que suena algo, no el pico suelto de un
+// golpe en la mesa.
+let _audioCtx = null, _analizador = null, _medidorTic = null;
+let _muestras = 0, _muestrasFlojas = 0;
+
+// Umbrales sobre el RMS (0 a 1). Salen de probar hablando cerca y lejos
+// del microfono: por debajo de 0.010 es practicamente silencio con
+// ruido, y a partir de 0.030 la voz esta claramente por encima del
+// fondo.
+const _NIVEL_FLOJO = 0.010;
+const _NIVEL_BUENO = 0.030;
+
+function arrancarMedidor(flujo) {
+  const caja = document.getElementById('medidor');
+  if (!caja) return;
+  try {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const fuente = _audioCtx.createMediaStreamSource(flujo);
+    _analizador = _audioCtx.createAnalyser();
+    _analizador.fftSize = 1024;
+    fuente.connect(_analizador);
+  } catch (e) {
+    // Si el navegador no deja analizar, se graba igual: mejor sin
+    // medidor que sin grabacion.
+    caja.hidden = true;
+    return;
+  }
+
+  _muestras = _muestrasFlojas = 0;
+  caja.hidden = false;
+  const datos = new Uint8Array(_analizador.fftSize);
+  const barra = document.getElementById('medidorBarra');
+  const texto = document.getElementById('medidorTexto');
+
+  _medidorTic = setInterval(() => {
+    _analizador.getByteTimeDomainData(datos);
+    // RMS: la media cuadratica de lo que se separa del centro (128).
+    let suma = 0;
+    for (let i = 0; i < datos.length; i++) {
+      const v = (datos[i] - 128) / 128;
+      suma += v * v;
+    }
+    const rms = Math.sqrt(suma / datos.length);
+
+    _muestras++;
+    if (rms < _NIVEL_FLOJO) _muestrasFlojas++;
+
+    // La escala es logaritmica porque el oido lo es: si fuera lineal,
+    // toda la voz normal se amontonaria en el primer 10% de la barra.
+    const pct = Math.min(100, Math.max(0, (Math.log10(rms + 1e-6) + 3) * 45));
+    barra.style.width = pct.toFixed(0) + '%';
+
+    if (rms >= _NIVEL_BUENO) {
+      barra.style.background = '#4ADE80';
+      texto.textContent = '✅ Se oye bien';
+      texto.style.color = '#4ADE80';
+    } else if (rms >= _NIVEL_FLOJO) {
+      barra.style.background = '#FACC15';
+      texto.textContent = '⚠️ Justo — acérquese al profesor si puede';
+      texto.style.color = '#FACC15';
+    } else {
+      barra.style.background = '#F87171';
+      texto.textContent = '🔴 Demasiado flojo — así no se entenderá';
+      texto.style.color = '#F87171';
+    }
+  }, 150);
+}
+
+function pararMedidor() {
+  clearInterval(_medidorTic);
+  _medidorTic = null;
+  if (_audioCtx) { try { _audioCtx.close(); } catch (e) { } _audioCtx = null; }
+  _analizador = null;
+  const caja = document.getElementById('medidor');
+  if (caja) caja.hidden = true;
+}
+
+// Veredicto de la grabacion entera, para decirlo al acabar. Devuelve
+// null si estuvo bien: solo se avisa cuando hay algo que avisar.
+function veredictoNivel() {
+  if (_muestras < 20) return null;         // demasiado corta para juzgar
+  const flojas = _muestrasFlojas / _muestras;
+  if (flojas > 0.75) {
+    return '🔴 Durante casi toda la grabación el sonido ha sido muy flojo. ' +
+           'Es probable que la transcripción no salga bien. Escúchela antes de gastar tiempo en ella.';
+  }
+  if (flojas > 0.40) {
+    return '⚠️ Buena parte de la grabación ha sonado floja. Puede que haya trozos que no se entiendan.';
+  }
+  return null;
+}
+
 async function alternarGrabacion() {
   const btn = document.getElementById('btnGrabar');
   if (grabador && grabador.state === 'recording') {
@@ -694,6 +818,10 @@ async function alternarGrabacion() {
     grabador.onstop = () => {
       clearInterval(tic);
       document.getElementById('crono').textContent = '';
+      // El veredicto se saca ANTES de parar el medidor: pararlo borra
+      // las cuentas.
+      const aviso = veredictoNivel();
+      pararMedidor();
       flujo.getTracks().forEach(t => t.stop());
       btn.textContent = '🎙️ Empezar a grabar';
       btn.className = 'verde';
@@ -707,9 +835,10 @@ async function alternarGrabacion() {
 
       // PRIMERO se guarda, PASE LO QUE PASE DESPUES. Y solo se dice que
       // esta guardado si de verdad lo esta.
-      guardarCopiaLocal(blob, nombre).then(ok => ofrecerRevision(blob, nombre, ok));
+      guardarCopiaLocal(blob, nombre).then(ok => ofrecerRevision(blob, nombre, ok, aviso));
     };
     grabador.start();
+    arrancarMedidor(flujo);
     desde = Date.now();
     tic = setInterval(() => {
       const s = Math.floor((Date.now() - desde) / 1000);
@@ -720,6 +849,7 @@ async function alternarGrabacion() {
     btn.className = 'rojo';
     di('🔴 Grabando…', '#F87171');
   } catch (e) {
+    pararMedidor();
     di('❌ No se ha podido usar el micrófono. Compruebe que le ha dado permiso al navegador.', '#F87171');
   }
 }
@@ -730,7 +860,7 @@ function subirFichero(f) { if (f) ofrecerRevision(f, f.name); }
 
 let urlReproductor = null;
 
-function ofrecerRevision(blob, nombre, guardado) {
+function ofrecerRevision(blob, nombre, guardado, avisoNivel) {
   ultimoAudioBlob = blob;
   ultimoAudioNombre = nombre;
 
@@ -742,13 +872,19 @@ function ofrecerRevision(blob, nombre, guardado) {
   document.getElementById('revision').hidden = false;
   document.getElementById('btnReintentar').hidden = true;
 
+  // El aviso de que se ha oido mal va PRIMERO y en rojo: es lo que
+  // decide si merece la pena seguir o repetir.
+  let msg = '', color = '#FACC15';
+  if (avisoNivel) { msg = avisoNivel + '\n'; color = '#F87171'; }
+
   if (guardado === false) {
-    di('⚠️ No se ha podido guardar la grabación en este dispositivo. Escúchela y, ' +
-       'si está bien, transcríbala AHORA: si cierra la página se perderá.', '#F87171');
+    msg += '⚠️ No se ha podido guardar la grabación en este dispositivo. Escúchela y, ' +
+           'si está bien, transcríbala AHORA: si cierra la página se perderá.';
+    color = '#F87171';
   } else {
-    di('🎧 Grabación guardada en este dispositivo. Escúchela y, si está bien, pulse «transcribir».',
-       '#FACC15');
+    msg += '🎧 Grabación guardada en este dispositivo. Escúchela y, si está bien, pulse «transcribir».';
   }
+  di(msg, color);
 }
 
 function transcribirRevisado() {
