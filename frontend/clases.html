@@ -260,6 +260,19 @@
     <button class="verde" id="btnExamen" onclick="preguntas(null)" disabled>❓ Proponer preguntas de examen</button>
     <button class="gris" id="btnExamenPdf" onclick="document.getElementById('pdfex').click()" disabled>📎 …usando exámenes que yo suba</button>
     <input type="file" id="pdfex" accept="application/pdf" style="display:none" onchange="preguntas(this.files[0])">
+    <button class="verde" id="btnImportancia" onclick="verImportancia(null)" disabled>🚦 Qué es importante</button>
+    <button class="gris" id="btnImportanciaPdf" onclick="document.getElementById('pdfimp').click()" disabled>📎 …usando exámenes que yo suba</button>
+    <input type="file" id="pdfimp" accept="application/pdf" style="display:none" onchange="verImportancia(this.files[0])">
+    <!--
+      SOLO VISUAL, A PROPOSITO.
+
+      Se pidio explicitamente sin explicaciones: un vistazo, no una
+      lectura. Por eso no usa mostrarTexto ni se guarda como fichero de
+      la lista -es una vista de repaso rapido sobre la clase abierta, se
+      puede volver a pedir cuando haga falta, no un documento que
+      archivar-.
+    -->
+    <div id="listaImportancia" style="margin-top:10px"></div>
     <button class="morado" id="btnPodcast" onclick="hacerPodcast()" disabled>🎧 Convertir en pódcast</button>
     <button class="verde" id="btnAudio" onclick="bajarAudio()" hidden>⬇️ Descargar el audio (mp3)</button>
     <div id="estado2" style="margin-top:12px;font-size:14px;white-space:pre-line;color:#9AA4B2"></div>
@@ -439,9 +452,13 @@ function alternarAjustes() {
 // Se escapa el HTML ANTES de convertir nada: el texto viene de un
 // modelo de IA y de una transcripcion, y meter eso en innerHTML sin
 // escapar es abrir la puerta a que un "<" cualquiera rompa la pagina.
-function mostrarTexto(t) {
-  const escapado = String(t == null ? '' : t)
+function escaparHtml(t) {
+  return String(t == null ? '' : t)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function mostrarTexto(t) {
+  const escapado = escaparHtml(t);
   salida.innerHTML = escapado
     .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
     .replace(/(^|\n)\s*##+\s*(.+)/g, '$1<b>$2</b>');
@@ -939,6 +956,76 @@ async function preguntas(f) {
   }
 }
 
+// =====================================================================
+// QUE CONCEPTOS INSISTE MAS EL PROFESOR, DE UN VISTAZO
+// =====================================================================
+//
+// Rojo: el profesor vuelve sobre el varias veces, o ha caido en examenes
+// anteriores. Amarillo: se explica pero de pasada, una sola vez. Verde:
+// mencion breve, de contexto. Es una ayuda de repaso, NO una prediccion
+// del examen -y eso se dice en pantalla, no solo se sobreentiende-.
+const _COLOR_IMPORTANCIA = {
+  rojo:     { fondo: '#7F1D1D', borde: '#F87171', punto: '#F87171' },
+  amarillo: { fondo: '#78350F', borde: '#FACC15', punto: '#FACC15' },
+  verde:    { fondo: '#14532D', borde: '#4ADE80', punto: '#4ADE80' },
+};
+
+async function verImportancia(f) {
+  const cual = baseSeleccionada || ficheroVisible;
+  if (!cual) { di('Abra primero una clase de la lista.', '#F87171'); return; }
+  const b1 = document.getElementById('btnImportancia'), b2 = document.getElementById('btnImportanciaPdf');
+  b1.disabled = b2.disabled = true;
+  const textoOriginal = f ? b2.textContent : b1.textContent;
+  (f ? b2 : b1).textContent = '⏳ Trabajando…';
+  let punto = 0;
+  const late = setInterval(() => {
+    punto = (punto + 1) % 4;
+    (f ? b2 : b1).textContent = '⏳ Trabajando' + '.'.repeat(punto);
+  }, 600);
+  di(f ? '⏳ Leyendo sus exámenes y valorando qué insiste más el profesor…'
+       : '⏳ Buscando exámenes del MIR sobre estos temas y valorando la clase…\nPuede tardar un minuto.',
+     '#FACC15');
+  try {
+    const fd = new FormData();
+    if (f) fd.append('pdf', f, f.name);
+    fd.append('_', '1');   // un formulario vacio no es un cuerpo valido
+    const r = await fetch(base() + '/clases/importancia/' + encodeURIComponent(cual),
+                          { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('error ' + r.status));
+    pintarImportancia(d.conceptos || [], d.origen);
+    let msg = (d.conceptos && d.conceptos.length)
+      ? '✅ Lista lista. Es una ayuda de repaso, no una predicción del examen.'
+      : '⚠️ No se ha podido generar la lista esta vez. Puede reintentarlo.';
+    if (d.diario && d.diario.length) msg += '\n' + d.diario.join('\n');
+    di(msg, (d.conceptos && d.conceptos.length) ? '#4ADE80' : '#FACC15');
+  } catch (e) {
+    di('❌ ' + enCristiano(e.message), '#F87171');
+  } finally {
+    clearInterval(late);
+    (f ? b2 : b1).textContent = textoOriginal;
+    b1.disabled = b2.disabled = false;
+    document.getElementById('pdfimp').value = '';
+  }
+}
+
+function pintarImportancia(conceptos, origen) {
+  const caja = document.getElementById('listaImportancia');
+  if (!conceptos.length) { caja.innerHTML = ''; return; }
+  const filas = conceptos.map(c => {
+    const col = _COLOR_IMPORTANCIA[c.color] || _COLOR_IMPORTANCIA.verde;
+    return '<div style="display:flex;align-items:center;gap:10px;background:' + col.fondo +
+      ';border-left:4px solid ' + col.borde + ';border-radius:8px;padding:8px 12px;margin-bottom:6px">' +
+      '<span style="width:10px;height:10px;border-radius:50%;background:' + col.punto +
+      ';flex:0 0 auto"></span><span style="font-size:14px">' + escaparHtml(c.concepto) + '</span></div>';
+  }).join('');
+  caja.innerHTML =
+    '<div style="font-size:12px;color:#9AA4B2;margin:6px 0 10px">' +
+    '🚦 Ayuda de repaso visual, no una predicción del examen' +
+    (origen && origen !== 'solo la clase' ? ' — con apoyo de ' + escaparHtml(origen) : '') +
+    '</div>' + filas;
+}
+
 // Fecha legible a partir del nombre "2026-08-01_1637_Oftalmologia.txt"
 function describir(n) {
   const info = queEs(n);
@@ -1141,6 +1228,14 @@ function seleccionar(n) {
   if (be) be.disabled = false;
   const bep = document.getElementById('btnExamenPdf');
   if (bep) bep.disabled = false;
+  const bi = document.getElementById('btnImportancia');
+  if (bi) bi.disabled = false;
+  const bip = document.getElementById('btnImportanciaPdf');
+  if (bip) bip.disabled = false;
+  // Cambiar de clase deja atras la lista de la clase anterior: verla
+  // puesta encima de una clase distinta a la que se genero seria confuso.
+  const li = document.getElementById('listaImportancia');
+  if (li) li.innerHTML = '';
 }
 
 // =====================================================================

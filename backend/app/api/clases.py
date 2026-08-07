@@ -18,6 +18,8 @@ guardar nada, y no esta implementado aqui.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -564,10 +566,13 @@ INSTRUCCION_EXAMEN = (
 )
 
 
-@router.post("/examen/{fichero}")
-async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool = True):
+async def _reunir_material_examenes(
+    registro: ProviderRegistry, clase: str,
+    pdf: UploadFile | None, buscar: bool,
+) -> tuple[str, str, list[dict], list[str]]:
     """
-    Propone preguntas tipo examen sobre una clase.
+    Consigue preguntas de examenes anteriores para dar de contexto real,
+    en vez de dejar que la IA se las invente.
 
     DOS VIAS, PORQUE LA REALIDAD ES ASI.
 
@@ -576,18 +581,16 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
     pero los de una asignatura concreta a menudo no estan en ningun sitio.
 
     Si se sube un PDF, se usa. Si no, se busca en internet lo que haya
-    sobre esos temas. Y si tampoco hay nada, se generan preguntas solo con
-    la clase -que sigue siendo util para repasar- diciendo claramente que
-    van sin respaldo de examenes reales. Lo que no se hace nunca es
-    fingir que hay una fuente que no existe.
-    """
-    if "/" in fichero or "\\" in fichero:
-        raise HTTPException(404, "No existe esa clase")
-    clase = await clases_store.leer(fichero)
-    if clase is None:
-        raise HTTPException(404, "No existe esa clase")
+    sobre esos temas. Y si tampoco hay nada, se sigue adelante solo con la
+    clase -que sigue siendo util-, diciendolo claramente. Lo que no se
+    hace nunca es fingir que hay una fuente que no existe.
 
-    registro = ProviderRegistry(get_settings())
+    Compartida entre /examen y /importancia: las dos necesitan exactamente
+    lo mismo, y tenerlo en dos sitios es tenerlo desincronizado tarde o
+    temprano.
+
+    Devuelve (material_examenes, origen, fuentes, diario).
+    """
     material_examenes = ""
     origen = "solo la clase"
     fuentes: list[dict] = []
@@ -670,6 +673,25 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
             except Exception as e:
                 diario.append(f"La búsqueda en internet falló: {e}")
 
+    return material_examenes, origen, fuentes, diario
+
+
+@router.post("/examen/{fichero}")
+async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool = True):
+    """
+    Propone preguntas tipo examen sobre una clase. Ver
+    `_reunir_material_examenes` para de donde sale el material de apoyo.
+    """
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    clase = await clases_store.leer(fichero)
+    if clase is None:
+        raise HTTPException(404, "No existe esa clase")
+
+    registro = ProviderRegistry(get_settings())
+    material_examenes, origen, fuentes, diario = await _reunir_material_examenes(
+        registro, clase, pdf, buscar)
+
     # PRESUPUESTO DE CARACTERES, PARA NO REPETIR EL 413 DE SIEMPRE.
     #
     # Meter la clase entera (hasta 25.000 caracteres) Y el examen entero
@@ -737,6 +759,141 @@ async def examen(fichero: str, pdf: UploadFile | None = File(None), buscar: bool
     return {
         "preguntas": preguntas, "cabecera": cabecera, "fichero": nombre,
         "origen": origen, "fuentes": fuentes, "diario": diario,
+    }
+
+
+# =====================================================================
+# QUE CONCEPTOS INSISTE MAS EL PROFESOR, DE UN VISTAZO
+# =====================================================================
+#
+# La idea original pedia interpretar entonacion, pausas, "puntualizacion"
+# al hablar. Eso queda fuera A PROPOSITO: para eso hace falta analizar el
+# AUDIO (volumen, ritmo, tono), no el texto transcrito, y aun teniendolo
+# la relacion entre "el profesor sube la voz" y "esto cae en el examen"
+# es debil -se puede subir la voz por mil motivos que no tienen nada que
+# ver con la importancia del concepto-. Meterlo habria sido prometer una
+# fiabilidad que no existe.
+#
+# Lo que SI se sostiene, y es lo que se usa aqui:
+#   - Que el profesor vuelva sobre un concepto varias veces en vez de
+#     nombrarlo una sola vez de pasada, SI se ve en el texto.
+#   - Que el concepto aparezca en examenes anteriores reales, SI se puede
+#     comprobar -reutilizando exactamente la misma busqueda que ya usa
+#     "Posibles preguntas".
+#
+# Con esas dos señales, cada concepto se colorea rojo (insistencia clara
+# o ya ha caido antes), amarillo (se explica pero de pasada una vez) o
+# verde (mencion breve, de contexto). Es una lista visual para repasar
+# rapido, no una prediccion del examen -y eso se dice tambien en pantalla.
+
+INSTRUCCION_IMPORTANCIA = (
+    "Eres un profesor de medicina ayudando a un alumno a priorizar que "
+    "repasar de una clase de cara a un examen tipo MIR.\n\n"
+
+    "Tienes la clase transcrita y, si se te da, preguntas reales de "
+    "examenes anteriores sobre estos temas.\n\n"
+
+    "TAREA: identifica los conceptos concretos que trata la clase "
+    "-enfermedades, sindromes, farmacos, criterios diagnosticos, valores "
+    "de referencia...- y da a cada uno un color:\n\n"
+    "- rojo: el profesor vuelve sobre el varias veces a lo largo de la "
+    "clase, insiste o lo repite con distintas palabras, O aparece en las "
+    "preguntas de examenes anteriores que se te han dado.\n"
+    "- amarillo: se explica con algo de detalle pero se menciona una "
+    "sola vez, sin que el profesor vuelva sobre ello.\n"
+    "- verde: se nombra de pasada, como parte de una enumeracion o de "
+    "contexto, sin detenerse.\n\n"
+
+    "REGLAS:\n"
+    "- Solo conceptos que aparezcan de verdad en la clase. No inventes "
+    "ninguno ni completes con lo que 'suele' explicarse en ese tema.\n"
+    "- Nombres cortos, de 2 a 6 palabras, como para una lista de repaso "
+    "-no una frase ni una explicacion-.\n"
+    "- No repitas el mismo concepto con distintas palabras.\n"
+    "- Entre 8 y 20 conceptos. Si la clase da para menos, pon menos: no "
+    "rellenes por rellenar.\n\n"
+
+    "FORMATO DE RESPUESTA: SOLO un JSON, nada de texto antes ni despues, "
+    "nada de bloque de codigo con ```. Una lista de objetos exactamente "
+    "asi:\n"
+    '[{"concepto": "Sindrome de Wolff-Parkinson-White", "color": "rojo"}, '
+    '{"concepto": "Bloqueo AV de primer grado", "color": "amarillo"}]\n\n'
+    'El campo "color" solo puede valer "rojo", "amarillo" o "verde". '
+    "Nada de explicaciones, nada de motivos, nada de texto fuera del JSON."
+)
+
+
+def _parsear_conceptos(bruto: str) -> list[dict]:
+    """
+    Saca la lista de conceptos de lo que ha respondido la IA.
+
+    Se pide JSON puro, pero conviene no fiarse a ciegas: a veces se cuela
+    un bloque ```json``` alrededor, o una frase de presentacion delante.
+    Se busca el primer '[' y el ultimo ']' del texto en vez de exigir un
+    JSON perfecto -y cualquier objeto que no tenga la forma esperada se
+    descarta en vez de romper toda la lista.
+    """
+    texto = re.sub(r"^```[a-z]*\s*\n?|\n?```\s*$", "", bruto.strip())
+    ini, fin = texto.find("["), texto.rfind("]")
+    if ini == -1 or fin == -1 or fin < ini:
+        return []
+    try:
+        datos = json.loads(texto[ini:fin + 1])
+    except Exception:
+        return []
+    if not isinstance(datos, list):
+        return []
+    validos = []
+    for d in datos:
+        if not isinstance(d, dict):
+            continue
+        concepto = str(d.get("concepto", "")).strip()
+        color = str(d.get("color", "")).strip().lower()
+        if concepto and color in ("rojo", "amarillo", "verde"):
+            validos.append({"concepto": concepto, "color": color})
+    return validos
+
+
+@router.post("/importancia/{fichero}")
+async def importancia(fichero: str, pdf: UploadFile | None = File(None), buscar: bool = True):
+    """
+    Lista visual de conceptos de la clase, coloreados segun lo probable
+    que sea que caigan en examen. Ver el bloque de comentarios de arriba
+    para que se ha dejado fuera a proposito y por que.
+    """
+    if "/" in fichero or "\\" in fichero:
+        raise HTTPException(404, "No existe esa clase")
+    clase = await clases_store.leer(fichero)
+    if clase is None:
+        raise HTTPException(404, "No existe esa clase")
+
+    registro = ProviderRegistry(get_settings())
+    material_examenes, origen, fuentes, diario = await _reunir_material_examenes(
+        registro, clase, pdf, buscar)
+
+    if material_examenes:
+        entrada = ("=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:12000] +
+                   "\n\n=== PREGUNTAS DE EXAMENES ANTERIORES SOBRE ESTOS TEMAS ===\n" +
+                   material_examenes[:8000])
+    else:
+        entrada = "=== LO QUE SE EXPLICO EN CLASE ===\n" + clase[:25000]
+
+    bruto = await _pedir_a_la_ia(registro, [
+        ChatMessage(role="system", content=INSTRUCCION_IMPORTANCIA),
+        ChatMessage(role="user", content=entrada),
+    ], temperatura=0.2)
+
+    conceptos = _parsear_conceptos(bruto)
+    if not conceptos:
+        # Mejor decir "no ha salido bien" que enseñar una lista vacia sin
+        # explicacion, como si la clase no tuviera ningun concepto.
+        diario.append("La IA no ha devuelto una lista con el formato esperado.")
+
+    return {
+        "conceptos": conceptos,
+        "origen": origen,
+        "fuentes": fuentes,
+        "diario": diario,
     }
 
 
