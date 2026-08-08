@@ -36,9 +36,10 @@ import re
 
 from fastapi import APIRouter, Body, HTTPException
 
-from app.api import clinica_base, clinica_motor, clinica_store, clinica_texto
+from app.api import (clinica_base, clinica_motor, clinica_store, clinica_texto,
+                     clinica_valores)
 from app.core.config import get_settings
-from app.providers.base import ProviderError
+from app.providers.base import ChatMessage, ProviderError
 from app.providers.registry import ProviderRegistry
 
 router = APIRouter(prefix="/clinica", tags=["clinica"])
@@ -199,8 +200,8 @@ async def interpretar(cuerpo: dict = Body(...)):
 
     registro = ProviderRegistry(get_settings())
     bruto = await _pedir_a_la_ia(registro, [
-        {"role": "system", "content": _INSTRUCCION_INTERPRETAR},
-        {"role": "user", "content": "CASO:\n" + texto},
+        ChatMessage(role="system", content=_INSTRUCCION_INTERPRETAR),
+        ChatMessage(role="user", content="CASO:\n" + texto),
     ], temperatura=0.1)
 
     vistos: set[str] = set()
@@ -267,8 +268,8 @@ async def imagen(cuerpo: dict = Body(...)):
 
     registro = ProviderRegistry(get_settings())
     texto = await _pedir_a_la_ia(registro, [
-        {"role": "system", "content": _INSTRUCCION_IMAGEN},
-        {"role": "user", "content": "\n\n".join(partes)},
+        ChatMessage(role="system", content=_INSTRUCCION_IMAGEN),
+        ChatMessage(role="user", content="\n\n".join(partes)),
     ], temperatura=0.2)
 
     return {"correccion": (texto or "").strip(), "aviso": AVISO}
@@ -288,6 +289,10 @@ async def catalogo():
         "sistemas": clinica_base.SISTEMAS,
         "pestanas": clinica_base.pestanas(),
         "bloques": clinica_base.bloques(),
+        # La tabla de rangos va entera al navegador: son veinticinco filas y
+        # asi la cifra se interpreta al teclearla, sin ir y volver del
+        # servidor por cada numero.
+        "analitos": clinica_valores.para_pantalla(),
         "patologias": [
             {"id": p["id"], "nombre": p["nombre"], "sistemas": p.get("sistemas", [])}
             for p in clinica_base.PATOLOGIAS
@@ -370,8 +375,8 @@ async def ficha(patologia: str):
 
     registro = ProviderRegistry(get_settings())
     texto = await _pedir_a_la_ia(registro, [
-        {"role": "system", "content": _INSTRUCCION_FICHA},
-        {"role": "user", "content": resumen},
+        ChatMessage(role="system", content=_INSTRUCCION_FICHA),
+        ChatMessage(role="user", content=resumen),
     ], temperatura=0.2)
 
     salida["explicacion"] = (texto or "").strip()
@@ -434,8 +439,8 @@ async def mecanismos(patologia: str):
 
     registro = ProviderRegistry(get_settings())
     bruto = await _pedir_a_la_ia(registro, [
-        {"role": "system", "content": _INSTRUCCION_MECANISMOS},
-        {"role": "user", "content": peticion},
+        ChatMessage(role="system", content=_INSTRUCCION_MECANISMOS),
+        ChatMessage(role="user", content=peticion),
     ], temperatura=0.2)
 
     causas: dict[str, str] = {}

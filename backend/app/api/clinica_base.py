@@ -386,6 +386,9 @@ PESTANAS = [
     ("cultivos", "Cultivos", ["Microbiología"]),
     ("imagen", "Imagen", ["Imagen"]),
     ("especiales", "Pruebas especiales", ["Líquido cefalorraquídeo"]),
+    # No agrupa bloques del catalogo: es la pantalla donde se escribe la
+    # cifra exacta y el codigo dice si esta alta o baja.
+    ("valores", "Valores exactos", []),
 ]
 
 _PESTANA_DE_BLOQUE = {b: clave for clave, _, bs in PESTANAS for b in bs}
@@ -410,9 +413,11 @@ def bloques() -> list[dict]:
 
 def pestanas() -> list[dict]:
     """Las pestañas con lo que lleva cada una, para pintarlas en orden."""
+    from app.api import clinica_valores
     salida = []
     for clave, titulo, bs in PESTANAS:
-        cuantos = sum(1 for h in HALLAZGOS if h["pestana"] == clave)
+        cuantos = (len(clinica_valores.ANALITOS) if clave == "valores"
+                   else sum(1 for h in HALLAZGOS if h["pestana"] == clave))
         salida.append({"clave": clave, "titulo": titulo, "bloques": bs,
                        "cuantos": cuantos})
     return salida

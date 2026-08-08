@@ -192,6 +192,19 @@
   .opcion .mini { margin:0; padding:6px 11px; font-size:12px; border-radius:9px; }
   .opcion.puesto { opacity:.4; }
 
+  /* Fila de valor de laboratorio */
+  .analito { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-top:6px;
+             border-radius:12px; background:rgba(8,13,25,.6); border:1px solid var(--linea); }
+  .analito .nom { flex:1; font-size:15px; }
+  .analito .ref { display:block; font-size:11px; color:var(--suave); margin-top:2px; }
+  .analito input { width:88px; padding:8px 10px; text-align:right; font-size:15px; }
+  .analito .uni { font-size:12px; color:var(--suave); min-width:44px; }
+  .veredicto { font-size:12px; font-weight:700; padding:4px 9px; border-radius:8px;
+               min-width:66px; text-align:center; }
+  .veredicto.alto   { background:rgba(239,68,68,.16); color:#FCA5A5; }
+  .veredicto.bajo   { background:rgba(59,130,246,.16); color:#93C5FD; }
+  .veredicto.normal { background:rgba(34,197,94,.14); color:#86EFAC; }
+
   .vacio { color:var(--suave); font-size:14px; padding:6px 0; }
   .caso { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-top:8px;
           background:rgba(8,13,25,.55); border:1px solid var(--linea); border-radius:12px;
@@ -680,7 +693,7 @@ let pestanaActiva = 'clinica';
 // cultivos o imagen. Una función que no se ve es una función que no está:
 // aquí van los siete accesos directos, cada uno abre el cajón en su sitio.
 const ICONOS = { clinica:'🩺', hemograma:'🩸', coagulacion:'🧪', bioquimica:'⚗️',
-                 cultivos:'🦠', imagen:'🖼️', especiales:'💉' };
+                 cultivos:'🦠', imagen:'🖼️', especiales:'💉', valores:'🔢' };
 
 function pintarAtajos() {
   document.getElementById('atajos').innerHTML = (CATALOGO.pestanas || [])
@@ -708,7 +721,78 @@ function pintarPestanas() {
     .join('');
 }
 
+// =====================================================================
+// VALORES EXACTOS
+// =====================================================================
+// Marcar "anemia" sí o no obliga a haber decidido antes que 10,2 es anemia,
+// y esa es justo la parte que cuesta. Aquí se escribe la cifra del papel y
+// el código dice de qué lado cae, con el rango al lado para aprenderlo.
+// Sin IA: un rango de referencia es una tabla, no una opinión.
+const valores = {};   // clave del analito -> lo que se ha tecleado
+
+function rangoParaSexo(a) {
+  // El servidor manda el rango genérico. Si el analito depende del sexo y
+  // ya se ha dicho cuál es, se estrecha aquí para no dar por normal una
+  // anemia de varón con el rango ancho.
+  const sexo = document.getElementById('sexo').value;
+  if (a.depende_sexo && a.clave === 'hemoglobina') {
+    if (sexo === 'varon') return [13.0, 17.0];
+    if (sexo === 'mujer') return [12.0, 16.0];
+  }
+  return a.rango;
+}
+
+function juzgar(a, v) {
+  const [lo, hi] = rangoParaSexo(a);
+  if (v < lo) return { estado: 'bajo', hallazgo: a.bajo, lo, hi };
+  if (v > hi) return { estado: 'alto', hallazgo: a.alto, lo, hi };
+  return { estado: 'normal', hallazgo: null, lo, hi };
+}
+
+function tocarValor(clave) {
+  const a = (CATALOGO.analitos || []).find(x => x.clave === clave);
+  const campo = document.getElementById('val_' + clave);
+  const v = parseFloat(String(campo.value).replace(',', '.'));
+  valores[clave] = campo.value;
+  const caja = document.getElementById('ver_' + clave);
+  if (!isFinite(v)) { caja.innerHTML = ''; return; }
+  const j = juzgar(a, v);
+  const nombreH = j.hallazgo ? nombreDe(j.hallazgo) : null;
+  const yaEsta = j.hallazgo && datos.some(d => d.id === j.hallazgo);
+  caja.innerHTML = `<span class="veredicto ${j.estado}">${j.estado}</span>` +
+    (nombreH && !yaEsta
+      ? `<button class="cian mini" onclick="meter('${j.hallazgo}','presente');pintarOpciones()">+ ${escapar(nombreH)}</button>`
+      : nombreH ? '<span class="don" style="font-size:11px;color:var(--suave)">ya está</span>' : '');
+}
+
+function pintarValores() {
+  const q = document.getElementById('buscador').value.trim().toLowerCase();
+  const lista = (CATALOGO.analitos || []).filter(a => !q || a.nombre.toLowerCase().includes(q));
+  if (!lista.length) return '<div class="vacio">Nada coincide con esa búsqueda.</div>';
+  let grupo = null;
+  const trozos = ['<div class="vacio">Escribe la cifra tal cual sale en el papel. Los rangos son de adulto y orientativos: cada laboratorio tiene los suyos.</div>'];
+  for (const a of lista) {
+    if (a.grupo !== grupo) { grupo = a.grupo; trozos.push(`<div class="grupo">${escapar(grupo)}</div>`); }
+    const [lo, hi] = rangoParaSexo(a);
+    trozos.push(`
+      <div class="analito">
+        <span class="nom">${escapar(a.nombre)}
+          <span class="ref">normal ${lo} – ${hi} ${escapar(a.unidad)}${a.depende_sexo ? ' · depende del sexo' : ''}</span></span>
+        <input type="text" inputmode="decimal" id="val_${a.clave}"
+               value="${escapar(valores[a.clave] || '')}" oninput="tocarValor('${a.clave}')">
+        <span class="uni">${escapar(a.unidad)}</span>
+        <span id="ver_${a.clave}"></span>
+      </div>`);
+  }
+  return trozos.join('');
+}
+
 function pintarOpciones() {
+  if (pestanaActiva === 'valores') {
+    document.getElementById('listaOpciones').innerHTML = pintarValores();
+    for (const c of Object.keys(valores)) if (document.getElementById('val_' + c)) tocarValor(c);
+    return;
+  }
   const q = document.getElementById('buscador').value.trim().toLowerCase();
   const puestos = new Set(datos.map(d => d.id));
   const trozos = [];
