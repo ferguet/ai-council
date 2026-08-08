@@ -121,8 +121,15 @@ def _evaluar_una(pat: dict, presentes: dict, edad, sexo) -> dict:
     # diagnosticos graves delante de los ojos sin ningun motivo.
     #
     # La regla que lo arregla: la edad y el sexo solo puntuan si la patologia
-    # ya tiene algun apoyo clinico. Ser mayor no es un sintoma.
-    hay_apoyo_clinico = puntos > 0
+    # ya tiene un apoyo clinico REAL. Ser mayor no es un sintoma.
+    #
+    # Al principio bastaba con una coincidencia cualquiera, y con la base
+    # pequeña colaba. Con sesenta patologias ya no: en un caso de proteina
+    # monoclonal aparecian una malaria y una endocarditis empatadas con el
+    # mieloma, cada una apoyada en un solo "anemia" mas el premio de la
+    # edad. Por eso el umbral es 4 y no 1: un unico hallazgo tipico se
+    # queda corto, hacen falta dos coincidencias o una muy fuerte.
+    hay_apoyo_clinico = puntos >= _APOYO_MINIMO_PARA_EDAD
 
     franja = pat.get("edad_tipica")
     if hay_apoyo_clinico and isinstance(edad, (int, float)) and franja:
@@ -271,7 +278,8 @@ def evaluar(datos: list[dict], patologias: list[dict], previas: dict | None = No
 _UMBRAL_EN_JUEGO = 10  # porcentaje
 _DATOS_PARA_CONFIAR = 6  # por debajo de esto, parte del peso queda en reserva
 _FRACCION_CANDIDATA = 0.35  # hay que llegar a este trozo de la mejor para repartir
-_MINIMO_CANDIDATA = 4       # y a esto en absoluto, para no premiar una coincidencia suelta
+_MINIMO_CANDIDATA = 5       # y a esto en absoluto, para no premiar una coincidencia suelta
+_APOYO_MINIMO_PARA_EDAD = 4  # puntos clinicos antes de que la edad y el sexo cuenten
 
 
 def _estado_sistemas(vivas, muertas, patologias, hay_datos: bool) -> list[dict]:
