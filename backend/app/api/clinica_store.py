@@ -72,8 +72,9 @@ def _clave(tipo: str, nombre: str, propietario: str = "") -> str:
     dueño en la clave hace que eso sea imposible por construccion, en vez de
     depender de acordarse de filtrar bien en cada consulta.
     """
-    if tipo == "ficha":
-        return f"ficha:{_sanear(nombre)}"
+    # Fichas y mecanismos son iguales para todo el mundo: no llevan dueño.
+    if tipo in ("ficha", "mecanismos"):
+        return f"{tipo}:{_sanear(nombre)}"
     return f"caso:{_sanear(propietario)}:{_sanear(nombre)}"
 
 

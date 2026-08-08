@@ -137,6 +137,17 @@
          font-size:12px; background:rgba(148,163,184,.12); border:1px solid var(--linea); }
   .tag.tipico { background:rgba(34,197,94,.15); border-color:rgba(34,197,94,.4); }
   .tag.incompatible { background:rgba(239,68,68,.14); border-color:rgba(239,68,68,.4); }
+  .tag.patognomonico { background:rgba(245,158,11,.18); border-color:rgba(245,158,11,.55);
+                       color:#FCD34D; font-weight:600; }
+
+  .porque { margin:12px 0 4px; padding:11px 13px; border-radius:12px;
+            background:rgba(8,13,25,.55); border:1px solid var(--linea); }
+  .porque .qu { font-size:14px; font-weight:600; margin-bottom:3px; }
+  .porque .qu .marca { font-size:11px; font-weight:500; color:var(--suave); margin-left:6px; }
+  .porque .ca { font-size:13.5px; line-height:1.6; color:#C3CDDB; }
+  .porque.falta { border-style:dashed; }
+  .porque.falta .qu { color:var(--suave); }
+  .porque.clave { border-color:rgba(245,158,11,.5); background:rgba(245,158,11,.08); }
 
   /* ---- selector ---- */
   .velo { position:fixed; inset:0; background:rgba(5,8,16,.82); z-index:50;
@@ -574,9 +585,17 @@ async function abrirFicha(id) {
 
   hueco.innerHTML = '<div class="ficha">Preparando la ficha...</div>';
   try {
-    const r = await fetch(base() + '/clinica/ficha/' + encodeURIComponent(id));
+    // Las dos cosas a la vez: la explicación general y el porqué de cada
+    // hallazgo. Una detrás de otra sería el doble de espera para nada.
+    const [r, rm] = await Promise.all([
+      fetch(base() + '/clinica/ficha/' + encodeURIComponent(id)),
+      fetch(base() + '/clinica/mecanismos/' + encodeURIComponent(id))
+    ]);
     if (!r.ok) throw new Error(await detalle(r));
     const f = await r.json();
+    // Si los mecanismos fallan, la ficha se enseña igual: es un extra, no
+    // puede tumbar lo principal.
+    f.causas = rm.ok ? ((await rm.json()).causas || {}) : {};
     fichas[id] = f;
     if (abierta === id) hueco.innerHTML = pintarFicha(f);
   } catch (e) {
@@ -594,10 +613,42 @@ const BONITO = { 'POR QUE DA ESTA CLINICA':'Por qué da esta clínica',
                  'QUE ESPERAMOS DEL TRATAMIENTO':'Qué esperamos del tratamiento',
                  'EFECTOS SECUNDARIOS':'Efectos secundarios' };
 
+// POR QUE ENCAJA CADA DATO DE TU CASO.
+//
+// Llegar al diagnóstico y quedarse ahí enseña la mitad. Lo que sirve en el
+// siguiente caso -que será distinto- es el mecanismo: por qué ESTA
+// enfermedad produce ESTE signo. Y también por qué lo que NO tiene debería
+// estar, que es lo que hace dudar.
+function porqueDeMiCaso(f) {
+  if (!datos.length) return '';
+  const suyos = new Map(f.hallazgos.map(h => [h.id, h]));
+  const filas = [];
+  for (const d of datos) {
+    const h = suyos.get(d.id);
+    if (!h) continue;
+    const causa = (f.causas || {})[d.id];
+    const clave = h.relacion === 'patognomonico';
+    const falta = d.estado === 'ausente';
+    const marca = clave ? '⭐ cierra el diagnóstico'
+                : falta ? 'lo esperable sería que estuviera · ' + h.relacion
+                : h.relacion;
+    filas.push(`
+      <div class="porque ${falta ? 'falta' : ''} ${clave ? 'clave' : ''}">
+        <div class="qu">${falta ? 'NO tiene · ' : ''}${escapar(h.nombre)}
+          <span class="marca">${escapar(marca)}</span></div>
+        <div class="ca">${causa ? escapar(causa) : 'Sin explicación guardada todavía.'}</div>
+      </div>`);
+  }
+  if (!filas.length) return '';
+  return '<h4>Por qué encaja tu caso</h4>' + filas.join('');
+}
+
 function pintarFicha(f) {
-  const tags = f.hallazgos.filter(h => h.relacion === 'tipico' || h.relacion === 'incompatible')
-    .map(h => `<span class="tag ${h.relacion}">${h.relacion === 'incompatible' ? '✗ ' : ''}${escapar(h.nombre)}</span>`)
-    .join('');
+  const destacables = ['patognomonico', 'tipico', 'incompatible'];
+  const tags = f.hallazgos.filter(h => destacables.includes(h.relacion))
+    .map(h => `<span class="tag ${h.relacion}">${
+      h.relacion === 'incompatible' ? '✗ ' : h.relacion === 'patognomonico' ? '⭐ ' : ''
+    }${escapar(h.nombre)}</span>`).join('');
 
   let cuerpo = escapar(f.explicacion || '');
   for (const a of APARTADOS) {
@@ -611,6 +662,7 @@ function pintarFicha(f) {
       <span class="tag">Edad ${edad}</span>
       ${tags}
     </div>
+    ${porqueDeMiCaso(f)}
     ${f.genetica ? '<h4>Genética</h4>' + escapar(f.genetica) : ''}
     ${cuerpo}
   </div>`;

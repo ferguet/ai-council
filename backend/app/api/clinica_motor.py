@@ -50,6 +50,9 @@ la app lo dice en pantalla, no en letra pequeña.
 from __future__ import annotations
 
 PESOS = {
+    # El signo que cierra el diagnostico. Pesa mucho mas que un tipico
+    # porque no dice "encaja": dice "es esto".
+    "patognomonico": 8,
     "tipico": 3,
     "frecuente": 2,
     "posible": 1,
@@ -60,6 +63,13 @@ PESOS = {
 # fuera. Que falte algo tipico pesa; que falte algo meramente posible no
 # dice casi nada -y por eso no resta-.
 PESOS_AUSENCIA = {
+    # QUE FALTE UN PATOGNOMONICO NO RESTA NADA. Y esto no es un descuido.
+    #
+    # Un signo patognomonico es especifico, no sensible: si esta, cierra el
+    # diagnostico; si no esta, no dice absolutamente nada, porque la mayoria
+    # de los enfermos no lo tienen. Restar por su ausencia seria descartar
+    # una meningitis por no ver petequias.
+    "patognomonico": 0,
     "tipico": -3,
     "frecuente": -1,
     "posible": 0,
@@ -67,6 +77,7 @@ PESOS_AUSENCIA = {
 }
 
 ETIQUETAS = {
+    "patognomonico": "patognomónico",
     "tipico": "tipico",
     "frecuente": "frecuente",
     "posible": "posible",

@@ -2204,3 +2204,33 @@ PATOLOGIAS: list[dict] = [
 ]
 
 PATOLOGIAS_POR_ID = {p["id"]: p for p in PATOLOGIAS}
+
+# ---------------------------------------------------------------------------
+# SIGNOS PATOGNOMONICOS
+# ---------------------------------------------------------------------------
+# El hallazgo que, si esta, cierra el diagnostico.
+#
+# ESTA LISTA ES CORTA A PROPOSITO. En medicina los patognomonicos de verdad
+# son rarisimos: casi todo lo que parece exclusivo de una enfermedad aparece
+# tambien en otras tres. Marcar veinte seria comodo y estaria mal, y ademas
+# haria justo el daño que esta app intenta evitar -enseñar un atajo falso a
+# quien todavia esta aprendiendo a razonar-.
+#
+# Van aqui y no dentro de cada ficha porque asi se ven todos juntos y se
+# puede discutir la lista entera de un vistazo, que es como hay que
+# revisarla.
+PATOGNOMONICOS = {
+    "vppb": "dix_hallpike_positivo",
+    "paralisis_supranuclear_progresiva": "oftalmoplejia_supranuclear",
+    "demencia_cuerpos_lewy": "sensibilidad_neurolepticos",
+    "mielofibrosis_primaria": "dacriocitos",
+    "leucemia_mieloide_cronica": "basofilia",
+    "macroglobulinemia_waldenstrom": "hiperviscosidad",
+    "arteritis_celulas_gigantes": "claudicacion_mandibular",
+    "guillain_barre": "lcr_albuminocitologica",
+}
+
+for _pid, _hid in PATOGNOMONICOS.items():
+    _p = PATOLOGIAS_POR_ID.get(_pid)
+    if _p and _hid in _p.get("hallazgos", {}):
+        _p["hallazgos"][_hid] = "patognomonico"

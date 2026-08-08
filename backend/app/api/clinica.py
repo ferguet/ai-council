@@ -337,7 +337,8 @@ async def ficha(patologia: str):
          "relacion": rel}
         for hid, rel in pat.get("hallazgos", {}).items()
     ]
-    orden = {"tipico": 0, "frecuente": 1, "posible": 2, "atipico": 3, "incompatible": 4}
+    orden = {"patognomonico": 0, "tipico": 1, "frecuente": 2, "posible": 3,
+             "atipico": 4, "incompatible": 5}
     hallazgos.sort(key=lambda h: (orden.get(h["relacion"], 9), h["nombre"]))
 
     salida = {
@@ -378,6 +379,79 @@ async def ficha(patologia: str):
     if salida["explicacion"]:
         await clinica_store.guardar("ficha", pat["id"], {"explicacion": salida["explicacion"]})
     return salida
+
+
+_INSTRUCCION_MECANISMOS = (
+    "Eres un profesor de medicina. Te doy una patología y la lista de sus "
+    "hallazgos. Para CADA uno explicas POR QUÉ lo produce esa enfermedad. "
+    "Reglas:\n"
+    "1. Devuelve SOLO un JSON: una lista de objetos "
+    "{\"id\": \"...\", \"causa\": \"...\"}. El id es el que te doy, copiado "
+    "tal cual.\n"
+    "2. La causa es el MECANISMO, en una o dos frases. Qué pasa dentro del "
+    "cuerpo para que aparezca ese signo. No repitas el nombre del hallazgo "
+    "ni digas que es frecuente: eso ya se sabe.\n"
+    "3. Si un hallazgo está marcado como ATÍPICO o INCOMPATIBLE, explica por "
+    "qué NO cabe esperarlo en esta enfermedad y qué sugeriría si apareciera.\n"
+    "4. Si un hallazgo es PATOGNOMÓNICO, explica qué lo hace exclusivo de "
+    "esta enfermedad y no de las que se le parecen.\n"
+    "5. Nada de introducciones ni despedidas. Sin markdown. Español de "
+    "España.\n"
+    "6. Una entrada por cada id que te doy, ni una más ni una menos."
+)
+
+
+@router.get("/mecanismos/{patologia}")
+async def mecanismos(patologia: str):
+    """
+    POR QUE CADA HALLAZGO ENCAJA CON ESTE DIAGNOSTICO.
+
+    Llegar al diagnostico y quedarse ahi enseña la mitad. Lo que se recuerda
+    -y lo que sirve en el siguiente caso, que sera distinto- es el mecanismo:
+    por que ESTA enfermedad produce ESTE signo.
+
+    Se generan TODOS los hallazgos de la patologia de una vez, no solo los
+    del caso abierto, y se guardan. Asi cada patologia cuesta una unica
+    llamada en toda la vida de la app, y el siguiente caso que caiga en el
+    mismo diagnostico ya los tiene escritos. Ademas, al no depender del caso,
+    el texto no cambia de una vez a otra: estudiar con algo que se reescribe
+    solo no funciona.
+    """
+    pat = clinica_base.PATOLOGIAS_POR_ID.get(patologia)
+    if not pat:
+        raise HTTPException(404, "Esa patología no está en la base.")
+
+    guardado = await clinica_store.leer("mecanismos", pat["id"])
+    if guardado and guardado.get("causas"):
+        return {"id": pat["id"], "nombre": pat["nombre"],
+                "causas": guardado["causas"], "recien_generado": False}
+
+    lista = [f"{hid} | {clinica_base.HALLAZGOS_POR_ID.get(hid, {}).get('nombre', hid)} | {rel}"
+             for hid, rel in pat.get("hallazgos", {}).items()]
+    peticion = (f"PATOLOGÍA: {pat['nombre']}\n"
+                f"GENÉTICA: {pat.get('genetica', '')}\n\n"
+                "HALLAZGOS (id | nombre | relación):\n" + "\n".join(lista))
+
+    registro = ProviderRegistry(get_settings())
+    bruto = await _pedir_a_la_ia(registro, [
+        {"role": "system", "content": _INSTRUCCION_MECANISMOS},
+        {"role": "user", "content": peticion},
+    ], temperatura=0.2)
+
+    causas: dict[str, str] = {}
+    for item in _extraer_lista(bruto):
+        if not isinstance(item, dict):
+            continue
+        hid, causa = item.get("id"), (item.get("causa") or "").strip()
+        # Solo se acepta lo que corresponde a un hallazgo REAL de esta
+        # patologia: si el modelo se inventa uno, aqui se queda.
+        if hid in pat.get("hallazgos", {}) and causa:
+            causas[hid] = causa
+
+    if causas:
+        await clinica_store.guardar("mecanismos", pat["id"], {"causas": causas})
+    return {"id": pat["id"], "nombre": pat["nombre"], "causas": causas,
+            "recien_generado": True}
 
 
 @router.post("/caso")
