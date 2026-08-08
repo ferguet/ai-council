@@ -325,6 +325,22 @@ const fichas = {};       // cache en memoria de las fichas ya pedidas
 const estado = document.getElementById('estado');
 function decir(t) { estado.textContent = t || ''; }
 
+// POR QUE HA FALLADO, NO SOLO QUE HA FALLADO.
+//
+// Antes esto decía "el servidor ha contestado 502" y se quedaba tan ancho.
+// Un 502 aquí significa que ninguno de los proveedores de IA ha podido, y
+// el servidor manda el motivo de CADA uno -sin cuota, sin clave, no
+// contestó a tiempo...-. Enseñar solo el número obliga a adivinar, que es
+// justo lo que no debe hacer quien está usando esto.
+async function detalle(r) {
+  let extra = '';
+  try {
+    const d = await r.json();
+    if (d && d.detail) extra = typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail);
+  } catch (e) { /* la respuesta no era JSON: nos quedamos con el código */ }
+  return 'el servidor ha contestado ' + r.status + (extra ? '\n' + extra : '');
+}
+
 function escapar(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -337,7 +353,7 @@ async function arrancar() {
   decir('Conectando...');
   try {
     const r = await fetch(base() + '/clinica/catalogo');
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     CATALOGO = await r.json();
     document.getElementById('aviso').textContent = CATALOGO.aviso;
     decir('');
@@ -420,7 +436,7 @@ async function evaluar() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ datos: paquete(), previas })
     });
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     const d = await r.json();
     previas = d.puntos || {};
     pintarSistemas(d);
@@ -557,7 +573,7 @@ async function abrirFicha(id) {
   hueco.innerHTML = '<div class="ficha">Preparando la ficha...</div>';
   try {
     const r = await fetch(base() + '/clinica/ficha/' + encodeURIComponent(id));
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     const f = await r.json();
     fichas[id] = f;
     if (abierta === id) hueco.innerHTML = pintarFicha(f);
@@ -665,12 +681,13 @@ async function interpretar() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ texto })
     });
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     const d = await r.json();
     propuestos = d.propuestos || [];
     pintarPropuestas(d.descartados || 0);
   } catch (e) {
-    hueco.innerHTML = '<div class="vacio">No se ha podido interpretar: ' + escapar(e.message) + '</div>';
+    hueco.innerHTML = '<div class="ficha" style="white-space:pre-wrap">No se ha podido interpretar.\n\n'
+                      + escapar(e.message) + '</div>';
   }
 }
 
@@ -742,7 +759,7 @@ async function corregirImagen() {
         contexto: datos.map(d => (d.estado === 'ausente' ? 'sin ' : '') + nombreDe(d.id)).join(', ')
       })
     });
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     const d = await r.json();
     let cuerpo = escapar(d.correccion || '');
     for (const a of APARTADOS_IMAGEN) {
@@ -751,7 +768,8 @@ async function corregirImagen() {
     }
     hueco.innerHTML = '<div class="ficha">' + cuerpo + '</div>';
   } catch (e) {
-    hueco.innerHTML = '<div class="ficha">No se ha podido corregir: ' + escapar(e.message) + '</div>';
+    hueco.innerHTML = '<div class="ficha" style="white-space:pre-wrap">No se ha podido corregir.\n\n'
+                      + escapar(e.message) + '</div>';
   }
 }
 
@@ -768,7 +786,7 @@ async function guardarCaso() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nombre, datos: paquete(), propietario: idDispositivo() })
     });
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     campo.value = '';
     decir('Caso guardado.');
     verCasos();
@@ -781,7 +799,7 @@ async function verCasos() {
   const c = document.getElementById('listaCasos');
   try {
     const r = await fetch(conDispositivo(base() + '/clinica/casos'));
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     const d = await r.json();
     if (!d.casos.length) { c.innerHTML = '<div class="vacio">Ninguno guardado todavía.</div>'; return; }
     c.innerHTML = d.casos.map(x => `
@@ -799,7 +817,7 @@ async function verCasos() {
 async function cargarCaso(nombre) {
   try {
     const r = await fetch(conDispositivo(base() + '/clinica/caso/' + encodeURIComponent(nombre)));
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     const d = await r.json();
     datos = []; previas = {};
     document.getElementById('edad').value = '';
@@ -822,7 +840,7 @@ async function borrarCaso(nombre) {
   try {
     const r = await fetch(conDispositivo(base() + '/clinica/caso/' + encodeURIComponent(nombre)),
                           { method: 'DELETE' });
-    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    if (!r.ok) throw new Error(await detalle(r));
     verCasos();
   } catch (e) {
     decir('No se ha podido borrar: ' + e.message);
