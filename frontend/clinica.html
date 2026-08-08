@@ -514,8 +514,23 @@ function pintarPatologias(d) {
   const c = document.getElementById('listaPatologias');
   const trozos = [];
 
+  // LAS QUE NO COINCIDEN EN NADA NO SE PINTAN.
+  //
+  // Con noventa patologías en la base, la mayoría no tiene ni un punto en
+  // un caso concreto. Listarlas todas al 0% no informa de nada y entierra
+  // lo que sí importa debajo de sesenta líneas inútiles. Se cuentan al
+  // final -para que no parezca que la app se las ha comido- y ya está.
   let cabeceraMenores = false;
+  let sinCoincidencia = 0;
+  let menoresPintados = 0;
+  let menoresDeMas = 0;
   for (const f of d.vivas) {
+    if (!f.porcentaje && !f.menor) { sinCoincidencia++; continue; }
+    // De las que solo rozan el patrón se enseñan unas pocas: coincidir en
+    // "anemia" no las convierte en candidatas, y treinta seguidas vuelven a
+    // enterrar lo que importa.
+    if (f.menor && menoresPintados >= 6) { menoresDeMas++; continue; }
+    if (f.menor) menoresPintados++;
     // Las que solo rozan el patron van detras y sin porcentaje. Siguen
     // visibles -aqui no se esconde nada- pero no compiten: coincidir en
     // "fiebre" no convierte a una patologia en candidata.
@@ -557,6 +572,11 @@ function pintarPatologias(d) {
         <div class="motivos"><span class="baja">✗ ${escapar(culpa)}</span></div>
         <div id="ficha_${f.id}"></div>
       </div>`);
+  }
+
+  const restantes = sinCoincidencia + menoresDeMas;
+  if (restantes && d.hay_datos) {
+    trozos.push(`<div class="vacio" style="margin-top:14px">Otras ${restantes} patologías de la base no encajan o solo rozan el patrón.</div>`);
   }
 
   c.innerHTML = trozos.join('') || '<div class="vacio">Todavía no hay nada que ordenar.</div>';
