@@ -85,9 +85,38 @@ _SINONIMOS: dict[str, list[str]] = {
     "pcr_elevada": ["proteina c reactiva alta", "pcr alta"],
     "hipoacusia": ["oye mal", "sordera"],
     "diabetes": ["diabetico", "diabetes mellitus"],
+    "artralgias": ["gonalgia", "dolor articular", "dolor de rodilla", "coxalgia"],
+    "hemartros": ["sangre en la articulacion", "hemartrosis"],
+    "tumefaccion_articular": ["tumefaccion", "rodilla hinchada", "articulacion hinchada",
+                              "hinchazon articular"],
+    "eritema_local": ["eritema", "rojez", "enrojecimiento", "zona roja"],
+    "ttpa_prolongado": ["tiempo de tromboplastina parcial activado prolongado",
+                        "ttpa alargado", "aptt prolongado"],
+    "dimero_d_elevado": ["dimero d alto"],
+    "antecedente_familiar_sangrado": ["familiares que sangran",
+                                      "antecedentes familiares de hemorragia"],
+    "hipotension": ["tension baja", "presion arterial baja", "hipotenso"],
+    "hipertension": ["tension alta", "presion arterial alta", "hipertenso"],
     "tabaquismo": ["fumador", "fuma"],
     "alcoholismo_cronico": ["bebedor", "alcoholico", "enolismo"],
 }
+
+
+def _raiz(palabra: str) -> str:
+    """
+    Quita el plural, a lo bruto.
+
+    "antecedente familiar de sangrado" no encajaba con "Antecedentes
+    familiares de sangrado" por dos eses. Un lematizador de verdad seria
+    pasarse; con recortar el plural, y aplicandolo a los dos lados, basta:
+    aunque el recorte sea imperfecto, lo es igual en ambos y siguen
+    coincidiendo.
+    """
+    if len(palabra) > 5 and palabra.endswith("es"):
+        return palabra[:-2]
+    if len(palabra) > 4 and palabra.endswith("s"):
+        return palabra[:-1]
+    return palabra
 
 
 def _normalizar(texto: str) -> list[str]:
@@ -96,7 +125,7 @@ def _normalizar(texto: str) -> list[str]:
     t = unicodedata.normalize("NFD", t)
     t = "".join(c for c in t if unicodedata.category(c) != "Mn")
     t = re.sub(r"[^a-z0-9ñ ]+", " ", t)
-    return [p for p in t.split() if p not in _VACIAS and len(p) > 2]
+    return [_raiz(p) for p in t.split() if p not in _VACIAS and len(p) > 2]
 
 
 def _construir_indice() -> list[tuple[str, list[set[str]]]]:
@@ -111,7 +140,12 @@ def _construir_indice() -> list[tuple[str, list[set[str]]]]:
     """
     indice = []
     for h in clinica_base.HALLAZGOS:
-        bolsas = [set(_normalizar(h["nombre"]))]
+        # Los nombres con barra son dos formas de decir lo mismo, y hay que
+        # tratarlas como tales. Metidas en un mismo saco fallaba lo obvio:
+        # "equimosis" contra "Equimosis / hematomas espontáneos" solo cubria
+        # una de tres palabras y se quedaba por debajo del corte, asi que un
+        # hallazgo que SI estaba en el catalogo salia como desconocido.
+        bolsas = [set(_normalizar(parte)) for parte in re.split(r"[/,]", h["nombre"])]
         for extra in _SINONIMOS.get(h["id"], []):
             b = set(_normalizar(extra))
             if b:

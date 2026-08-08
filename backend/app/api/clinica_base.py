@@ -67,6 +67,7 @@ COSTES = {
     "Hemograma": 4,
     "Coagulación": 4,
     "Bioquímica": 4,
+    "Electrocardiograma": 3,
     "Microbiología": 5,
     "Otros aparatos": 2,
     "Imagen": 6,
@@ -229,6 +230,9 @@ _bloque("Exploración", {
     "fracturas_patologicas": "Fracturas patológicas",
     "candidiasis_oral": "Candidiasis oral (muguet)",
     "alopecia_parcheada": "Alopecia parcheada",
+    "tumefaccion_articular": "Tumefacción articular",
+    "hemartros": "Hemartros (sangre en la articulación)",
+    "eritema_local": "Eritema local",
 })
 
 _bloque("Analítica", {
@@ -269,6 +273,8 @@ _bloque("Analítica", {
     "hipocalcemia": "Hipocalcemia",
     "acidosis_metabolica": "Acidosis metabólica",
     "rabdomiolisis": "Rabdomiólisis (CK muy elevada)",
+    "ttpa_prolongado": "TTPA prolongado",
+    "dimero_d_elevado": "Dímero D elevado",
 })
 
 _bloque("Líquido cefalorraquídeo", {
@@ -313,6 +319,7 @@ _bloque("Antecedentes y riesgo", {
     "antecedente_epilepsia": "Epilepsia conocida",
     "puerperio": "Embarazo o puerperio",
     "diabetes": "Diabetes mellitus",
+    "antecedente_familiar_sangrado": "Antecedentes familiares de sangrado",
 })
 
 _bloque("Otros aparatos", {
@@ -336,6 +343,29 @@ _bloque("Otros aparatos", {
     "artropatia_charcot": "Artropatía de Charcot",
 })
 
+_bloque("Electrocardiograma", {
+    "ritmo_sinusal": "Ritmo sinusal",
+    "fibrilacion_auricular": "Fibrilación auricular",
+    "flutter_auricular": "Flutter auricular",
+    "taquicardia_ventricular": "Taquicardia ventricular",
+    "extrasistoles_ventriculares": "Extrasístoles ventriculares",
+    "bradicardia": "Bradicardia",
+    "bloqueo_av": "Bloqueo auriculoventricular",
+    "bloqueo_rama_izquierda": "Bloqueo de rama izquierda",
+    "bloqueo_rama_derecha": "Bloqueo de rama derecha",
+    "elevacion_st": "Elevación del ST",
+    "descenso_st": "Descenso del ST",
+    "ondas_t_negativas": "Ondas T negativas",
+    "ondas_t_picudas": "Ondas T picudas",
+    "ondas_q_patologicas": "Ondas Q patológicas",
+    "qt_largo": "QT largo",
+    "bajo_voltaje": "Bajo voltaje generalizado",
+    "hipertrofia_ventricular": "Hipertrofia ventricular izquierda",
+    "patron_s1q3t3": "Patrón S1Q3T3",
+    "elevacion_st_difusa": "Elevación del ST difusa con descenso del PR",
+    "ecg_normal": "Electrocardiograma normal",
+})
+
 _bloque("Microbiología", {
     "hemocultivos_positivos": "Hemocultivos positivos",
     "urocultivo_positivo": "Urocultivo positivo",
@@ -357,7 +387,8 @@ _REPARTO_ANALITICA = {
         "trombopenia", "trombocitosis", "pancitopenia", "blastos_sangre",
         "esquistocitos", "leucoeritroblastosis", "dacriocitos", "displasia_medular",
     ],
-    "Coagulación": ["tp_alargado", "hipofibrinogenemia"],
+    "Coagulación": ["tp_alargado", "hipofibrinogenemia",
+                    "ttpa_prolongado", "dimero_d_elevado"],
 }
 for _grupo, _ids in _REPARTO_ANALITICA.items():
     for _h in HALLAZGOS:
@@ -385,6 +416,7 @@ PESTANAS = [
     ("bioquimica", "Bioquímica", ["Bioquímica"]),
     ("cultivos", "Cultivos", ["Microbiología"]),
     ("imagen", "Imagen", ["Imagen"]),
+    ("ecg", "ECG", ["Electrocardiograma"]),
     ("especiales", "Pruebas especiales", ["Líquido cefalorraquídeo"]),
     # No agrupa bloques del catalogo: es la pantalla donde se escribe la
     # cifra exacta y el codigo dice si esta alta o baja.

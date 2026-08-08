@@ -62,6 +62,11 @@ ANALITOS: list[dict] = [
      "grupo": "Coagulación", "rango": (200, 400),
      "bajo": "hipofibrinogenemia", "alto": None},
 
+    {"clave": "ttpa", "nombre": "TTPA", "unidad": "s", "grupo": "Coagulación",
+     "rango": (25, 35), "bajo": None, "alto": "ttpa_prolongado"},
+    {"clave": "dimero_d", "nombre": "Dímero D", "unidad": "ng/mL", "grupo": "Coagulación",
+     "rango": (0, 500), "bajo": None, "alto": "dimero_d_elevado"},
+
     # --- Inflamacion e infeccion ---
     {"clave": "pcr", "nombre": "PCR", "unidad": "mg/L", "grupo": "Inflamación",
      "rango": (0, 5), "bajo": None, "alto": "pcr_elevada"},
