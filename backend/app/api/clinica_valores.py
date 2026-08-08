@@ -55,6 +55,9 @@ ANALITOS: list[dict] = [
      "grupo": "Hemograma", "rango": (150, 450),
      "bajo": "trombopenia", "alto": "trombocitosis"},
 
+    {"clave": "hematies", "nombre": "Hematíes", "unidad": "x10¹²/L",
+     "grupo": "Hemograma", "rango": {"varon": (4.5, 5.9), "mujer": (4.0, 5.2)},
+     "bajo": None, "alto": "recuento_eritrocitos_alto"},
     {"clave": "reticulocitos", "nombre": "Reticulocitos", "unidad": "%",
      "grupo": "Hemograma", "rango": (0.5, 2.0),
      "bajo": "reticulocitos_bajos", "alto": "reticulocitos_altos"},
