@@ -64,6 +64,9 @@ COSTES = {
     "Antecedentes y riesgo": 1,
     "Exploración": 2,
     "Analítica": 4,
+    "Hemograma": 4,
+    "Coagulación": 4,
+    "Bioquímica": 4,
     "Microbiología": 5,
     "Otros aparatos": 2,
     "Imagen": 6,
@@ -338,6 +341,57 @@ _bloque("Microbiología", {
     "urocultivo_positivo": "Urocultivo positivo",
 })
 
+# ---------------------------------------------------------------------------
+# LA ANALITICA, POR PARTES
+# ---------------------------------------------------------------------------
+# Un solo cajon de "Analitica" con cuarenta cosas dentro no se maneja: quien
+# esta mirando un hemograma no quiere ir tropezando con iones y enzimas. Se
+# parte en las tres familias en que de verdad se piden y se leen.
+#
+# Se hace aqui, reasignando, en vez de reescribir las listas de arriba:
+# menos ocasiones de equivocarse moviendo lineas de sitio.
+_REPARTO_ANALITICA = {
+    "Hemograma": [
+        "leucocitosis", "leucopenia", "neutrofilia", "neutropenia", "linfocitosis",
+        "linfocitosis_absoluta", "basofilia", "anemia", "macrocitosis", "eritrocitosis",
+        "trombopenia", "trombocitosis", "pancitopenia", "blastos_sangre",
+        "esquistocitos", "leucoeritroblastosis", "dacriocitos", "displasia_medular",
+    ],
+    "Coagulación": ["tp_alargado", "hipofibrinogenemia"],
+}
+for _grupo, _ids in _REPARTO_ANALITICA.items():
+    for _h in HALLAZGOS:
+        if _h["id"] in _ids:
+            _h["bloque"] = _grupo
+for _h in HALLAZGOS:
+    if _h["bloque"] == "Analítica":
+        _h["bloque"] = "Bioquímica"
+
+# ---------------------------------------------------------------------------
+# PESTAÑAS
+# ---------------------------------------------------------------------------
+# Los bloques son demasiados para una sola columna en un movil. Se agrupan
+# en las pestañas con las que se piensa de verdad en la practica: primero lo
+# que ves y preguntas, y solo despues lo que pides.
+#
+# El orden importa: la pestaña de clinica va primera porque es por donde se
+# empieza, y las pruebas caras van al final por el mismo motivo por el que
+# el sugeridor no las propone antes de tiempo.
+PESTANAS = [
+    ("clinica", "Clínica", ["Generales", "Curso", "Neurológicos", "Infecciosos",
+                            "Otros aparatos", "Exploración", "Antecedentes y riesgo"]),
+    ("hemograma", "Hemograma", ["Hemograma"]),
+    ("coagulacion", "Coagulación", ["Coagulación"]),
+    ("bioquimica", "Bioquímica", ["Bioquímica"]),
+    ("cultivos", "Cultivos", ["Microbiología"]),
+    ("imagen", "Imagen", ["Imagen"]),
+    ("especiales", "Pruebas especiales", ["Líquido cefalorraquídeo"]),
+]
+
+_PESTANA_DE_BLOQUE = {b: clave for clave, _, bs in PESTANAS for b in bs}
+for _h in HALLAZGOS:
+    _h["pestana"] = _PESTANA_DE_BLOQUE.get(_h["bloque"], "clinica")
+
 HALLAZGOS_POR_ID = {h["id"]: h for h in HALLAZGOS}
 
 
@@ -350,7 +404,32 @@ def bloques() -> list[dict]:
             grupos[h["bloque"]] = []
             orden.append(h["bloque"])
         grupos[h["bloque"]].append({"id": h["id"], "nombre": h["nombre"]})
-    return [{"bloque": b, "hallazgos": grupos[b]} for b in orden]
+    return [{"bloque": b, "pestana": _PESTANA_DE_BLOQUE.get(b, "clinica"),
+             "hallazgos": grupos[b]} for b in orden]
+
+
+def pestanas() -> list[dict]:
+    """Las pestañas con lo que lleva cada una, para pintarlas en orden."""
+    salida = []
+    for clave, titulo, bs in PESTANAS:
+        cuantos = sum(1 for h in HALLAZGOS if h["pestana"] == clave)
+        salida.append({"clave": clave, "titulo": titulo, "bloques": bs,
+                       "cuantos": cuantos})
+    return salida
+
+
+def catalogo_plano() -> str:
+    """El catalogo entero como texto, para pasarselo a la IA.
+
+    Va como `identificador = nombre` y agrupado, que es como mejor lo
+    respetan los modelos: si les das solo los nombres bonitos, devuelven
+    nombres bonitos y luego no encajan con nada.
+    """
+    lineas = []
+    for b in bloques():
+        lineas.append(f"[{b['bloque']}]")
+        lineas += [f"{h['id']} = {h['nombre']}" for h in b["hallazgos"]]
+    return "\n".join(lineas)
 
 
 # ---------------------------------------------------------------------------

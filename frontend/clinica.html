@@ -144,7 +144,33 @@
   .velo.abierto { display:flex; }
   .cajon { background:#0E1526; border:1px solid var(--linea); width:100%; max-width:760px;
            border-radius:22px 22px 0 0; max-height:88vh; display:flex; flex-direction:column; }
-  .cajon .arriba { padding:16px; border-bottom:1px solid var(--linea); }
+  .cajon .arriba { padding:16px 16px 0; border-bottom:1px solid var(--linea); }
+
+  /* Pestañas del selector. Scroll horizontal a proposito: en un movil no
+     caben siete, y partirlas en dos filas come la mitad del cajon. */
+  .pestanas { display:flex; gap:6px; overflow-x:auto; padding:12px 0 10px;
+              -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .pestanas::-webkit-scrollbar { display:none; }
+  .pes { flex:0 0 auto; padding:8px 14px; border-radius:999px; font-size:14px;
+         font-weight:600; cursor:pointer; white-space:nowrap;
+         background:rgba(8,13,25,.6); border:1px solid var(--linea); color:var(--suave); }
+  .pes.activa { background:linear-gradient(135deg,#0891B2,#0E7490); color:#fff;
+                border-color:transparent; }
+  .pes small { opacity:.7; margin-left:5px; font-weight:500; }
+
+  textarea { width:100%; padding:13px 14px; border-radius:14px; min-height:110px;
+             background:rgba(8,13,25,.7); border:1px solid var(--linea);
+             color:var(--texto); font-size:15px; font-family:inherit;
+             line-height:1.55; resize:vertical; }
+  textarea:focus { outline:2px solid var(--acento); outline-offset:-1px; }
+
+  .propuesta { display:flex; align-items:center; gap:9px; padding:10px 12px; margin-top:8px;
+               background:rgba(6,182,212,.08); border:1px solid rgba(6,182,212,.3);
+               border-radius:12px; font-size:15px; }
+  .propuesta .nom { flex:1; }
+  .propuesta .don { font-size:11px; color:var(--suave); }
+  .propuesta .mini { margin:0; padding:6px 11px; font-size:12px; border-radius:9px; }
+  .propuesta.ausente .nom { color:var(--suave); }
   .cajon .lista { overflow-y:auto; padding:8px 16px 20px; }
   .grupo { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:#8FA0B8;
            margin:16px 0 6px; font-weight:700; }
@@ -197,6 +223,25 @@
     <div id="estado"></div>
   </div>
 
+  <div class="panel">
+    <div class="et">Escríbelo con tus palabras</div>
+    <textarea id="textoCaso" placeholder="Varón de 68 años que acude por cefalea de inicio brusco hace 3 horas, con fiebre de 38.5 y rigidez de nuca. No refiere pérdida de peso..."></textarea>
+    <button class="cian" onclick="interpretar()">🔎 Sacar los hallazgos</button>
+    <div id="propuestas"></div>
+  </div>
+
+  <div class="panel">
+    <div class="et">Describir una imagen</div>
+    <p style="margin:0 0 12px;font-size:13px;color:var(--suave);line-height:1.55">
+      No hace falta subir nada. Escribe qué prueba es y qué crees que ves, con
+      tu vocabulario, y te corrijo la descripción.
+    </p>
+    <input type="text" id="pruebaImagen" placeholder="Qué prueba: ecografía abdominal, TC craneal sin contraste, RM secuencia T2..." style="margin-bottom:10px">
+    <textarea id="textoImagen" placeholder="Lesión nodular en lóbulo hepático derecho, de unos 3 cm, hipoecogénica, bien delimitada, con refuerzo posterior..."></textarea>
+    <button class="morado" onclick="corregirImagen()">🖼️ Corregir mi descripción</button>
+    <div id="correccionImagen"></div>
+  </div>
+
   <div class="panel oculto" id="panelSugerencias">
     <div class="et">Qué conviene preguntar ahora</div>
     <div id="listaSugerencias"></div>
@@ -233,10 +278,13 @@
 <div class="velo" id="velo" onclick="if(event.target===this) cerrarSelector()">
   <div class="cajon">
     <div class="arriba">
-      <input type="text" id="buscador" placeholder="Buscar hallazgo..." oninput="pintarOpciones()">
-      <button class="gris" style="width:100%;margin-top:10px" onclick="cerrarSelector()">Cerrar</button>
+      <input type="text" id="buscador" placeholder="Buscar en todas las pestañas..." oninput="pintarOpciones()">
+      <div class="pestanas" id="listaPestanas"></div>
     </div>
     <div class="lista" id="listaOpciones"></div>
+    <div style="padding:0 16px 16px">
+      <button class="gris" style="width:100%" onclick="cerrarSelector()">Cerrar</button>
+    </div>
   </div>
 </div>
 
@@ -336,10 +384,12 @@ function meter(id, estadoDato) {
 }
 
 function limpiar() {
-  datos = []; previas = {}; abierta = null;
+  datos = []; previas = {}; abierta = null; propuestos = [];
   document.getElementById('edad').value = '';
   document.getElementById('sexo').value = '';
   document.getElementById('nombreCaso').value = '';
+  document.getElementById('textoCaso').value = '';
+  document.getElementById('propuestas').innerHTML = '';
   recalcular();
 }
 
@@ -551,20 +601,36 @@ function pintarFicha(f) {
 // =====================================================================
 // SELECTOR DE HALLAZGOS
 // =====================================================================
-function abrirSelector() {
+let pestanaActiva = 'clinica';
+
+function abrirSelector(pestana) {
   if (!CATALOGO) { decir('Todavía no se ha cargado el catálogo.'); return; }
+  if (pestana) pestanaActiva = pestana;
   document.getElementById('buscador').value = '';
   document.getElementById('velo').classList.add('abierto');
+  pintarPestanas();
   pintarOpciones();
-  document.getElementById('buscador').focus();
 }
 function cerrarSelector() { document.getElementById('velo').classList.remove('abierto'); }
+
+function irA(p) { pestanaActiva = p; pintarPestanas(); pintarOpciones(); }
+
+function pintarPestanas() {
+  document.getElementById('listaPestanas').innerHTML = (CATALOGO.pestanas || [])
+    .map(p => `<div class="pes ${p.clave === pestanaActiva ? 'activa' : ''}"
+                    onclick="irA('${p.clave}')">${escapar(p.titulo)}<small>${p.cuantos}</small></div>`)
+    .join('');
+}
 
 function pintarOpciones() {
   const q = document.getElementById('buscador').value.trim().toLowerCase();
   const puestos = new Set(datos.map(d => d.id));
   const trozos = [];
+  // Buscando se mira en TODO, no solo en la pestaña abierta: si sabes cómo
+  // se llama lo que buscas, tener que acertar antes con la pestaña sería un
+  // estorbo. Sin búsqueda, manda la pestaña.
   for (const b of CATALOGO.bloques) {
+    if (!q && b.pestana !== pestanaActiva) continue;
     const hs = b.hallazgos.filter(h => !q || h.nombre.toLowerCase().includes(q));
     if (!hs.length) continue;
     trozos.push(`<div class="grupo">${escapar(b.bloque)}</div>`);
@@ -579,8 +645,114 @@ function pintarOpciones() {
         </div>`);
     }
   }
-  document.getElementById('listaOpciones').innerHTML =
-    trozos.join('') || '<div class="vacio">Nada coincide con esa búsqueda.</div>';
+  document.getElementById('listaOpciones').innerHTML = trozos.join('') ||
+    (q ? '<div class="vacio">Nada coincide con esa búsqueda.</div>'
+       : '<div class="vacio">Esta pestaña no tiene nada todavía.</div>');
+}
+
+// =====================================================================
+// ESCRIBIR EL CASO Y QUE LO TRADUZCA
+// =====================================================================
+let propuestos = [];
+
+async function interpretar() {
+  const texto = document.getElementById('textoCaso').value.trim();
+  if (!texto) { decir('Escribe el caso antes de interpretarlo.'); return; }
+  const hueco = document.getElementById('propuestas');
+  hueco.innerHTML = '<div class="vacio">Leyendo el caso...</div>';
+  try {
+    const r = await fetch(base() + '/clinica/interpretar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texto })
+    });
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    const d = await r.json();
+    propuestos = d.propuestos || [];
+    pintarPropuestas(d.descartados || 0);
+  } catch (e) {
+    hueco.innerHTML = '<div class="vacio">No se ha podido interpretar: ' + escapar(e.message) + '</div>';
+  }
+}
+
+// Nada entra solo. Se propone y se acepta uno a uno: si la IA entiende mal
+// una frase y ese dato entrara directo, el diferencial saldría torcido sin
+// que nadie se enterase.
+function pintarPropuestas(descartados) {
+  const hueco = document.getElementById('propuestas');
+  const nuevos = propuestos.filter(p => !datos.some(d => d.id === p.id));
+  if (!nuevos.length) {
+    hueco.innerHTML = '<div class="vacio">' +
+      (propuestos.length ? 'Todo lo que he sacado ya estaba en el caso.'
+                         : 'No he reconocido ningún hallazgo del catálogo en ese texto.') +
+      '</div>';
+    return;
+  }
+  const aviso = descartados
+    ? `<div class="vacio">He descartado ${descartados} cosa${descartados === 1 ? '' : 's'} que no están en el catálogo.</div>` : '';
+  hueco.innerHTML = `<div class="et" style="margin:16px 0 0">He entendido esto · acéptalo o no</div>` +
+    nuevos.map(p => `
+      <div class="propuesta ${p.estado === 'ausente' ? 'ausente' : ''}">
+        <span class="nom">${p.estado === 'ausente' ? 'NO · ' : ''}${escapar(p.nombre)}
+          <span class="don">· ${escapar(p.bloque)}</span></span>
+        <button class="cian mini" onclick="aceptar('${p.id}')">Añadir</button>
+        <button class="gris mini" onclick="rechazar('${p.id}')">✕</button>
+      </div>`).join('') +
+    aviso +
+    `<button class="cian" onclick="aceptarTodo()">✓ Añadirlos todos</button>`;
+}
+
+function aceptar(id) {
+  const p = propuestos.find(x => x.id === id);
+  if (p) meter(p.id, p.estado);
+  pintarPropuestas(0);
+}
+function rechazar(id) {
+  propuestos = propuestos.filter(x => x.id !== id);
+  pintarPropuestas(0);
+}
+function aceptarTodo() {
+  for (const p of propuestos) if (!datos.some(d => d.id === p.id)) datos.push({ id: p.id, estado: p.estado });
+  recalcular();
+  pintarPropuestas(0);
+}
+
+// =====================================================================
+// DESCRIBIR UNA IMAGEN Y QUE TE CORRIJAN
+// =====================================================================
+const APARTADOS_IMAGEN = ['BIEN DICHO', 'LO QUE CORREGIRÍA', 'LO QUE TE FALTA',
+                          'QUÉ SUGIERE ESE PATRÓN'];
+const BONITO_IMAGEN = { 'BIEN DICHO': 'Bien dicho',
+                        'LO QUE CORREGIRÍA': 'Lo que corregiría',
+                        'LO QUE TE FALTA': 'Lo que te falta',
+                        'QUÉ SUGIERE ESE PATRÓN': 'Qué sugiere ese patrón' };
+
+async function corregirImagen() {
+  const descripcion = document.getElementById('textoImagen').value.trim();
+  if (!descripcion) { decir('Describe lo que ves antes de pedir la corrección.'); return; }
+  const hueco = document.getElementById('correccionImagen');
+  hueco.innerHTML = '<div class="ficha">Mirando tu descripción...</div>';
+  try {
+    const r = await fetch(base() + '/clinica/imagen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        descripcion,
+        prueba: document.getElementById('pruebaImagen').value.trim(),
+        // El caso abierto va solo como contexto: ayuda a orientar la
+        // corrección sin que la descripción deje de ser lo que se juzga.
+        contexto: datos.map(d => (d.estado === 'ausente' ? 'sin ' : '') + nombreDe(d.id)).join(', ')
+      })
+    });
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    const d = await r.json();
+    let cuerpo = escapar(d.correccion || '');
+    for (const a of APARTADOS_IMAGEN) {
+      cuerpo = cuerpo.replace(new RegExp('^' + a + ':?\\s*$', 'mi'),
+                              '<h4>' + BONITO_IMAGEN[a] + '</h4>');
+    }
+    hueco.innerHTML = '<div class="ficha">' + cuerpo + '</div>';
+  } catch (e) {
+    hueco.innerHTML = '<div class="ficha">No se ha podido corregir: ' + escapar(e.message) + '</div>';
+  }
 }
 
 // =====================================================================

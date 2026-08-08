@@ -30,6 +30,9 @@ Efecto practico: se puede navegar casos durante horas sin gastar nada.
 """
 from __future__ import annotations
 
+import json
+import re
+
 from fastapi import APIRouter, Body, HTTPException
 
 from app.api import clinica_base, clinica_motor, clinica_store
@@ -68,6 +71,174 @@ _INSTRUCCION_FICHA = (
 )
 
 
+_INSTRUCCION_INTERPRETAR = (
+    "Traduces un caso clínico escrito en lenguaje corriente a una lista de "
+    "hallazgos de un catálogo cerrado. Reglas:\n"
+    "1. Devuelve SOLO un JSON: una lista de objetos "
+    "{\"id\": \"...\", \"estado\": \"presente\" o \"ausente\"}.\n"
+    "2. El id tiene que ser EXACTAMENTE uno de los del catálogo. No "
+    "inventes ninguno. Si algo del texto no está en el catálogo, omítelo.\n"
+    "3. 'ausente' es para lo que el texto NIEGA expresamente ('sin fiebre', "
+    "'no refiere cefalea', 'afebril'). Eso es información valiosa: no la "
+    "tires.\n"
+    "4. NO deduzcas ni completes. Si el texto dice 'fiebre', pon fiebre; no "
+    "añadas 'escalofríos' porque suelan ir juntos. Solo lo que está escrito.\n"
+    "5. La edad y el sexo NO son hallazgos: no los incluyas.\n"
+    "6. Sin markdown, sin explicaciones, sin comentarios. Solo el JSON."
+)
+
+_INSTRUCCION_IMAGEN = (
+    "Eres un radiólogo corrigiendo cómo describe una prueba de imagen un "
+    "estudiante de medicina. Él te dice qué prueba es y qué cree que ve, con "
+    "sus palabras. Tu trabajo es corregir la DESCRIPCIÓN, no adivinar el "
+    "diagnóstico.\n"
+    "Reglas:\n"
+    "1. Sé exigente con el vocabulario. Cada modalidad tiene el suyo y "
+    "mezclarlos es el error más típico: en ecografía se dice ecogénico o "
+    "anecoico, en TC denso o hipodenso (y se miden unidades Hounsfield), en "
+    "RM hiperintenso o hipointenso y SIEMPRE hay que decir en qué secuencia. "
+    "Si usa un término de una modalidad en otra, dilo claramente.\n"
+    "2. Señala lo que falta. Una descripción completa lleva localización, "
+    "tamaño, forma, márgenes, contenido, y qué pasa con el contraste.\n"
+    "3. Devuelve exactamente estos cuatro apartados, con este título y en "
+    "este orden:\n"
+    "BIEN DICHO\n"
+    "LO QUE CORREGIRÍA\n"
+    "LO QUE TE FALTA\n"
+    "QUÉ SUGIERE ESE PATRÓN\n"
+    "4. En el último apartado da posibilidades ordenadas, no un diagnóstico "
+    "cerrado, y recuerda que con una descripción no se diagnostica a nadie.\n"
+    "5. Si la descripción es demasiado vaga para corregir nada, dilo sin "
+    "rodeos en vez de inventarte una valoración.\n"
+    "6. Texto plano, sin markdown ni viñetas. Frases cortas. Español de "
+    "España."
+)
+
+
+def _extraer_lista(texto: str) -> list:
+    """
+    Saca la lista JSON de lo que conteste el modelo.
+
+    Aunque se le pida el JSON pelado, a veces lo envuelve en explicaciones o
+    en un bloque de codigo. Recortar por el primer corchete y el ultimo es
+    mas fiable que confiar en que obedezca.
+    """
+    if not texto:
+        return []
+    limpio = re.sub(r"^```[a-z]*|```$", "", texto.strip(), flags=re.MULTILINE).strip()
+    a, b = limpio.find("["), limpio.rfind("]")
+    if a == -1 or b == -1 or b < a:
+        return []
+    try:
+        d = json.loads(limpio[a:b + 1])
+    except json.JSONDecodeError:
+        return []
+    return d if isinstance(d, list) else []
+
+
+@router.post("/interpretar")
+async def interpretar(cuerpo: dict = Body(...)):
+    """
+    ESCRIBIR EL CASO A MANO.
+
+    Elegir de la lista es fiable pero lento, y no se parece a como llega un
+    caso de verdad: llega contado. Aqui se escribe en lenguaje normal y la
+    IA lo traduce a hallazgos del catalogo.
+
+    DOS CAUTELAS, Y NO SON MENORES
+
+    La primera: lo que sale NO entra solo en el caso. Se propone, y hay que
+    aceptarlo uno a uno. Si la IA entiende mal una frase y ese hallazgo
+    entrara directo, el diferencial saldria torcido sin que nadie se
+    enterase -que es exactamente el fallo silencioso que esta app intenta
+    no cometer-.
+
+    La segunda: se le prohibe deducir. Si el texto dice fiebre, pone fiebre;
+    no añade escalofrios porque suelan ir juntos. Completar por su cuenta
+    seria meter en el caso datos que el paciente no ha dado.
+
+    Y traduce tambien las negaciones ("sin fiebre", "afebril"), porque en un
+    diferencial lo que se descarta pesa tanto como lo que se encuentra.
+    """
+    texto = (cuerpo.get("texto") or "").strip()
+    if not texto:
+        raise HTTPException(400, "Escribe algo del caso antes de interpretarlo.")
+    if len(texto) > 4000:
+        texto = texto[:4000]
+
+    registro = ProviderRegistry(get_settings())
+    bruto = await _pedir_a_la_ia(registro, [
+        {"role": "system", "content": _INSTRUCCION_INTERPRETAR},
+        {"role": "user", "content": "CATÁLOGO:\n" + clinica_base.catalogo_plano()
+                                    + "\n\nCASO:\n" + texto},
+    ], temperatura=0.0)
+
+    vistos: set[str] = set()
+    salida = []
+    descartados = 0
+    for item in _extraer_lista(bruto):
+        if not isinstance(item, dict):
+            continue
+        hid = item.get("id")
+        # El filtro contra el catalogo es lo que sostiene todo esto: si el
+        # modelo se inventa un identificador, aqui se cae y no llega a la
+        # pantalla.
+        if hid not in clinica_base.HALLAZGOS_POR_ID or hid in vistos:
+            if hid not in clinica_base.HALLAZGOS_POR_ID:
+                descartados += 1
+            continue
+        estado = item.get("estado")
+        if estado not in ("presente", "ausente"):
+            estado = "presente"
+        vistos.add(hid)
+        h = clinica_base.HALLAZGOS_POR_ID[hid]
+        salida.append({"id": hid, "nombre": h["nombre"], "bloque": h["bloque"],
+                       "pestana": h["pestana"], "estado": estado})
+
+    return {"propuestos": salida, "descartados": descartados, "aviso": AVISO}
+
+
+@router.post("/imagen")
+async def imagen(cuerpo: dict = Body(...)):
+    """
+    DESCRIBIR UNA IMAGEN Y QUE TE CORRIJAN.
+
+    Aqui no se sube ninguna imagen: se escribe lo que uno cree que ve, con
+    su vocabulario, y se corrige la descripcion. Suena raro y es a proposito.
+
+    Delante del monitor lo que falla casi nunca es "ver la mancha": es
+    nombrarla. Decir hipointenso sin decir en que secuencia, llamar denso a
+    algo en una ecografia, describir un nodulo sin decir donde esta ni como
+    tiene los bordes. Eso se entrena escribiendo y que te lo corrijan, y no
+    hace falta la imagen delante para entrenarlo.
+
+    La respuesta separa a proposito lo que esta bien dicho, lo que esta mal
+    dicho y lo que falta por decir, antes de entrar en que puede ser. El
+    orden es el mensaje: primero se describe bien, y solo despues se
+    interpreta.
+    """
+    descripcion = (cuerpo.get("descripcion") or "").strip()
+    if not descripcion:
+        raise HTTPException(400, "Describe lo que ves antes de pedir la corrección.")
+    if len(descripcion) > 3000:
+        descripcion = descripcion[:3000]
+    prueba = (cuerpo.get("prueba") or "").strip()[:120]
+    contexto = (cuerpo.get("contexto") or "").strip()[:600]
+
+    partes = [f"PRUEBA: {prueba or 'no la ha dicho (pídesela)'}"]
+    if contexto:
+        partes.append(f"CASO ABIERTO (solo como contexto): {contexto}")
+    partes.append("DESCRIPCIÓN DEL ESTUDIANTE:\n" + descripcion)
+
+    registro = ProviderRegistry(get_settings())
+    texto = await _pedir_a_la_ia(registro, [
+        {"role": "system", "content": _INSTRUCCION_IMAGEN},
+        {"role": "user", "content": "\n\n".join(partes)},
+    ], temperatura=0.2)
+
+    return {"correccion": (texto or "").strip(), "aviso": AVISO}
+
+
 @router.get("/catalogo")
 async def catalogo():
     """
@@ -80,6 +251,7 @@ async def catalogo():
     return {
         "aviso": AVISO,
         "sistemas": clinica_base.SISTEMAS,
+        "pestanas": clinica_base.pestanas(),
         "bloques": clinica_base.bloques(),
         "patologias": [
             {"id": p["id"], "nombre": p["nombre"], "sistemas": p.get("sistemas", [])}
