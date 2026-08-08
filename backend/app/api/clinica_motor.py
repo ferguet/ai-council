@@ -217,9 +217,32 @@ def evaluar(datos: list[dict], patologias: list[dict], previas: dict | None = No
     # deberia estar abierto. La reserva baja sola segun se van metiendo
     # datos, y a partir de seis desaparece.
     reserva = max(0, (_DATOS_PARA_CONFIAR - len(presentes))) * 2
-    total = sum(max(0, f["puntos"]) for f in vivas) + reserva
+
+    # LA COLA DE RUIDO NO COMPITE.
+    #
+    # Al pasar de 12 a 44 patologias aparecio un efecto feo: un caso de
+    # dengue de libro se quedaba en el 14%, no porque hubiera dudas, sino
+    # porque otras diecinueve patologias coincidian en "fiebre" y entre
+    # todas se llevaban media tarta. El orden era correcto y la cifra
+    # enseñaba algo falso -que la cosa estaba muy repartida cuando no lo
+    # estaba-, y el problema iba a empeorar con cada tanda nueva.
+    #
+    # Coincidir en un dato generico no es ser candidata. Solo reparten
+    # porcentaje las que llegan a una fraccion de la mejor; el resto se
+    # quedan en la lista, visibles, pero marcadas como que solo rozan el
+    # patron.
+    mejor = max((f["puntos"] for f in vivas), default=0)
+    corte = max(_MINIMO_CANDIDATA, mejor * _FRACCION_CANDIDATA) if mejor > 0 else 0
+    principales = [f for f in vivas if f["puntos"] >= corte and f["puntos"] > 0]
+    if not principales:  # nadie llega al corte: compiten todas las positivas
+        principales = [f for f in vivas if f["puntos"] > 0]
+    en_juego = {f["id"] for f in principales}
+
+    total = sum(f["puntos"] for f in principales) + reserva
     for f in vivas:
-        f["porcentaje"] = round(100 * max(0, f["puntos"]) / total) if total else 0
+        f["menor"] = f["puntos"] > 0 and f["id"] not in en_juego
+        peso = f["puntos"] if f["id"] in en_juego else 0
+        f["porcentaje"] = round(100 * max(0, peso) / total) if total else 0
         ant = (previas or {}).get(f["id"])
         f["tendencia"] = 0 if ant is None else (1 if f["puntos"] > ant else (-1 if f["puntos"] < ant else 0))
     for f in muertas:
@@ -241,11 +264,14 @@ def evaluar(datos: list[dict], patologias: list[dict], previas: dict | None = No
         # "faltan datos": es informacion, no un hueco que disimular.
         "sin_concretar": round(100 * reserva / total) if total else 100,
         "datos_metidos": len(presentes),
+        "menores": sum(1 for f in vivas if f.get("menor")),
     }
 
 
 _UMBRAL_EN_JUEGO = 10  # porcentaje
 _DATOS_PARA_CONFIAR = 6  # por debajo de esto, parte del peso queda en reserva
+_FRACCION_CANDIDATA = 0.35  # hay que llegar a este trozo de la mejor para repartir
+_MINIMO_CANDIDATA = 4       # y a esto en absoluto, para no premiar una coincidencia suelta
 
 
 def _estado_sistemas(vivas, muertas, patologias, hay_datos: bool) -> list[dict]:

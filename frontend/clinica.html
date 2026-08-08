@@ -117,6 +117,8 @@
   .motivos { font-size:13px; color:#B6C2D2; line-height:1.6; }
   .motivos .sube { color:#6EE7B7; }
   .motivos .baja { color:#FCA5A5; }
+  .pat.menor { opacity:.72; padding:10px 13px; }
+  .pat.menor .nom { font-size:15px; font-weight:500; }
   .pat.muerta { opacity:.62; cursor:pointer; }
   .pat.muerta .nom { text-decoration:line-through; color:var(--suave); }
 
@@ -420,9 +422,26 @@ function pintarPatologias(d) {
   const c = document.getElementById('listaPatologias');
   const trozos = [];
 
+  let cabeceraMenores = false;
   for (const f of d.vivas) {
+    // Las que solo rozan el patron van detras y sin porcentaje. Siguen
+    // visibles -aqui no se esconde nada- pero no compiten: coincidir en
+    // "fiebre" no convierte a una patologia en candidata.
+    if (f.menor && !cabeceraMenores) {
+      cabeceraMenores = true;
+      trozos.push(`<div class="et" style="margin:16px 0 0">Solo rozan el patrón</div>`);
+    }
     const flecha = f.tendencia > 0 ? '<span class="flecha" style="color:#6EE7B7">▲</span>'
                  : f.tendencia < 0 ? '<span class="flecha" style="color:#FCA5A5">▼</span>' : '';
+    if (f.menor) {
+      trozos.push(`
+        <div class="pat menor" onclick="abrirFicha('${f.id}')">
+          <div class="cab"><span class="nom">${escapar(f.nombre)}</span></div>
+          <div class="motivos">${textoMotivos(f)}</div>
+          <div id="ficha_${f.id}"></div>
+        </div>`);
+      continue;
+    }
     trozos.push(`
       <div class="pat" onclick="abrirFicha('${f.id}')">
         <div class="cab">
@@ -435,6 +454,7 @@ function pintarPatologias(d) {
         <div id="ficha_${f.id}"></div>
       </div>`);
   }
+  if (cabeceraMenores) trozos.push(`<div class="et" style="margin:16px 0 0">Descartadas</div>`);
 
   for (const f of d.descartadas) {
     const culpa = f.descartada_por === '_sexo' ? 'el sexo' : nombreDe(f.descartada_por);
