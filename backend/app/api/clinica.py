@@ -30,17 +30,73 @@ Efecto practico: se puede navegar casos durante horas sin gastar nada.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
 from fastapi import APIRouter, Body, HTTPException
 
-from app.api import clinica_base, clinica_motor, clinica_store
-from app.api.clases import _pedir_a_la_ia
+from app.api import clinica_base, clinica_motor, clinica_store, clinica_texto
 from app.core.config import get_settings
+from app.providers.base import ProviderError
 from app.providers.registry import ProviderRegistry
 
 router = APIRouter(prefix="/clinica", tags=["clinica"])
+
+# Misma cadena de respaldo que el resto del proyecto, pero con su propia
+# copia: colgarse del ayudante privado de otra app era pedir que el dia que
+# alguien lo tocara alli se rompiera aqui sin avisar.
+_PROVEEDORES = [
+    ("gemini2", "gemini-3.6-flash"),
+    ("gemini", "gemini-3.6-flash"),
+    ("glm", "glm-4.7-flash"),
+    ("groq", "llama-3.3-70b-versatile"),
+    ("cerebras", "gpt-oss-120b"),
+]
+
+# VEINTE SEGUNDOS, NO CUARENTA Y CINCO.
+#
+# Con cinco proveedores y 45 segundos cada uno, un fallo tardaba casi cuatro
+# minutos en aparecer en pantalla. Cuatro minutos de boton mudo no se
+# distinguen de un cuelgue, y encima invitan a darle otra vez, que empeora
+# las cosas. Aqui todo es interactivo: mas vale enterarse pronto de que no
+# se puede.
+_ESPERA = 20.0
+
+
+async def _pedir_a_la_ia(registro, mensajes, temperatura: float = 0.3) -> str:
+    """Prueba los proveedores por orden y cuenta que ha fallado en cada uno.
+
+    Tener clave no es tener cuota: por eso se prueba de verdad en vez de
+    preguntar si esta configurado, y por eso se guardan TODOS los fallos y
+    no solo el ultimo -ver cuatro motivos distintos dice mucho mas que ver
+    el ultimo-.
+    """
+    intentos: list[str] = []
+    for nombre_prov, nombre_mod in _PROVEEDORES:
+        try:
+            proveedor = registro.get(nombre_prov)
+        except KeyError:
+            intentos.append(f"{nombre_prov}: no existe en el servidor")
+            continue
+        if not proveedor.is_configured():
+            intentos.append(f"{nombre_prov}: sin clave configurada")
+            continue
+        try:
+            return await asyncio.wait_for(
+                proveedor.chat(mensajes, model=nombre_mod, temperature=temperatura),
+                timeout=_ESPERA,
+            )
+        except asyncio.TimeoutError:
+            intentos.append(f"{nombre_prov}: no contestó en {int(_ESPERA)}s")
+        except ProviderError as e:
+            intentos.append(f"{nombre_prov}: {e}")
+        except Exception as e:
+            intentos.append(f"{nombre_prov}: {type(e).__name__} {e}")
+
+    detalle = "\n".join(f"· {i}" for i in intentos) or "· no hay ningún proveedor configurado"
+    raise HTTPException(502, "Ningún proveedor de IA ha podido con esto:\n" + detalle)
+
 
 _COSTES = {h["id"]: h.get("coste", 1) for h in clinica_base.HALLAZGOS}
 
@@ -72,46 +128,21 @@ _INSTRUCCION_FICHA = (
 
 
 _INSTRUCCION_INTERPRETAR = (
-    "Traduces un caso clínico escrito en lenguaje corriente a una lista de "
-    "hallazgos de un catálogo cerrado. Reglas:\n"
+    "Extraes los hallazgos clínicos de un caso escrito en lenguaje "
+    "corriente. Reglas:\n"
     "1. Devuelve SOLO un JSON: una lista de objetos "
-    "{\"id\": \"...\", \"estado\": \"presente\" o \"ausente\"}.\n"
-    "2. El id tiene que ser EXACTAMENTE uno de los del catálogo. No "
-    "inventes ninguno. Si algo del texto no está en el catálogo, omítelo.\n"
+    "{\"hallazgo\": \"...\", \"estado\": \"presente\" o \"ausente\"}.\n"
+    "2. Usa el término médico estándar, en singular y sin adornos: "
+    "'dolor de cabeza que empezó de golpe' es 'cefalea de inicio brusco'; "
+    "'tenía 38.5' es 'fiebre'; 'el cuello rígido' es 'rigidez de nuca'.\n"
     "3. 'ausente' es para lo que el texto NIEGA expresamente ('sin fiebre', "
     "'no refiere cefalea', 'afebril'). Eso es información valiosa: no la "
     "tires.\n"
-    "4. NO deduzcas ni completes. Si el texto dice 'fiebre', pon fiebre; no "
-    "añadas 'escalofríos' porque suelan ir juntos. Solo lo que está escrito.\n"
+    "4. NO deduzcas ni completes. Si el texto dice fiebre, pon fiebre; no "
+    "añadas escalofríos porque suelan ir juntos. Solo lo que está escrito.\n"
     "5. La edad y el sexo NO son hallazgos: no los incluyas.\n"
-    "6. Sin markdown, sin explicaciones, sin comentarios. Solo el JSON."
-)
-
-_INSTRUCCION_IMAGEN = (
-    "Eres un radiólogo corrigiendo cómo describe una prueba de imagen un "
-    "estudiante de medicina. Él te dice qué prueba es y qué cree que ve, con "
-    "sus palabras. Tu trabajo es corregir la DESCRIPCIÓN, no adivinar el "
-    "diagnóstico.\n"
-    "Reglas:\n"
-    "1. Sé exigente con el vocabulario. Cada modalidad tiene el suyo y "
-    "mezclarlos es el error más típico: en ecografía se dice ecogénico o "
-    "anecoico, en TC denso o hipodenso (y se miden unidades Hounsfield), en "
-    "RM hiperintenso o hipointenso y SIEMPRE hay que decir en qué secuencia. "
-    "Si usa un término de una modalidad en otra, dilo claramente.\n"
-    "2. Señala lo que falta. Una descripción completa lleva localización, "
-    "tamaño, forma, márgenes, contenido, y qué pasa con el contraste.\n"
-    "3. Devuelve exactamente estos cuatro apartados, con este título y en "
-    "este orden:\n"
-    "BIEN DICHO\n"
-    "LO QUE CORREGIRÍA\n"
-    "LO QUE TE FALTA\n"
-    "QUÉ SUGIERE ESE PATRÓN\n"
-    "4. En el último apartado da posibilidades ordenadas, no un diagnóstico "
-    "cerrado, y recuerda que con una descripción no se diagnostica a nadie.\n"
-    "5. Si la descripción es demasiado vaga para corregir nada, dilo sin "
-    "rodeos en vez de inventarte una valoración.\n"
-    "6. Texto plano, sin markdown ni viñetas. Frases cortas. Español de "
-    "España."
+    "6. Un hallazgo por entrada. Si una frase mete tres cosas, sepáralas.\n"
+    "7. Sin markdown, sin explicaciones, sin comentarios. Solo el JSON."
 )
 
 
@@ -169,33 +200,37 @@ async def interpretar(cuerpo: dict = Body(...)):
     registro = ProviderRegistry(get_settings())
     bruto = await _pedir_a_la_ia(registro, [
         {"role": "system", "content": _INSTRUCCION_INTERPRETAR},
-        {"role": "user", "content": "CATÁLOGO:\n" + clinica_base.catalogo_plano()
-                                    + "\n\nCASO:\n" + texto},
-    ], temperatura=0.0)
+        {"role": "user", "content": "CASO:\n" + texto},
+    ], temperatura=0.1)
 
     vistos: set[str] = set()
     salida = []
-    descartados = 0
+    sin_sitio: list[str] = []
     for item in _extraer_lista(bruto):
         if not isinstance(item, dict):
             continue
-        hid = item.get("id")
-        # El filtro contra el catalogo es lo que sostiene todo esto: si el
-        # modelo se inventa un identificador, aqui se cae y no llega a la
-        # pantalla.
-        if hid not in clinica_base.HALLAZGOS_POR_ID or hid in vistos:
-            if hid not in clinica_base.HALLAZGOS_POR_ID:
-                descartados += 1
+        frase = (item.get("hallazgo") or "").strip()
+        if not frase:
             continue
         estado = item.get("estado")
         if estado not in ("presente", "ausente"):
             estado = "presente"
+
+        hid = clinica_texto.emparejar(frase)
+        # Lo que no encuentra sitio NO se tira en silencio: se devuelve para
+        # poder enseñarlo. Que la app se coma un dato sin decir nada seria el
+        # mismo fallo callado que perseguimos en todo lo demas.
+        if hid is None:
+            sin_sitio.append(frase)
+            continue
+        if hid in vistos:
+            continue
         vistos.add(hid)
         h = clinica_base.HALLAZGOS_POR_ID[hid]
         salida.append({"id": hid, "nombre": h["nombre"], "bloque": h["bloque"],
-                       "pestana": h["pestana"], "estado": estado})
+                       "pestana": h["pestana"], "estado": estado, "dijiste": frase})
 
-    return {"propuestos": salida, "descartados": descartados, "aviso": AVISO}
+    return {"propuestos": salida, "sin_sitio": sin_sitio, "aviso": AVISO}
 
 
 @router.post("/imagen")

@@ -218,7 +218,8 @@
       </div>
     </div>
     <div id="listaDatos"></div>
-    <button class="cian" onclick="abrirSelector()">➕ Añadir dato</button>
+    <div class="et" style="margin:16px 0 0">Añadir dato · por dónde</div>
+    <div id="atajos"></div>
     <button class="gris" onclick="limpiar()">🧹 Empezar de cero</button>
     <div id="estado"></div>
   </div>
@@ -356,6 +357,7 @@ async function arrancar() {
     if (!r.ok) throw new Error(await detalle(r));
     CATALOGO = await r.json();
     document.getElementById('aviso').textContent = CATALOGO.aviso;
+    pintarAtajos();
     decir('');
     recalcular();
     verCasos();
@@ -619,6 +621,22 @@ function pintarFicha(f) {
 // =====================================================================
 let pestanaActiva = 'clinica';
 
+// LAS PESTAÑAS, A LA VISTA.
+//
+// Al principio solo aparecían dentro del cajón de "Añadir dato", así que
+// desde la pantalla no se veía por ningún lado que existieran hemograma,
+// cultivos o imagen. Una función que no se ve es una función que no está:
+// aquí van los siete accesos directos, cada uno abre el cajón en su sitio.
+const ICONOS = { clinica:'🩺', hemograma:'🩸', coagulacion:'🧪', bioquimica:'⚗️',
+                 cultivos:'🦠', imagen:'🖼️', especiales:'💉' };
+
+function pintarAtajos() {
+  document.getElementById('atajos').innerHTML = (CATALOGO.pestanas || [])
+    .map(p => `<button class="cian" onclick="abrirSelector('${p.clave}')">
+                 ${ICONOS[p.clave] || '➕'} ${escapar(p.titulo)}</button>`)
+    .join('');
+}
+
 function abrirSelector(pestana) {
   if (!CATALOGO) { decir('Todavía no se ha cargado el catálogo.'); return; }
   if (pestana) pestanaActiva = pestana;
@@ -684,7 +702,7 @@ async function interpretar() {
     if (!r.ok) throw new Error(await detalle(r));
     const d = await r.json();
     propuestos = d.propuestos || [];
-    pintarPropuestas(d.descartados || 0);
+    pintarPropuestas(d.sin_sitio || []);
   } catch (e) {
     hueco.innerHTML = '<div class="ficha" style="white-space:pre-wrap">No se ha podido interpretar.\n\n'
                       + escapar(e.message) + '</div>';
@@ -694,43 +712,53 @@ async function interpretar() {
 // Nada entra solo. Se propone y se acepta uno a uno: si la IA entiende mal
 // una frase y ese dato entrara directo, el diferencial saldría torcido sin
 // que nadie se enterase.
-function pintarPropuestas(descartados) {
+let sinSitio = [];
+
+function pintarPropuestas(nuevosSinSitio) {
+  if (Array.isArray(nuevosSinSitio)) sinSitio = nuevosSinSitio;
   const hueco = document.getElementById('propuestas');
   const nuevos = propuestos.filter(p => !datos.some(d => d.id === p.id));
+
+  // Lo que no encuentra sitio en el catálogo se enseña, no se tira en
+  // silencio: si la app se come un dato sin decir nada, uno se queda
+  // creyendo que lo ha metido.
+  const sobras = sinSitio.length ? `
+    <div class="et" style="margin:16px 0 0">Esto no está en el catálogo</div>
+    <div class="vacio">${sinSitio.map(escapar).join(' · ')}<br>
+    Si te parece importante, dímelo y lo añado al catálogo.</div>` : '';
+
   if (!nuevos.length) {
     hueco.innerHTML = '<div class="vacio">' +
       (propuestos.length ? 'Todo lo que he sacado ya estaba en el caso.'
                          : 'No he reconocido ningún hallazgo del catálogo en ese texto.') +
-      '</div>';
+      '</div>' + sobras;
     return;
   }
-  const aviso = descartados
-    ? `<div class="vacio">He descartado ${descartados} cosa${descartados === 1 ? '' : 's'} que no están en el catálogo.</div>` : '';
   hueco.innerHTML = `<div class="et" style="margin:16px 0 0">He entendido esto · acéptalo o no</div>` +
     nuevos.map(p => `
       <div class="propuesta ${p.estado === 'ausente' ? 'ausente' : ''}">
         <span class="nom">${p.estado === 'ausente' ? 'NO · ' : ''}${escapar(p.nombre)}
-          <span class="don">· ${escapar(p.bloque)}</span></span>
+          <span class="don">· ${escapar(p.bloque)}${p.dijiste && p.dijiste.toLowerCase() !== p.nombre.toLowerCase()
+            ? ' · tú dijiste "' + escapar(p.dijiste) + '"' : ''}</span></span>
         <button class="cian mini" onclick="aceptar('${p.id}')">Añadir</button>
         <button class="gris mini" onclick="rechazar('${p.id}')">✕</button>
       </div>`).join('') +
-    aviso +
-    `<button class="cian" onclick="aceptarTodo()">✓ Añadirlos todos</button>`;
+    `<button class="cian" onclick="aceptarTodo()">✓ Añadirlos todos</button>` + sobras;
 }
 
 function aceptar(id) {
   const p = propuestos.find(x => x.id === id);
   if (p) meter(p.id, p.estado);
-  pintarPropuestas(0);
+  pintarPropuestas();
 }
 function rechazar(id) {
   propuestos = propuestos.filter(x => x.id !== id);
-  pintarPropuestas(0);
+  pintarPropuestas();
 }
 function aceptarTodo() {
   for (const p of propuestos) if (!datos.some(d => d.id === p.id)) datos.push({ id: p.id, estado: p.estado });
   recalcular();
-  pintarPropuestas(0);
+  pintarPropuestas();
 }
 
 // =====================================================================
