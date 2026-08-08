@@ -145,7 +145,14 @@ def _construir_indice() -> list[tuple[str, list[set[str]]]]:
         # "equimosis" contra "Equimosis / hematomas espontáneos" solo cubria
         # una de tres palabras y se quedaba por debajo del corte, asi que un
         # hallazgo que SI estaba en el catalogo salia como desconocido.
-        bolsas = [set(_normalizar(parte)) for parte in re.split(r"[/,]", h["nombre"])]
+        #
+        # El parentesis se quita ANTES de partir. Al reves fallaba de una
+        # forma tonta y dificil de ver: "Pica (comer hielo, tierra)" se
+        # partia por la coma en "Pica (comer hielo" -sin cerrar-, el
+        # parentesis ya no se reconocia, y "pica" competia contra tres
+        # palabras en vez de contra una.
+        limpio = re.sub(r"\([^)]*\)", " ", h["nombre"])
+        bolsas = [set(_normalizar(p)) for p in re.split(r"[/,]| o ", limpio)]
         for extra in _SINONIMOS.get(h["id"], []):
             b = set(_normalizar(extra))
             if b:

@@ -67,6 +67,7 @@ COSTES = {
     "Hemograma": 4,
     "Coagulación": 4,
     "Bioquímica": 4,
+    "Hierro y vitaminas": 4,
     "Electrocardiograma": 3,
     "Microbiología": 5,
     "Otros aparatos": 2,
@@ -95,6 +96,8 @@ _bloque("Generales", {
     "ictericia": "Ictericia",
     "mialgias": "Mialgias",
     "artralgias": "Artralgias",
+    "pica": "Pica (comer hielo, tierra)",
+    "crisis_dolorosas": "Crisis dolorosas óseas o abdominales",
 })
 
 _bloque("Curso", {
@@ -233,6 +236,10 @@ _bloque("Exploración", {
     "tumefaccion_articular": "Tumefacción articular",
     "hemartros": "Hemartros (sangre en la articulación)",
     "eritema_local": "Eritema local",
+    "glositis": "Glositis",
+    "queilitis_angular": "Queilitis angular",
+    "coiloniquia": "Coiloniquia (uñas en cuchara)",
+    "coluria": "Coluria (orina oscura)",
 })
 
 _bloque("Analítica", {
@@ -275,6 +282,28 @@ _bloque("Analítica", {
     "rabdomiolisis": "Rabdomiólisis (CK muy elevada)",
     "ttpa_prolongado": "TTPA prolongado",
     "dimero_d_elevado": "Dímero D elevado",
+    "microcitosis": "Microcitosis (VCM bajo)",
+    "hipocromia": "Hipocromía (HCM baja)",
+    "reticulocitos_altos": "Reticulocitos altos",
+    "reticulocitos_bajos": "Reticulocitos bajos o inadecuados",
+    "esferocitos": "Esferocitos en el frotis",
+    "dianocitos": "Dianocitos (células en diana)",
+    "drepanocitos": "Drepanocitos (hematíes falciformes)",
+    "cuerpos_heinz": "Cuerpos de Heinz",
+    "punteado_basofilo": "Punteado basófilo",
+    "neutrofilos_hipersegmentados": "Neutrófilos hipersegmentados",
+    "rouleaux": "Fenómeno de rouleaux",
+    "ferritina_baja": "Ferritina baja",
+    "ferritina_alta": "Ferritina alta",
+    "sideremia_baja": "Sideremia baja",
+    "ist_bajo": "Índice de saturación de transferrina bajo",
+    "transferrina_alta": "Transferrina alta",
+    "b12_baja": "Vitamina B12 baja",
+    "folico_bajo": "Ácido fólico bajo",
+    "haptoglobina_baja": "Haptoglobina baja",
+    "bilirrubina_indirecta_alta": "Bilirrubina indirecta alta",
+    "coombs_positivo": "Test de Coombs directo positivo",
+    "electroforesis_hb_alterada": "Electroforesis de hemoglobina alterada",
 })
 
 _bloque("Líquido cefalorraquídeo", {
@@ -320,6 +349,14 @@ _bloque("Antecedentes y riesgo", {
     "puerperio": "Embarazo o puerperio",
     "diabetes": "Diabetes mellitus",
     "antecedente_familiar_sangrado": "Antecedentes familiares de sangrado",
+    "menorragia": "Menorragia o sangrado ginecológico",
+    "sangrado_digestivo": "Sangrado digestivo",
+    "dieta_vegetariana_estricta": "Dieta vegetariana estricta",
+    "gastrectomia": "Gastrectomía o cirugía bariátrica",
+    "origen_mediterraneo_africano": "Origen mediterráneo, africano o asiático",
+    "farmacos_oxidantes": "Toma de fármacos oxidantes o habas",
+    "transfusiones_repetidas": "Transfusiones repetidas",
+    "esplenectomia_o_asplenia": "Esplenectomía o asplenia funcional",
 })
 
 _bloque("Otros aparatos", {
@@ -386,6 +423,15 @@ _REPARTO_ANALITICA = {
         "linfocitosis_absoluta", "basofilia", "anemia", "macrocitosis", "eritrocitosis",
         "trombopenia", "trombocitosis", "pancitopenia", "blastos_sangre",
         "esquistocitos", "leucoeritroblastosis", "dacriocitos", "displasia_medular",
+        "microcitosis", "hipocromia", "reticulocitos_altos", "reticulocitos_bajos",
+        "esferocitos", "dianocitos", "drepanocitos", "cuerpos_heinz",
+        "punteado_basofilo", "neutrofilos_hipersegmentados", "rouleaux",
+    ],
+    "Hierro y vitaminas": [
+        "ferritina_baja", "ferritina_alta", "sideremia_baja", "ist_bajo",
+        "transferrina_alta", "b12_baja", "folico_bajo", "haptoglobina_baja",
+        "bilirrubina_indirecta_alta", "coombs_positivo",
+        "electroforesis_hb_alterada",
     ],
     "Coagulación": ["tp_alargado", "hipofibrinogenemia",
                     "ttpa_prolongado", "dimero_d_elevado"],
@@ -414,6 +460,7 @@ PESTANAS = [
     ("hemograma", "Hemograma", ["Hemograma"]),
     ("coagulacion", "Coagulación", ["Coagulación"]),
     ("bioquimica", "Bioquímica", ["Bioquímica"]),
+    ("hierro", "Hierro y vitaminas", ["Hierro y vitaminas"]),
     ("cultivos", "Cultivos", ["Microbiología"]),
     ("imagen", "Imagen", ["Imagen"]),
     ("ecg", "ECG", ["Electrocardiograma"]),
