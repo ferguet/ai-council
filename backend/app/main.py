@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.agents.presets import ROLE_PRESETS
 from app.api.city import router as city_router
 from app.api.clases import router as clases_router
+from app.api.clinica import router as clinica_router
 from app.api.policia import router as policia_router
 from app.api.conversation import router as conversation_router
 from app.api.guardian import router as guardian_router
@@ -68,6 +69,7 @@ app.include_router(conversation_router)
 app.include_router(guardian_router)
 app.include_router(uso_router)
 app.include_router(clases_router)
+app.include_router(clinica_router)
 app.include_router(policia_router)
 
 

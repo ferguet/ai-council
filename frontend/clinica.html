@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<!--
+  LABERINTO CLINICO.
+
+  Metes datos clinicos poco a poco y ves, en cada paso, que sigue en pie y
+  que se ha caido. Lo importante no es el resultado final: es el camino.
+
+  Dos decisiones de fondo que explican casi todo el diseño de esta pantalla:
+
+  1. LO DESCARTADO NO DESAPARECE. Se queda abajo, tachado y con el motivo
+     al lado. Si algo se cae, quieres saber que lo mato -eso es justo lo
+     que se esta aprendiendo aqui-.
+
+  2. LOS DATOS SE ELIGEN DE UNA LISTA, no se escriben. Escribir seria mas
+     comodo, y cada interpretacion seria una ocasion de equivocarse en
+     silencio: el motor ordenaria mal el diferencial sin avisar de nada.
+     La comodidad se recupera con el buscador, que es un problema de
+     pantalla y no de fiabilidad.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laberinto Clínico</title>
+<link rel="manifest" href="clinica.webmanifest">
+<meta name="theme-color" content="#0B1020">
+<link rel="apple-touch-icon" href="clinica-192.png">
+<style>
+  :root {
+    --fondo:#0B1020; --panel:rgba(28,38,58,.72); --texto:#EEF2F8;
+    --suave:#94A3B8; --linea:rgba(148,163,184,.18);
+    --acento:#06B6D4; --acento2:#8B5CF6;
+    --verde:#22C55E; --ambar:#F59E0B; --rojo:#EF4444;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--texto); min-height:100vh;
+         background:
+           radial-gradient(1200px 700px at 15% -5%, rgba(6,182,212,.16), transparent 60%),
+           radial-gradient(900px 600px at 95% 10%, rgba(139,92,246,.13), transparent 60%),
+           radial-gradient(800px 800px at 50% 110%, rgba(34,197,94,.10), transparent 60%),
+           linear-gradient(175deg, #0B1020 0%, #0E1526 50%, #0B1020 100%);
+         background-attachment:fixed;
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  .envoltura { position:relative; z-index:1; max-width:760px; margin:0 auto; padding:22px 16px 60px; }
+
+  header { text-align:center; margin:10px 0 22px; }
+  header h1 { margin:0; font-size:30px; letter-spacing:-.02em;
+              background:linear-gradient(120deg,#67E8F9,#A78BFA);
+              -webkit-background-clip:text; background-clip:text; color:transparent; }
+  header p { margin:8px 0 0; color:var(--suave); font-size:14px; line-height:1.5; }
+
+  .panel { background:var(--panel); border:1px solid var(--linea); border-radius:20px;
+           padding:20px; margin-bottom:16px;
+           backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+           box-shadow:0 10px 30px rgba(0,0,0,.28); }
+  .et { font-size:11px; letter-spacing:.14em; color:#8FA0B8; text-transform:uppercase;
+        margin-bottom:12px; font-weight:700; }
+
+  button { border:0; border-radius:14px; padding:12px 18px; font-size:15px; font-weight:650;
+           color:#fff; cursor:pointer; margin:6px 6px 0 0;
+           box-shadow:0 6px 16px rgba(0,0,0,.26);
+           transition:transform .14s ease, filter .14s ease; }
+  button:hover:not(:disabled) { transform:translateY(-2px); filter:brightness(1.1); }
+  button:disabled { opacity:.38; cursor:default; box-shadow:none; }
+  .cian { background:linear-gradient(135deg,#0891B2,#0E7490); }
+  .morado{ background:linear-gradient(135deg,#8B5CF6,#6D28D9); }
+  .gris { background:linear-gradient(135deg,rgba(51,65,85,.9),rgba(30,41,59,.9));
+          border:1px solid var(--linea); }
+
+  input, select { width:100%; padding:12px 14px; border-radius:14px;
+         background:rgba(8,13,25,.7); border:1px solid var(--linea);
+         color:var(--texto); font-size:15px; font-family:inherit; }
+  input:focus, select:focus { outline:2px solid var(--acento); outline-offset:-1px; }
+  select option { background:#0E1526; }
+
+  .aviso { font-size:13px; line-height:1.55; color:#CBD5E1;
+           background:rgba(239,68,68,.10); border:1px solid rgba(239,68,68,.35);
+           border-radius:14px; padding:12px 14px; }
+
+  .fila2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* ---- datos metidos ---- */
+  .dato { display:flex; align-items:center; gap:10px; padding:9px 12px; margin-top:8px;
+          background:rgba(8,13,25,.55); border:1px solid var(--linea); border-radius:12px;
+          font-size:15px; }
+  .dato .nom { flex:1; }
+  .dato.ausente .nom { color:var(--suave); text-decoration:line-through; }
+  .dato .mini { padding:5px 10px; font-size:12px; margin:0; border-radius:9px; }
+
+  /* ---- chips de sugerencia ---- */
+  .chip { display:inline-flex; align-items:center; gap:8px; margin:6px 6px 0 0;
+          padding:9px 13px; border-radius:999px; font-size:14px; cursor:default;
+          background:rgba(6,182,212,.12); border:1px solid rgba(6,182,212,.4); }
+  .chip b { font-weight:600; }
+  .chip button { margin:0; padding:4px 9px; font-size:12px; border-radius:8px;
+                 box-shadow:none; }
+
+  /* ---- sistemas ---- */
+  .sis { display:flex; align-items:center; gap:11px; padding:11px 13px; margin-top:8px;
+         border-radius:12px; background:rgba(8,13,25,.5); border:1px solid var(--linea);
+         font-size:15px; }
+  .punto { width:11px; height:11px; border-radius:50%; flex:0 0 auto; }
+  .sis .est { margin-left:auto; font-size:12px; color:var(--suave); }
+
+  /* ---- posibilidades ---- */
+  .pat { padding:13px; margin-top:9px; border-radius:14px;
+         background:rgba(8,13,25,.55); border:1px solid var(--linea); cursor:pointer; }
+  .pat:hover { border-color:rgba(6,182,212,.45); }
+  .pat .cab { display:flex; align-items:baseline; gap:10px; }
+  .pat .nom { flex:1; font-size:16px; font-weight:600; }
+  .pat .pct { font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .pat .flecha { font-size:13px; }
+  .barra { height:6px; border-radius:999px; background:rgba(148,163,184,.16);
+           margin:9px 0 8px; overflow:hidden; }
+  .relleno { height:100%; border-radius:999px; transition:width .3s ease; }
+  .motivos { font-size:13px; color:#B6C2D2; line-height:1.6; }
+  .motivos .sube { color:#6EE7B7; }
+  .motivos .baja { color:#FCA5A5; }
+  .pat.muerta { opacity:.62; cursor:pointer; }
+  .pat.muerta .nom { text-decoration:line-through; color:var(--suave); }
+
+  .reserva { margin-top:12px; font-size:13px; color:var(--suave);
+             padding:10px 12px; border-radius:12px; border:1px dashed var(--linea); }
+
+  /* ---- ficha ---- */
+  .ficha { margin-top:10px; padding:14px; border-radius:12px;
+           background:rgba(6,182,212,.07); border:1px solid rgba(6,182,212,.28);
+           font-size:14px; line-height:1.65; white-space:pre-wrap; }
+  .ficha h4 { margin:14px 0 4px; font-size:12px; letter-spacing:.1em; color:#67E8F9;
+              text-transform:uppercase; }
+  .ficha h4:first-child { margin-top:0; }
+  .etiquetas { margin-bottom:10px; }
+  .tag { display:inline-block; margin:3px 5px 0 0; padding:4px 9px; border-radius:8px;
+         font-size:12px; background:rgba(148,163,184,.12); border:1px solid var(--linea); }
+  .tag.tipico { background:rgba(34,197,94,.15); border-color:rgba(34,197,94,.4); }
+  .tag.incompatible { background:rgba(239,68,68,.14); border-color:rgba(239,68,68,.4); }
+
+  /* ---- selector ---- */
+  .velo { position:fixed; inset:0; background:rgba(5,8,16,.82); z-index:50;
+          display:none; align-items:flex-end; justify-content:center; }
+  .velo.abierto { display:flex; }
+  .cajon { background:#0E1526; border:1px solid var(--linea); width:100%; max-width:760px;
+           border-radius:22px 22px 0 0; max-height:88vh; display:flex; flex-direction:column; }
+  .cajon .arriba { padding:16px; border-bottom:1px solid var(--linea); }
+  .cajon .lista { overflow-y:auto; padding:8px 16px 20px; }
+  .grupo { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:#8FA0B8;
+           margin:16px 0 6px; font-weight:700; }
+  .opcion { display:flex; align-items:center; gap:10px; padding:11px 12px; margin-top:6px;
+            border-radius:12px; background:rgba(8,13,25,.6); border:1px solid var(--linea);
+            font-size:15px; }
+  .opcion .nom { flex:1; }
+  .opcion .mini { margin:0; padding:6px 11px; font-size:12px; border-radius:9px; }
+  .opcion.puesto { opacity:.4; }
+
+  .vacio { color:var(--suave); font-size:14px; padding:6px 0; }
+  .caso { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-top:8px;
+          background:rgba(8,13,25,.55); border:1px solid var(--linea); border-radius:12px;
+          font-size:15px; }
+  .caso .nom { flex:1; }
+  .caso .mini { margin:0; padding:6px 11px; font-size:12px; border-radius:9px; }
+  #estado { margin-top:12px; font-size:14px; color:var(--suave); white-space:pre-line; }
+  .oculto { display:none; }
+</style>
+</head>
+<body>
+<div class="envoltura">
+
+  <header>
+    <h1>Laberinto Clínico</h1>
+    <p>Mete datos y mira cómo se va cerrando el diferencial.<br>Lo que importa es por qué se descarta cada cosa.</p>
+  </header>
+
+  <div class="panel">
+    <div class="aviso" id="aviso">Herramienta de estudio. No sirve para diagnosticar a ninguna persona.</div>
+  </div>
+
+  <div class="panel">
+    <div class="et">El caso</div>
+    <div class="fila2">
+      <div>
+        <input type="number" id="edad" placeholder="Edad" min="0" max="120" oninput="recalcular()">
+      </div>
+      <div>
+        <select id="sexo" onchange="recalcular()">
+          <option value="">Sexo (sin especificar)</option>
+          <option value="varon">Varón</option>
+          <option value="mujer">Mujer</option>
+        </select>
+      </div>
+    </div>
+    <div id="listaDatos"></div>
+    <button class="cian" onclick="abrirSelector()">➕ Añadir dato</button>
+    <button class="gris" onclick="limpiar()">🧹 Empezar de cero</button>
+    <div id="estado"></div>
+  </div>
+
+  <div class="panel oculto" id="panelSugerencias">
+    <div class="et">Qué conviene preguntar ahora</div>
+    <div id="listaSugerencias"></div>
+  </div>
+
+  <div class="panel">
+    <div class="et">Sistemas</div>
+    <div id="listaSistemas"><div class="vacio">Mete algún dato para empezar.</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="et">Posibilidades</div>
+    <div id="listaPatologias"><div class="vacio">Todavía no hay nada que ordenar.</div></div>
+    <div id="reserva"></div>
+  </div>
+
+  <div class="panel">
+    <div class="et">Casos guardados</div>
+    <div class="fila2">
+      <input type="text" id="nombreCaso" placeholder="Nombre del caso">
+      <button class="morado" onclick="guardarCaso()">💾 Guardar este caso</button>
+    </div>
+    <div id="listaCasos"><div class="vacio">Ninguno guardado todavía.</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="et">Servidor</div>
+    <input type="text" id="servidor">
+    <button class="gris" onclick="arrancar()">🔌 Volver a conectar</button>
+  </div>
+
+</div>
+
+<div class="velo" id="velo" onclick="if(event.target===this) cerrarSelector()">
+  <div class="cajon">
+    <div class="arriba">
+      <input type="text" id="buscador" placeholder="Buscar hallazgo..." oninput="pintarOpciones()">
+      <button class="gris" style="width:100%;margin-top:10px" onclick="cerrarSelector()">Cerrar</button>
+    </div>
+    <div class="lista" id="listaOpciones"></div>
+  </div>
+</div>
+
+<script>
+// La direccion se recuerda en el navegador y se puede cambiar a mano: saber
+// a donde llama la pagina no deberia ser un misterio cuando algo falla.
+const campoServidor = document.getElementById('servidor');
+campoServidor.value = localStorage.getItem('clinica_servidor') || window.location.origin;
+
+function base() {
+  const v = campoServidor.value.trim().replace(/\/+$/, '');
+  localStorage.setItem('clinica_servidor', v);
+  return v;
+}
+
+// Cada aparato, lo suyo: mismo planteamiento que en Clases. No hay usuarios
+// ni contraseñas -es mas de lo que esto necesita-, solo un identificador
+// que el navegador se pone a si mismo para que dos personas que llamen
+// "cefalea" a su caso no se pisen.
+function idDispositivo() {
+  let id = localStorage.getItem('clinica_dispositivo');
+  if (!id) {
+    id = 'd_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('clinica_dispositivo', id);
+  }
+  return id;
+}
+function conDispositivo(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'propietario=' + encodeURIComponent(idDispositivo());
+}
+
+let CATALOGO = null;
+let datos = [];          // [{id, estado}]
+let previas = {};        // puntuacion anterior, solo para las flechitas
+let abierta = null;      // patologia desplegada
+const fichas = {};       // cache en memoria de las fichas ya pedidas
+
+const estado = document.getElementById('estado');
+function decir(t) { estado.textContent = t || ''; }
+
+function escapar(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// =====================================================================
+// ARRANQUE
+// =====================================================================
+async function arrancar() {
+  decir('Conectando...');
+  try {
+    const r = await fetch(base() + '/clinica/catalogo');
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    CATALOGO = await r.json();
+    document.getElementById('aviso').textContent = CATALOGO.aviso;
+    decir('');
+    recalcular();
+    verCasos();
+  } catch (e) {
+    decir('No se ha podido conectar: ' + e.message +
+          '\nSi el servidor estaba dormido, tarda hasta un minuto en despertar. Prueba otra vez.');
+  }
+}
+
+// =====================================================================
+// LOS DATOS DEL CASO
+// =====================================================================
+function nombreDe(id) {
+  if (!CATALOGO) return id;
+  for (const b of CATALOGO.bloques) {
+    for (const h of b.hallazgos) if (h.id === id) return h.nombre;
+  }
+  return id;
+}
+
+function pintarDatos() {
+  const c = document.getElementById('listaDatos');
+  if (!datos.length) { c.innerHTML = ''; return; }
+  c.innerHTML = datos.map((d, i) => `
+    <div class="dato ${d.estado === 'ausente' ? 'ausente' : ''}">
+      <span class="nom">${d.estado === 'ausente' ? 'NO · ' : ''}${escapar(nombreDe(d.id))}</span>
+      <button class="gris mini" onclick="alternarDato(${i})">${d.estado === 'ausente' ? 'Sí lo tiene' : 'No lo tiene'}</button>
+      <button class="gris mini" onclick="quitarDato(${i})">✕</button>
+    </div>`).join('');
+}
+
+function alternarDato(i) {
+  datos[i].estado = datos[i].estado === 'ausente' ? 'presente' : 'ausente';
+  recalcular();
+}
+function quitarDato(i) { datos.splice(i, 1); recalcular(); }
+
+function meter(id, estadoDato) {
+  if (datos.some(d => d.id === id)) return;
+  datos.push({ id, estado: estadoDato });
+  recalcular();
+}
+
+function limpiar() {
+  datos = []; previas = {}; abierta = null;
+  document.getElementById('edad').value = '';
+  document.getElementById('sexo').value = '';
+  document.getElementById('nombreCaso').value = '';
+  recalcular();
+}
+
+// =====================================================================
+// EVALUAR
+// =====================================================================
+function paquete() {
+  const salida = datos.slice();
+  const edad = document.getElementById('edad').value;
+  const sexo = document.getElementById('sexo').value;
+  if (edad !== '') salida.push({ id: '_edad', valor: Number(edad) });
+  if (sexo) salida.push({ id: '_sexo', valor: sexo });
+  return salida;
+}
+
+let pendiente = null;
+function recalcular() {
+  pintarDatos();
+  if (!CATALOGO) return;
+  clearTimeout(pendiente);
+  pendiente = setTimeout(evaluar, 120);
+}
+
+async function evaluar() {
+  try {
+    const r = await fetch(base() + '/clinica/evaluar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ datos: paquete(), previas })
+    });
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    const d = await r.json();
+    previas = d.puntos || {};
+    pintarSistemas(d);
+    pintarPatologias(d);
+    pintarSugerencias(d);
+    decir('');
+  } catch (e) {
+    decir('No se ha podido calcular: ' + e.message);
+  }
+}
+
+const COLOR_SIS = { en_juego:'var(--verde)', poco_probable:'var(--ambar)',
+                    descartado:'#64748B', sin_datos:'#64748B' };
+const TEXTO_SIS = { en_juego:'en juego', poco_probable:'poco probable',
+                    descartado:'descartado', sin_datos:'sin datos' };
+
+function pintarSistemas(d) {
+  const c = document.getElementById('listaSistemas');
+  if (!d.sistemas.length) { c.innerHTML = '<div class="vacio">Sin sistemas.</div>'; return; }
+  c.innerHTML = d.sistemas.map(s => `
+    <div class="sis">
+      <span class="punto" style="background:${COLOR_SIS[s.estado]}"></span>
+      <span>${escapar(CATALOGO.sistemas[s.sistema] || s.sistema)}</span>
+      <span class="est">${TEXTO_SIS[s.estado]}${s.estado === 'descartado' ? '' : ' · ' + s.vivas + '/' + s.total}</span>
+    </div>`).join('');
+}
+
+function colorPct(p) {
+  return p >= 40 ? 'var(--verde)' : p >= 15 ? 'var(--acento)' : 'var(--suave)';
+}
+
+function textoMotivos(f) {
+  // Solo los cuatro que mas pesan. La ficha entera esta a un toque; aqui lo
+  // que hace falta es entender de un vistazo por que esta donde esta.
+  const ms = f.motivos.slice().sort((a, b) => Math.abs(b.puntos) - Math.abs(a.puntos)).slice(0, 4);
+  if (!ms.length) return '<span style="color:var(--suave)">sin coincidencias todavía</span>';
+  return ms.map(m => {
+    const nom = m.hallazgo === '_edad' ? 'edad'
+              : m.hallazgo === '_sexo' ? 'sexo'
+              : nombreDe(m.hallazgo);
+    const pre = m.estado === 'ausente' ? 'sin ' : '';
+    const cls = m.puntos > 0 ? 'sube' : 'baja';
+    const flecha = m.puntos > 0 ? '↑' : '↓';
+    return `<span class="${cls}">${flecha} ${escapar(pre + nom)}</span>`;
+  }).join(' · ');
+}
+
+function pintarPatologias(d) {
+  const c = document.getElementById('listaPatologias');
+  const trozos = [];
+
+  for (const f of d.vivas) {
+    const flecha = f.tendencia > 0 ? '<span class="flecha" style="color:#6EE7B7">▲</span>'
+                 : f.tendencia < 0 ? '<span class="flecha" style="color:#FCA5A5">▼</span>' : '';
+    trozos.push(`
+      <div class="pat" onclick="abrirFicha('${f.id}')">
+        <div class="cab">
+          <span class="nom">${escapar(f.nombre)}</span>
+          ${flecha}
+          <span class="pct" style="color:${colorPct(f.porcentaje)}">${f.porcentaje}%</span>
+        </div>
+        <div class="barra"><div class="relleno" style="width:${f.porcentaje}%;background:${colorPct(f.porcentaje)}"></div></div>
+        <div class="motivos">${textoMotivos(f)}</div>
+        <div id="ficha_${f.id}"></div>
+      </div>`);
+  }
+
+  for (const f of d.descartadas) {
+    const culpa = f.descartada_por === '_sexo' ? 'el sexo' : nombreDe(f.descartada_por);
+    trozos.push(`
+      <div class="pat muerta" onclick="abrirFicha('${f.id}')">
+        <div class="cab"><span class="nom">${escapar(f.nombre)}</span>
+        <span class="pct" style="color:var(--rojo);font-size:14px">descartada</span></div>
+        <div class="motivos"><span class="baja">✗ ${escapar(culpa)}</span></div>
+        <div id="ficha_${f.id}"></div>
+      </div>`);
+  }
+
+  c.innerHTML = trozos.join('') || '<div class="vacio">Todavía no hay nada que ordenar.</div>';
+
+  // El hueco de lo que aun no se sabe se enseña, no se disimula: es
+  // informacion. Un 47% con dos datos dice algo muy distinto de un 47%
+  // con diez, y quien estudia tiene que poder notar la diferencia.
+  const r = document.getElementById('reserva');
+  r.innerHTML = (d.hay_datos && d.sin_concretar > 0)
+    ? `<div class="reserva">Queda un <b>${d.sin_concretar}%</b> sin concretar: con ${d.datos_metidos} dato${d.datos_metidos === 1 ? '' : 's'} todavía falta información. Los porcentajes subirán según metas más.</div>`
+    : '';
+}
+
+function pintarSugerencias(d) {
+  const p = document.getElementById('panelSugerencias');
+  const c = document.getElementById('listaSugerencias');
+  const s = (d.sugerencias || []).filter(x => !datos.some(y => y.id === x.id));
+  if (!s.length) { p.classList.add('oculto'); return; }
+  p.classList.remove('oculto');
+  c.innerHTML = s.map(x => `
+    <span class="chip">
+      <b>${escapar(x.nombre)}</b>
+      <button class="cian" onclick="meter('${x.id}','presente')">Sí</button>
+      <button class="gris" onclick="meter('${x.id}','ausente')">No</button>
+    </span>`).join('');
+}
+
+// =====================================================================
+// FICHA DE UNA PATOLOGIA
+// =====================================================================
+async function abrirFicha(id) {
+  const hueco = document.getElementById('ficha_' + id);
+  if (!hueco) return;
+  if (abierta === id) { hueco.innerHTML = ''; abierta = null; return; }
+  if (abierta) { const v = document.getElementById('ficha_' + abierta); if (v) v.innerHTML = ''; }
+  abierta = id;
+
+  if (fichas[id]) { hueco.innerHTML = pintarFicha(fichas[id]); return; }
+
+  hueco.innerHTML = '<div class="ficha">Preparando la ficha...</div>';
+  try {
+    const r = await fetch(base() + '/clinica/ficha/' + encodeURIComponent(id));
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    const f = await r.json();
+    fichas[id] = f;
+    if (abierta === id) hueco.innerHTML = pintarFicha(f);
+  } catch (e) {
+    hueco.innerHTML = '<div class="ficha">No se ha podido cargar la explicación: ' +
+                      escapar(e.message) + '</div>';
+  }
+}
+
+const APARTADOS = ['POR QUE DA ESTA CLINICA', 'QUE SE PIDE Y POR QUE', 'QUE ESPERAMOS VER',
+                   'TRATAMIENTO', 'QUE ESPERAMOS DEL TRATAMIENTO', 'EFECTOS SECUNDARIOS'];
+const BONITO = { 'POR QUE DA ESTA CLINICA':'Por qué da esta clínica',
+                 'QUE SE PIDE Y POR QUE':'Qué se pide y por qué',
+                 'QUE ESPERAMOS VER':'Qué esperamos ver',
+                 'TRATAMIENTO':'Tratamiento',
+                 'QUE ESPERAMOS DEL TRATAMIENTO':'Qué esperamos del tratamiento',
+                 'EFECTOS SECUNDARIOS':'Efectos secundarios' };
+
+function pintarFicha(f) {
+  const tags = f.hallazgos.filter(h => h.relacion === 'tipico' || h.relacion === 'incompatible')
+    .map(h => `<span class="tag ${h.relacion}">${h.relacion === 'incompatible' ? '✗ ' : ''}${escapar(h.nombre)}</span>`)
+    .join('');
+
+  let cuerpo = escapar(f.explicacion || '');
+  for (const a of APARTADOS) {
+    cuerpo = cuerpo.replace(new RegExp('^' + a + ':?\\s*$', 'mi'), '<h4>' + BONITO[a] + '</h4>');
+  }
+
+  const edad = f.edad_tipica ? `${f.edad_tipica[0]}-${f.edad_tipica[1]} años` : '—';
+  return `<div class="ficha" onclick="event.stopPropagation()">
+    <div class="etiquetas">
+      <span class="tag">${escapar(f.sistemas.join(' · '))}</span>
+      <span class="tag">Edad ${edad}</span>
+      ${tags}
+    </div>
+    ${f.genetica ? '<h4>Genética</h4>' + escapar(f.genetica) : ''}
+    ${cuerpo}
+  </div>`;
+}
+
+// =====================================================================
+// SELECTOR DE HALLAZGOS
+// =====================================================================
+function abrirSelector() {
+  if (!CATALOGO) { decir('Todavía no se ha cargado el catálogo.'); return; }
+  document.getElementById('buscador').value = '';
+  document.getElementById('velo').classList.add('abierto');
+  pintarOpciones();
+  document.getElementById('buscador').focus();
+}
+function cerrarSelector() { document.getElementById('velo').classList.remove('abierto'); }
+
+function pintarOpciones() {
+  const q = document.getElementById('buscador').value.trim().toLowerCase();
+  const puestos = new Set(datos.map(d => d.id));
+  const trozos = [];
+  for (const b of CATALOGO.bloques) {
+    const hs = b.hallazgos.filter(h => !q || h.nombre.toLowerCase().includes(q));
+    if (!hs.length) continue;
+    trozos.push(`<div class="grupo">${escapar(b.bloque)}</div>`);
+    for (const h of hs) {
+      const ya = puestos.has(h.id);
+      trozos.push(`
+        <div class="opcion ${ya ? 'puesto' : ''}">
+          <span class="nom">${escapar(h.nombre)}</span>
+          ${ya ? '<span style="font-size:12px;color:var(--suave)">ya está</span>' : `
+            <button class="cian mini" onclick="meter('${h.id}','presente');pintarOpciones()">Sí</button>
+            <button class="gris mini" onclick="meter('${h.id}','ausente');pintarOpciones()">No</button>`}
+        </div>`);
+    }
+  }
+  document.getElementById('listaOpciones').innerHTML =
+    trozos.join('') || '<div class="vacio">Nada coincide con esa búsqueda.</div>';
+}
+
+// =====================================================================
+// CASOS GUARDADOS
+// =====================================================================
+async function guardarCaso() {
+  const campo = document.getElementById('nombreCaso');
+  const nombre = campo.value.trim();
+  if (!nombre) { decir('Ponle un nombre al caso antes de guardarlo.'); return; }
+  try {
+    const r = await fetch(base() + '/clinica/caso', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre, datos: paquete(), propietario: idDispositivo() })
+    });
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    campo.value = '';
+    decir('Caso guardado.');
+    verCasos();
+  } catch (e) {
+    decir('No se ha podido guardar: ' + e.message);
+  }
+}
+
+async function verCasos() {
+  const c = document.getElementById('listaCasos');
+  try {
+    const r = await fetch(conDispositivo(base() + '/clinica/casos'));
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    const d = await r.json();
+    if (!d.casos.length) { c.innerHTML = '<div class="vacio">Ninguno guardado todavía.</div>'; return; }
+    c.innerHTML = d.casos.map(x => `
+      <div class="caso">
+        <span class="nom">${escapar(x.nombre)}</span>
+        <span style="font-size:12px;color:var(--suave)">${x.datos} dato${x.datos === 1 ? '' : 's'}</span>
+        <button class="cian mini" onclick="cargarCaso('${escapar(x.nombre)}')">Abrir</button>
+        <button class="gris mini" onclick="borrarCaso('${escapar(x.nombre)}')">✕</button>
+      </div>`).join('');
+  } catch (e) {
+    c.innerHTML = '<div class="vacio">No se han podido cargar los casos.</div>';
+  }
+}
+
+async function cargarCaso(nombre) {
+  try {
+    const r = await fetch(conDispositivo(base() + '/clinica/caso/' + encodeURIComponent(nombre)));
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    const d = await r.json();
+    datos = []; previas = {};
+    document.getElementById('edad').value = '';
+    document.getElementById('sexo').value = '';
+    for (const x of (d.datos || [])) {
+      if (x.id === '_edad') document.getElementById('edad').value = x.valor;
+      else if (x.id === '_sexo') document.getElementById('sexo').value = x.valor;
+      else datos.push({ id: x.id, estado: x.estado || 'presente' });
+    }
+    document.getElementById('nombreCaso').value = nombre;
+    recalcular();
+    decir('Caso abierto: ' + nombre);
+  } catch (e) {
+    decir('No se ha podido abrir: ' + e.message);
+  }
+}
+
+async function borrarCaso(nombre) {
+  if (!confirm('¿Borrar el caso "' + nombre + '"?')) return;
+  try {
+    const r = await fetch(conDispositivo(base() + '/clinica/caso/' + encodeURIComponent(nombre)),
+                          { method: 'DELETE' });
+    if (!r.ok) throw new Error('el servidor ha contestado ' + r.status);
+    verCasos();
+  } catch (e) {
+    decir('No se ha podido borrar: ' + e.message);
+  }
+}
+
+arrancar();
+</script>
+</body>
+</html>
