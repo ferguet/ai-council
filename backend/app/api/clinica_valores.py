@@ -137,7 +137,7 @@ ANALITOS: list[dict] = [
     {"clave": "amonio", "nombre": "Amonio", "unidad": "µg/dL", "grupo": "Bioquímica",
      "rango": (15, 45), "bajo": None, "alto": "amoniaco_elevado"},
     {"clave": "ck", "nombre": "CK", "unidad": "U/L", "grupo": "Bioquímica",
-     "rango": (30, 200), "bajo": None, "alto": "rabdomiolisis"},
+     "rango": (30, 200), "bajo": None, "alto": "ck_elevada"},
     {"clave": "ph", "nombre": "pH arterial", "unidad": "", "grupo": "Bioquímica",
      "rango": (7.35, 7.45), "bajo": "acidosis_metabolica", "alto": None},
 ]

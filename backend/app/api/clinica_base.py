@@ -69,6 +69,7 @@ COSTES = {
     "Bioquímica": 4,
     "Hierro y vitaminas": 4,
     "Electrocardiograma": 3,
+    "Neurofisiología": 5,
     "Microbiología": 5,
     "Otros aparatos": 2,
     "Imagen": 6,
@@ -199,6 +200,30 @@ _bloque("Neurológicos", {
     "anestesia_silla_montar": "Anestesia en silla de montar",
     "incontinencia_urinaria": "Incontinencia urinaria",
     "sincope": "Síncope",
+    "cefalea_opresiva_bilateral": "Cefalea opresiva bilateral (en casco)",
+    "cefalea_periorbitaria": "Cefalea periorbitaria unilateral muy intensa",
+    "sintomas_autonomicos_craneales": "Lagrimeo, rinorrea o ptosis con la cefalea",
+    "inquietud_motora": "Inquietud motora durante el dolor",
+    "cefalea_nocturna": "Cefalea que despierta de madrugada",
+    "dolor_facial_lancinante": "Dolor facial lancinante en descargas",
+    "desencadenado_por_tacto": "Se desencadena al tocar la cara, hablar o masticar",
+    "perdida_conciencia_breve": "Pérdida de conciencia breve con recuperación completa",
+    "prodromo_vegetativo": "Pródromo vegetativo (sudoración, náuseas, visión borrosa)",
+    "desencadenante_postural": "Desencadenado por ponerse de pie, calor o dolor",
+    "mordedura_lengua": "Mordedura lateral de la lengua",
+    "confusion_postcritica": "Confusión postcrítica prolongada",
+    "temblor_postural": "Temblor postural o de acción",
+    "mejora_con_alcohol": "El temblor mejora con el alcohol",
+    "sindrome_lacunar": "Síndrome lacunar puro",
+    "mioclonias": "Mioclonías",
+    "deterioro_rapido": "Deterioro cognitivo rápido, en semanas",
+    "deterioro_escalonado": "Deterioro cognitivo escalonado, a saltos",
+    "discinesias_orofaciales": "Discinesias orofaciales",
+    "debilidad_proximal": "Debilidad proximal simétrica",
+    "miotonia": "Miotonía (le cuesta relajar el músculo)",
+    "parestesias_nocturnas_mano": "Parestesias nocturnas en la mano",
+    "tinel_phalen": "Signo de Tinel o Phalen positivo",
+    "debilidad_mejora_esfuerzo": "Debilidad que mejora con el esfuerzo repetido",
 })
 
 _bloque("Infecciosos", {
@@ -242,6 +267,13 @@ _bloque("Exploración", {
     "coluria": "Coluria (orina oscura)",
     "livedo_reticularis": "Livedo reticularis",
     "dactilitis": "Dactilitis (dedos hinchados y dolorosos)",
+    "exantema_heliotropo": "Exantema heliotropo periorbitario",
+    "papulas_gottron": "Pápulas de Gottron",
+    "pseudohipertrofia_gemelos": "Pseudohipertrofia de gemelos",
+    "pie_cavo": "Pie cavo",
+    "atrofia_distal": "Atrofia distal en piernas de cigüeña",
+    "calvicie_frontal": "Calvicie frontal precoz",
+    "cataratas_precoces": "Cataratas precoces",
 })
 
 _bloque("Analítica", {
@@ -310,6 +342,8 @@ _bloque("Analítica", {
     "cuerpos_mordidos": "Células mordidas (bite cells)",
     "adamts13_baja": "Actividad de ADAMTS13 muy baja",
     "anticuerpos_antifosfolipido": "Anticuerpos antifosfolípido positivos",
+    "ck_elevada": "CK elevada",
+    "anticuerpos_antineuronales": "Anticuerpos antineuronales positivos",
 })
 
 _bloque("Líquido cefalorraquídeo", {
@@ -322,6 +356,8 @@ _bloque("Líquido cefalorraquídeo", {
     "lcr_hematico": "LCR hemático / xantocrómico",
     "lcr_normal": "LCR normal",
     "lcr_albuminocitologica": "LCR con disociación albuminocitológica",
+    "proteina_14_3_3": "Proteína 14-3-3 positiva en LCR",
+    "lcr_ada_elevada": "ADA elevada en LCR",
 })
 
 _bloque("Imagen", {
@@ -337,6 +373,9 @@ _bloque("Imagen", {
     "ecocardiograma_vegetaciones": "Ecocardiograma con vegetaciones",
     "ventriculomegalia": "Ventriculomegalia desproporcionada",
     "rm_nervio_optico": "RM con realce del nervio óptico",
+    "lesiones_multiples_imagen": "Lesiones múltiples en la imagen",
+    "lesion_lacunar_imagen": "Infarto lacunar en la imagen",
+    "leucoaraiosis": "Lesiones vasculares difusas en sustancia blanca",
 })
 
 _bloque("Antecedentes y riesgo", {
@@ -366,6 +405,8 @@ _bloque("Antecedentes y riesgo", {
     "antecedente_familiar_hemolisis": "Antecedentes familiares de anemia hemolítica o esplenectomía",
     "perdidas_gestacionales": "Pérdidas gestacionales de repetición",
     "inmovilizacion_o_cirugia": "Inmovilización prolongada o cirugía reciente",
+    "antecedente_neoplasia": "Neoplasia conocida",
+    "antecedente_familiar_temblor": "Antecedentes familiares de temblor",
 })
 
 _bloque("Otros aparatos", {
@@ -418,6 +459,17 @@ _bloque("Electrocardiograma", {
 _bloque("Microbiología", {
     "hemocultivos_positivos": "Hemocultivos positivos",
     "urocultivo_positivo": "Urocultivo positivo",
+})
+
+_bloque("Neurofisiología", {
+    "eeg_periodico": "EEG con complejos periódicos",
+    "eeg_punta_onda": "EEG con actividad epileptiforme",
+    "eeg_lentificado": "EEG lentificado de forma difusa",
+    "emg_miotonico": "EMG con descargas miotónicas",
+    "emg_miopatico": "EMG de patrón miopático",
+    "emg_neurogenico": "EMG de patrón neurógeno",
+    "conduccion_lenta": "Velocidades de conducción enlentecidas",
+    "decremento_estimulacion": "Decremento en la estimulación repetitiva",
 })
 
 # ---------------------------------------------------------------------------
@@ -478,6 +530,7 @@ PESTANAS = [
     ("cultivos", "Cultivos", ["Microbiología"]),
     ("imagen", "Imagen", ["Imagen"]),
     ("ecg", "ECG", ["Electrocardiograma"]),
+    ("neurofisio", "Neurofisiología", ["Neurofisiología"]),
     ("especiales", "Pruebas especiales", ["Líquido cefalorraquídeo"]),
     # No agrupa bloques del catalogo: es la pantalla donde se escribe la
     # cifra exacta y el codigo dice si esta alta o baja.
